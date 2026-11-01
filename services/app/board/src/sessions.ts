@@ -87,7 +87,11 @@ function textOf(content: unknown): string {
 }
 
 /** One transcript to a Session, or undefined when it has no conversation in it. */
+/** Session ids are UUID-like. Anything else is dropped: ids go into the page's HTML and into `claude --resume <id>`. */
+export const SESSION_ID = /^[\w-]{1,128}$/;
+
 export function parseSession(id: string, lines: string[], updatedAt: number): Session | undefined {
+	if (!SESSION_ID.test(id) || id.startsWith("-")) return undefined;
 	const s: Session = { id, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", pinned: false, feed: [] };
 	for (const line of lines) {
 		let e: {
@@ -184,7 +188,7 @@ export function parseCodexSession(lines: string[], updatedAt: number): Session |
 			if (last?.who === "agent" && last.tools.length < 6) last.tools.push(s.doing);
 		}
 	}
-	if (!s.id || (!s.title && !s.said)) return undefined;
+	if (!SESSION_ID.test(s.id) || s.id.startsWith("-") || (!s.title && !s.said)) return undefined;
 	s.role = guessRole(s.title, []);
 	s.feed = s.feed.slice(-FEED_SIZE);
 	return s;

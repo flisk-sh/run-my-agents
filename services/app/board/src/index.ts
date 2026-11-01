@@ -71,6 +71,10 @@ export function sendToSession(s: Session, text: string, run = spawn): Promise<vo
 	});
 }
 
+/** The board answers only to its own local names, so a DNS-rebound site cannot read transcripts or send prompts. */
+const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+
+
 /** Which of the two coding agents the board can start are installed. */
 export const installed = () => ({ claude: !!Bun.which("claude"), codex: !!Bun.which("codex") });
 
@@ -106,6 +110,10 @@ export function createApp(
 	const start = deps.start ?? startNewSession;
 	const which = deps.which ?? installed;
 	const app = new Hono();
+	app.use("*", async (c, next) => {
+		if (!LOCAL_HOST.test(c.req.header("host") ?? new URL(c.req.url).host)) return c.text("Open the board at http://localhost.", 403);
+		await next();
+	});
 	app.get("/health", (c) => c.json({ status: "ok", service: "board" }));
 	app.get("/ready", (c) => c.json({ ready: true }));
 	app.get("/api/sessions", (c) => {

@@ -337,3 +337,18 @@ describe("sessions the Claude app does not list", () => {
 		expect(PAGE).toContain('["Working",s=>!s.pinned&&s.viaApp!==false');
 	});
 });
+
+describe("local only", () => {
+	it("refuses a request whose Host is not localhost (DNS rebinding)", async () => {
+		const app = createApp(() => []);
+		const res = await app.request("/api/sessions", { headers: { host: "evil.example:4100" } });
+		expect(res.status).toBe(403);
+		expect((await app.request("/api/sessions", { headers: { host: "127.0.0.1:4100" } })).status).toBe(200);
+	});
+
+	it("drops sessions whose id is not a plain id", () => {
+		expect(parseSession('x" onmouseover="alert(1)', [ask("hi")], now)).toBeUndefined();
+		expect(parseSession("--dangerously-skip-permissions", [ask("hi")], now)).toBeUndefined();
+		expect(parseSession("0b7f-ok_1", [ask("hi")], now)?.id).toBe("0b7f-ok_1");
+	});
+});
