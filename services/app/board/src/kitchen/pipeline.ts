@@ -60,6 +60,8 @@ export type Task = {
 	worktree?: string;
 	/** The commit the worktree started from, to tell whether Build changed anything. */
 	base?: string;
+	/** `git status --porcelain` of the order's base repo when Build started, to catch edits that leak there (#163). */
+	baseDirty?: string[];
 	/** Why its test or review said FAIL, one line per round, so a follow-up can learn from it. */
 	failures?: string[];
 	/** How many times the orchestrator answered a question from this step's agent (reset each step). */

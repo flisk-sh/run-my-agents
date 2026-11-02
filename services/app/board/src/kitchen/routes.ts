@@ -226,6 +226,29 @@ export function worktreeChanged(wt: string, base?: string): boolean {
 	}
 }
 
+/**
+ * The changed paths of the order's base repo (`git status --porcelain`, one line each). Orders #24, #29 and #30 ran
+ * in their own worktrees, yet their Build agents edited the shared checkout by its absolute path (#163).
+ */
+export function repoDirty(cwd: string | undefined): string[] | undefined {
+	if (!cwd || !cwd.startsWith("/") || !isDir(cwd)) return undefined;
+	try {
+		return git(cwd, ["status", "--porcelain", "--untracked-files=all"]).split("\n").map((l) => l.trim()).filter(Boolean);
+	} catch {
+		return undefined;
+	}
+}
+/** What changed in the base repo since the snapshot taken when Build started: edits that belong in the worktree. */
+export function leakedInto(cwd: string | undefined, before: string[] | undefined): string[] {
+	if (!before) return [];
+	const was = new Set(before);
+	return (repoDirty(cwd) ?? []).filter((l) => !was.has(l));
+}
+
+/** What the orchestrator says to a builder whose edits landed in the shared checkout instead of its worktree. */
+export const LEAKED = (repo: string, wt: string, files: string[]) =>
+	`Your build step changed files in the shared checkout ${repo}, not in this order's worktree ${wt}:\n${files.map((f) => `- ${f}`).join("\n")}\n\nMove each of those edits into the worktree (same path relative to the repo root), then restore exactly those files in ${repo} (git checkout -- <file> for tracked files, delete untracked ones you created). Touch nothing else there. Work only inside ${wt}. If you cannot, reply with one line starting with FAIL that says why.`;
+
 /** The folder an order worktree (<repo>/.kitchen/order-<n>, or .git/kitchen before it moved) stands for: its repo. */
 const homeOf = (p: string) => p.replace(/\/(?:\.kitchen|\.git\/kitchen)\/order-\d+(?:\/.*)?$/, "");
 /**
@@ -259,8 +282,8 @@ export function whereOf(title: string, cwd: string, folders: string[]): string {
  * change against the spec, and never FAIL an order for being vague, since nobody is there to answer questions.
  */
 export const STAGE_BRIEF = {
-	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code.",
-	build: "Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change. If the order needs no file change, never invent one (a version bump, a changelog line, a notes file): reply with one line starting with FAIL that says why.",
+	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change, named relative to the repo root (src/x.ts), never by an absolute path. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code.",
+	build: "Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. Edit files only by paths inside this worktree; never use the absolute path of the repo it came from. End with the files you changed and how to check the change. If the order needs no file change, never invent one (a version bump, a changelog line, a notes file): reply with one line starting with FAIL that says why.",
 	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
 	review: "The change is in this order's worktree (branch kitchen/order-{n}). Read only its diff (git diff against the branch it started from) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
 } as const;
@@ -579,6 +602,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it.
 		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
+		// Kept from the first build round: a retry after a leak must still see the leak.
+		if (wt && order.stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
 		const text = orderText(order, use, wt);
 		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
 		if (box && order.skills.length) injectSkills(box.id, order.skills);
@@ -611,6 +636,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const who = `flisk:${sid}`;
 		const wt = ["build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
+		if (wt && stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
 		const policy = policyFor(stage);
 		const text = orderText(order, skillset(stage, order.skills), wt);
 		const type = STAGE_TYPE[stage as keyof typeof STAGE_TYPE] ?? stage;
@@ -659,6 +685,18 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					return;
 				}
 			}
+			// Edits that landed in the shared checkout: asked once to move them, then the step fails (#163).
+			const t1 = readTasks().find((x) => x.id === id);
+			if (stage === "build" && t1?.worktree && leakedInto(t1.cwd, t1.baseDirty).length) {
+				reply = await turn(sid, LEAKED(t1.cwd, t1.worktree, leakedInto(t1.cwd, t1.baseDirty)));
+				const left = leakedInto(t1.cwd, t1.baseDirty);
+				if (left.length) {
+					const cur = readTasks().find((x) => x.id === id);
+					fliskReplies.set(who, reply);
+					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), `build: edited the shared checkout ${t1.cwd}, not the worktree: ${left.join(", ")}`.slice(0, 300)], notes: { ...(cur?.notes ?? {}), [stage]: reply.slice(-3000) } });
+					return;
+				}
+			}
 		} catch (e) {
 			// The agent could not run the turn: a test or review counts as FAIL, a spec or build goes back on the belt.
 			const msg = `FAIL: the Flisk kitchen agent could not run this turn: ${String((e as Error).message ?? e).slice(0, 200)}`;
@@ -700,7 +738,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// The Spec agent can move an order to the folder its code is in.
 			const moved = t.stage === "spec" ? folderHint(said) : t.stage === "build" ? elsewhere(said) : undefined;
 			if (moved && moved !== t.cwd && isDir(moved)) {
-				t = updateTask(t.id, { cwd: moved, worktree: undefined }) ?? t;
+				t = updateTask(t.id, { cwd: moved, worktree: undefined, baseDirty: undefined }) ?? t;
 				// A builder that found the code in another folder: build again there instead of failing the order.
 				if (t.stage === "build") return { status: 200, body: { ...updateTask(t.id, { assignee: "", sentAt: 0 }), moved } };
 			}
@@ -856,6 +894,19 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					const why = `build: no changes made in the worktree. ${failLine(handOff(s)) || handOff(s).split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
 					updateTask(t.id, { stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), why].slice(-6) });
 					did.push(`#${t.n} build made no changes: failed`);
+				}
+				continue;
+			}
+			// A build whose edits landed in the shared checkout is not handed to Test: asked once to move them into the
+			// worktree, then failed with the files named (#163).
+			const leaked = t.stage === "build" && !t.shipping && t.worktree ? leakedInto(t.cwd, t.baseDirty) : [];
+			if (leaked.length && t.worktree) {
+				if ((t.answered ?? 0) < MAX_ANSWERS && s && k.send(s, `#${t.n}: edits outside the worktree`, LEAKED(t.cwd, t.worktree, leaked)).status < 400) {
+					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
+					did.push(`#${t.n} build edited the shared checkout: asked to move it`);
+				} else {
+					updateTask(t.id, { stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), `build: edited the shared checkout ${t.cwd}, not the worktree: ${leaked.join(", ")}`.slice(0, 300)] });
+					did.push(`#${t.n} build edited the shared checkout: failed`);
 				}
 				continue;
 			}
