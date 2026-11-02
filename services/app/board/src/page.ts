@@ -679,8 +679,17 @@ const Roles=({s})=>showRoles&&OPT?H("div",{class:"roles"},H("span",{class:"rc"+(
 function Warns({s}){return H(Frag,null,C.filter(c=>c.sessions.includes(s.id)&&!muted[s.id]).map(c=>{const other=c.sessions.filter(x=>x!==s.id).map(x=>(S.find(y=>y.id===x)||{role:"another session"}).role).join(", ");
  return H("div",{key:c.file,class:"warn","data-act":"go","data-file":c.file,"data-other":c.sessions.find(x=>x!==s.id)},H("span",null,"⚠ "+other+" also edited "+c.file.split("/").pop()+" in the last 10 min"),H("span",null,"Open "+other))}))}
 function drawHead(s){pRender(H(Head,{s}),$("hd"));pRender(H(Meter,{s}),$("meter"));pRender(H(Skills,{s}),$("skills"));pRender(H(Roles,{s}),$("roles"));pRender(H(Warns,{s}),$("warns"))}
+// A session's key remounts the feed on a switch, so classes toggled by hand on one agent's messages never carry to another's.
+function Msg({s,m,mi}){const ck=s.id+":"+(m.t0||m.at),me=m.who==="you";
+ return H("div",{class:"msg "+(me?"from-me":"from-ag")+(COL.has(ck)?" col":""),"data-msg":true},H("div",{class:"bub"},
+  H("div",{class:"who"},H("b",null,me?kSender(m.text):s.role),H("time",null,hm(m.at)),m.who==="agent"?H("span",{class:"chev","data-col":ck,title:"Collapse or expand this reply"}):null),
+  Raw(richHtml(m)),
+  m.tools.length?H("div",{class:"tools"},Raw(toolRuns(m.calls&&m.calls.length?m.calls.map(c=>c.label):m.tools,s.id,mi,m.calls))):null,
+  m.options&&mi===s.feed.length-1&&!s.sending?Raw(optsHtml(m.options)):null))}
+const Feed=({s})=>H(Frag,null,s.feed.map((m,mi)=>H(Msg,{key:mi,s,m,mi})),state(s)==="g"?H("div",{class:"typing"},H("i"),H("i"),H("i")):null);
+function drawFeed(s){pRender(H(Feed,{s,key:s.id}),$("feed"))}
 function render(){
- if(!S.length){drawSide();pRender(null,$("hd"));pRender(null,$("warns"));$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
+ if(!S.length){drawSide();pRender(null,$("hd"));pRender(null,$("warns"));pRender(H("p",{class:"empty"},"No Claude Code sessions in the last hour. Start one and it shows up here."),$("feed"));$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
  const groups=groupList();
  const oldRows=snapRows();
@@ -693,7 +702,7 @@ function render(){
  const feed=$("feed"),stick=feed.scrollTop+feed.clientHeight>=feed.scrollHeight-40;
  const key=s.id+":"+s.feed.length+":"+(s.feed.at(-1)?.at??0)+":"+COL.size+":"+OPEN.size+":"+state(s)+":"+(s.sending?1:0);
  if(key!==feedKey){const sc=feedKey.split(":")[0]!==s.id;feedKey=key;
- feed.innerHTML=s.feed.map((m,mi)=>{const ck=s.id+":"+(m.t0||m.at);return '<div class="msg '+(m.who==="you"?"from-me":"from-ag")+(COL.has(ck)?" col":"")+'" data-msg><div class="bub"><div class="who"><b>'+(m.who==="you"?esc(kSender(m.text)):esc(s.role))+"</b><time>"+hm(m.at)+"</time>"+(m.who==="agent"?'<span class="chev" data-col="'+ck+'" title="Collapse or expand this reply"></span>':"")+"</div>"+richHtml(m)+(m.tools.length?'<div class="tools">'+toolRuns(m.calls&&m.calls.length?m.calls.map(c=>c.label):m.tools,s.id,mi,m.calls)+"</div>":"")+(m.options&&mi===s.feed.length-1&&!s.sending?optsHtml(m.options):"")+"</div></div>"}).join("")+(state(s)==="g"?'<div class="typing"><i></i><i></i><i></i></div>':"");
+ drawFeed(s);
  if(stick||first||sc)feed.scrollTop=feed.scrollHeight;else armScroll()}
  if(composerFor!==s.id){composerFor=s.id;$("box").outerHTML='<div class="compose" id="box"><i class="glow"></i><i class="sh"></i><i class="line"></i><i class="fill"></i><div class="sky"><div class="fairy"><i class="wl"></i><i class="wr"></i><b></b></div><div class="fairy f2"><i class="wl"></i><i class="wr"></i><b></b></div></div><div class="atray" id="atray"></div><div class="row"><div class="watch">'+face(s,28)+'</div><span class="clip" data-act="attach" title="Attach files (or drop them anywhere)">'+ico(IC.clip)+'<b id="clipn" hidden>0</b></span><textarea id="msg" rows="1" placeholder="Message '+esc(s.role)+(s.agent!=="claude"?" ("+AGENT_LABEL[s.agent]+")":"")+(s.viaApp===true?" \u00b7 separate copy":"")+'…" title="'+(s.viaApp===true?"This session is open in the Claude app. A message from here runs a separate copy of it, which the app does not show live.":"Message this agent")+'"></textarea><span class="ch" id="ch">0</span><div class="eq"><i></i><i></i><i></i><i></i></div><span class="rs" data-act="resume" title="Copy the resume command">⧉</span><button class="send" data-act="send">Send</button></div></div>';restoreDraft(s.id);drawTray()}
  const sb=document.querySelector(".send");if(sb){sb.disabled=false;sb.textContent=s.sending?"Queue":"Send"}

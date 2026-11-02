@@ -1186,7 +1186,7 @@ describe("formatted replies, close and delete in the panel, smaller gauges", () 
 describe("chat layout, bigger text and avatar motion", () => {
 	it("puts your messages on the left and the agent's on the right, with small author names", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of ['"from-me":"from-ag"', 'class="bub"', 'class="who"', ".msg.from-me{justify-content:flex-end}", ".msg.from-ag{justify-content:flex-start}", ".who{display:flex", ".rich{font-size:14px}", "font:14px/20px var(--body)"]) expect(PAGE).toContain(part);
+		for (const part of ['"from-me":"from-ag"', 'class:"bub"', 'class:"who"', ".msg.from-me{justify-content:flex-end}", ".msg.from-ag{justify-content:flex-start}", ".who{display:flex", ".rich{font-size:14px}", "font:14px/20px var(--body)"]) expect(PAGE).toContain(part);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
 	});
