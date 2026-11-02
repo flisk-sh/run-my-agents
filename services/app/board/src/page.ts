@@ -573,7 +573,7 @@ ${KITCHEN_CSS}</style></head><body><div id="tip" role="tooltip"></div>
 <linearGradient id="gm" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="110" y2="0"><stop offset="0" stop-color="#a1a1b3"/><stop offset=".3" stop-color="#6ee7a0"/><stop offset=".65" stop-color="#38bdf8"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
 <radialGradient id="hub" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#8a90a6"/><stop offset="1" stop-color="#3a3f52"/></radialGradient>
 </defs></svg>
-<div class="app"><nav class="side" id="side"></nav><main class="main">${KITCHEN_HTML}<div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="newpill" id="newpill" data-act="tobottom">\u2193 New messages</div><div class="box" id="box"></div></main></div>
+<div class="app"><nav class="side" id="side"></nav><main class="main">${KITCHEN_HTML}<div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="newpill" id="newpill" data-act="tobottom">\u2193 New messages</div><div class="queue" id="queue"></div><div id="boxhost" style="display:contents"></div></main></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg" hidden></div>
 <div id="drop" hidden><div class="dz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg><span id="dzt">Drop files to attach</span><small>up to 10 files, 25 MB each</small></div></div>
@@ -688,8 +688,21 @@ function Msg({s,m,mi}){const ck=s.id+":"+(m.t0||m.at),me=m.who==="you";
   m.options&&mi===s.feed.length-1&&!s.sending?Raw(optsHtml(m.options)):null))}
 const Feed=({s})=>H(Frag,null,s.feed.map((m,mi)=>H(Msg,{key:mi,s,m,mi})),state(s)==="g"?H("div",{class:"typing"},H("i"),H("i"),H("i")):null);
 function drawFeed(s){pRender(H(Feed,{s,key:s.id}),$("feed"))}
+// The message box is mounted once per agent (keyed by session id); its textarea is uncontrolled and the draft,
+// attachment tray and effects are still filled in by hand after the mount.
+const Fairy=({cls})=>H("div",{class:"fairy"+(cls||"")},H("i",{class:"wl"}),H("i",{class:"wr"}),H("b"));
+function Composer({s}){const via=s.viaApp===true;
+ return H("div",{class:"compose",id:"box"},H("i",{class:"glow"}),H("i",{class:"sh"}),H("i",{class:"line"}),H("i",{class:"fill"}),
+ H("div",{class:"sky"},H(Fairy),H(Fairy,{cls:" f2"})),H("div",{class:"atray",id:"atray"}),
+ H("div",{class:"row"},H("div",{class:"watch"},Raw(face(s,28))),
+  H("span",{class:"clip","data-act":"attach",title:"Attach files (or drop them anywhere)"},Raw(ico(IC.clip)),H("b",{id:"clipn",hidden:true},"0")),
+  H("textarea",{id:"msg",rows:"1",placeholder:"Message "+s.role+(s.agent!=="claude"?" ("+AGENT_LABEL[s.agent]+")":"")+(via?" · separate copy":"")+"…",title:via?"This session is open in the Claude app. A message from here runs a separate copy of it, which the app does not show live.":"Message this agent"}),
+  H("span",{class:"ch",id:"ch"},"0"),H("div",{class:"eq"},H("i"),H("i"),H("i"),H("i")),
+  H("span",{class:"rs","data-act":"resume",title:"Copy the resume command"},"⧉"),H("button",{class:"send","data-act":"send"},"Send")))}
+const Queue=({q})=>H(Frag,null,q.map(x=>H("div",{key:x.qid,class:"qi"},H("span",{class:"qt"},x.text),H("button",{class:"qnow","data-qnow":x.qid},"Send now"),H("button",{class:"qx","data-qdrop":x.qid,title:"Remove from queue"},"×"))));
+function drawComposer(s){pRender(H(Composer,{s,key:s.id}),$("boxhost"))}
 function render(){
- if(!S.length){drawSide();pRender(null,$("hd"));pRender(null,$("warns"));pRender(H("p",{class:"empty"},"No Claude Code sessions in the last hour. Start one and it shows up here."),$("feed"));$("box").innerHTML="";return}
+ if(!S.length){drawSide();pRender(null,$("hd"));pRender(null,$("warns"));pRender(H("p",{class:"empty"},"No Claude Code sessions in the last hour. Start one and it shows up here."),$("feed"));pRender(null,$("boxhost"));pRender(null,$("queue"));return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
  const groups=groupList();
  const oldRows=snapRows();
@@ -704,10 +717,9 @@ function render(){
  if(key!==feedKey){const sc=feedKey.split(":")[0]!==s.id;feedKey=key;
  drawFeed(s);
  if(stick||first||sc)feed.scrollTop=feed.scrollHeight;else armScroll()}
- if(composerFor!==s.id){composerFor=s.id;$("box").outerHTML='<div class="compose" id="box"><i class="glow"></i><i class="sh"></i><i class="line"></i><i class="fill"></i><div class="sky"><div class="fairy"><i class="wl"></i><i class="wr"></i><b></b></div><div class="fairy f2"><i class="wl"></i><i class="wr"></i><b></b></div></div><div class="atray" id="atray"></div><div class="row"><div class="watch">'+face(s,28)+'</div><span class="clip" data-act="attach" title="Attach files (or drop them anywhere)">'+ico(IC.clip)+'<b id="clipn" hidden>0</b></span><textarea id="msg" rows="1" placeholder="Message '+esc(s.role)+(s.agent!=="claude"?" ("+AGENT_LABEL[s.agent]+")":"")+(s.viaApp===true?" \u00b7 separate copy":"")+'…" title="'+(s.viaApp===true?"This session is open in the Claude app. A message from here runs a separate copy of it, which the app does not show live.":"Message this agent")+'"></textarea><span class="ch" id="ch">0</span><div class="eq"><i></i><i></i><i></i><i></i></div><span class="rs" data-act="resume" title="Copy the resume command">⧉</span><button class="send" data-act="send">Send</button></div></div>';restoreDraft(s.id);drawTray()}
+ if(composerFor!==s.id){composerFor=s.id;drawComposer(s);restoreDraft(s.id);drawTray()}
  const sb=document.querySelector(".send");if(sb){sb.disabled=false;sb.textContent=s.sending?"Queue":"Send"}
- let qe=$("queue");if(!qe&&$("box")){qe=document.createElement("div");qe.id="queue";qe.className="queue";$("box").before(qe)}
- if(qe){const q=s.queue||[],qk=s.id+":"+q.map(x=>x.qid).join(",");if(qe.dataset.k!==qk){qe.dataset.k=qk;qe.innerHTML=q.map(x=>'<div class="qi"><span class="qt">'+esc(x.text)+'</span><button class="qnow" data-qnow="'+x.qid+'">Send now</button><button class="qx" data-qdrop="'+x.qid+'" title="Remove from queue">×</button></div>').join("")}}
+ pRender(H(Queue,{q:s.queue||[]}),$("queue"));
  first=false;
 }
 async function load(){if(dragId||renaming||(showLimits&&document.activeElement?.id==="lim"))return;try{const r=await fetch("api/sessions");const t=await r.text();if(t===last)return;last=t;const j=JSON.parse(t);if(j.build){if(!BUILD0)BUILD0=j.build;else if(j.build!==BUILD0){location.reload();return}}S=j.sessions;C=j.clashes;L=j.limits;ORDER=j.order||[];if(wantSel&&S.find(x=>x.id===wantSel)){sel=wantSel;first=true;wantSel=""}render()}catch{}}

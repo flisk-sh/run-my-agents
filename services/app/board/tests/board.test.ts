@@ -774,8 +774,8 @@ describe("local only", () => {
 describe("typing box: fairies, drafts and hot reload", () => {
 	it("keeps the fairies in their own strip above the text row, flying at a steady pace", async () => {
 		const { PAGE } = await import("../src/page");
-		expect(PAGE).toContain('<div class="sky"><div class="fairy">');
-		expect(PAGE).toContain('</div></div><div class="atray" id="atray"></div><div class="row">');
+		expect(PAGE).toContain('H("div",{class:"sky"},H(Fairy),H(Fairy,{cls:" f2"}))');
+		expect(PAGE).toContain('H("div",{class:"atray",id:"atray"}),\n H("div",{class:"row"}');
 		expect(PAGE).not.toMatch(/\.compose:focus-within \.fairy/);
 		expect(PAGE).not.toMatch(/\.fairy[^{]*\{[^}]*animation-duration:4s/);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
@@ -1042,7 +1042,7 @@ describe("file upload", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ['data-act="attach"', "function attachFiles(", 'id="drop"', "x-run-my-agents", ".clip:hover", ".att:hover", "--fit"]) expect(PAGE).toContain(part);
+		for (const part of ['"data-act":"attach"', "function attachFiles(", 'id="drop"', "x-run-my-agents", ".clip:hover", ".att:hover", "--fit"]) expect(PAGE).toContain(part);
 	});
 });
 
