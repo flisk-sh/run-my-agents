@@ -392,3 +392,35 @@ describe("idle timer", () => {
 		expect((await post("/api/kitchen", { idleMinutes: 0 })).status).toBe(400);
 	});
 });
+
+describe("stage hand-off", () => {
+	it("passes the spec and build notes on, tells each stage its job, and keeps the lessons skill ready", async () => {
+		const sessions: Session[] = [];
+		const { post, sent, started } = setup(sessions);
+		const spec = (await post("/api/containers", { name: "S", role: "Code", stages: ["spec", "build", "test", "review"], replicas: 1, cwd: "/repo" })).body;
+		expect(existsSync(join(skills, spec.lessonsSkill, "SKILL.md"))).toBe(true);
+		await post("/api/containers/reconcile", {});
+		const cook = { ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 };
+		sessions.push(cook);
+		await post("/api/containers/reconcile", {});
+		order({ stage: "spec", approved: false, title: "add retries to the upload client so flaky networks recover", zachman: undefined });
+		await post("/api/tasks/dispatch", { id: "t" });
+		expect(sent.at(-1)).toContain("Your job: Write a short spec");
+		// The Spec agent answers; serving keeps its reply as the spec.
+		cook.feed = [...cook.feed, { who: "agent", text: "Goal: retry uploads 3 times. Checks: 1) a failed upload is retried.", at: Date.now() } as never];
+		await post("/api/tasks/serve", { id: "t" });
+		await post("/api/tasks/move", { id: "t", approved: true, stage: "test" });
+		await post("/api/tasks/dispatch", { id: "t" });
+		const msg = sent.at(-1) as string;
+		expect(msg).toContain("From the Spec agent:\nGoal: retry uploads 3 times.");
+		expect(msg).toContain("Never FAIL because the order is vague");
+	});
+
+	it("matches skills on whole words only", async () => {
+		const { matchSkills } = await import("../src/kitchen/skills");
+		const names = matchSkills("too many agents without work add some timers to fire them if idle long").map((s) => s.name);
+		expect(names.some((n) => n.startsWith("workers"))).toBe(false);
+		const { zachman } = await import("../src/kitchen/triage");
+		expect(zachman({ title: "fix it", cwd: "", priority: "P1", route: "Code", skills: [], kind: "task" }).why).toBe("Inferred by the Spec agent");
+	});
+});

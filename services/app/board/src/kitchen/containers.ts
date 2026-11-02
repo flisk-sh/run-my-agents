@@ -85,6 +85,8 @@ export function createContainer(c: Partial<Container> & { name: string; role: st
 		created: Date.now(),
 	};
 	store.write([...all, box]);
+	// The lessons skill exists from the start, so a new agent can read it before its first strike.
+	writeShared([...all, box], lessonsKeyOf(box), box.lessonsKey ? `${box.role} agents` : box.name);
 	return box;
 }
 

@@ -47,9 +47,11 @@ export function matchSkills(title: string, n = 3): CatalogSkill[] {
 	const words = [...new Set(title.toLowerCase().match(/[a-z][a-z0-9+#.-]{3,}/g) ?? [])].filter((w) => !STOP.has(w));
 	if (!words.length) return [];
 	return SKILLS.map((s) => {
-		const name = s.name.toLowerCase();
+		// Whole words only: "work" must not match "workers", "agents" must not match "agents-md".
+		const parts = s.name.toLowerCase().split(/[-_.]/);
 		const what = s.what.toLowerCase();
-		const score = words.reduce((a, w) => a + (name.includes(w) ? 3 : 0) + (new RegExp(`\\b${w.replace(/[.+#]/g, "\\$&")}`).test(what) ? 1 : 0), 0);
+		const same = (a: string, b: string) => a === b || a === `${b}s` || b === `${a}s`;
+		const score = words.reduce((a, w) => a + (parts.some((p) => same(p, w)) ? 3 : 0) + (new RegExp(`(^|[^a-z0-9])${w.replace(/[.+#]/g, "\\$&")}s?([^a-z0-9]|$)`).test(what) ? 1 : 0), 0);
 		return { s, score };
 	})
 		.filter((x) => x.score >= 3)

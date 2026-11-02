@@ -44,7 +44,7 @@ export function zachman(o: { title: string; cwd: string; priority: string; route
 		where: folder,
 		who: `${o.route} agent (orchestrator plans on Opus, workers build on Haiku)`,
 		when: PRIORITY_WHEN[o.priority] ?? "Next in line",
-		why: reason(o.title) || "Not stated: the spec step writes it down",
+		why: reason(o.title) || "Inferred by the Spec agent",
 	};
 }
 

@@ -45,9 +45,9 @@ describe("orders", () => {
 	it("puts an order on the belt with skills, and installs them", async () => {
 		const fetched: string[] = [];
 		const { a, post } = app([], [], fetched);
-		const r = await post("/api/tasks", { title: "fix the login bug", priority: "P0" });
+		const r = await post("/api/tasks", { title: "write playwright tests for the login page", priority: "P0" });
 		expect(r.status).toBe(201);
-		expect(r.body).toMatchObject({ n: 1, stage: "inbox", priority: "P0", route: "Bug" });
+		expect(r.body).toMatchObject({ n: 1, stage: "inbox", priority: "P0" });
 		expect(r.body.skills.length).toBeGreaterThan(0);
 		await Bun.sleep(5);
 		expect(fetched[0]).toStartWith("https://raw.githubusercontent.com/");

@@ -34,17 +34,34 @@ export type KitchenCtx = {
 };
 
 const body = async <T>(c: Context) => (await c.req.json().catch(() => ({}))) as T;
+/** The agent's last reply, longer than lastSaid: a spec or build summary for the next stages. */
+const handOff = (s: Session | undefined) => {
+	const m = s?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
+	return String(m?.text ?? "").trim().slice(-1800);
+};
+
+/**
+ * What each stage is for. The rules for Test and Review are the ones practice orders showed were missing: judge the
+ * change against the spec, and never FAIL an order for being vague, since nobody is there to answer questions.
+ */
+const STAGE_BRIEF = {
+	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change. Make sensible assumptions instead of asking questions: nobody will answer them. Do not change code.",
+	build: "Make the change the spec describes. Where something is unclear, take the smallest reasonable choice and say which. End with the files you changed and how to check the change.",
+	test: "Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file.",
+	review: "Read the change (git diff) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why or loose wording is not a reason to FAIL.",
+} as const;
+
 const lastSaid = (s: Session | undefined) => {
 	const m = s?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
 	return String(m?.text ?? "").slice(-400);
 };
 
 /**
- * The ingredients of a task: catalog skills that fit its own words first, then the top skills of the agent type
- * it is routed to, then the planner's first skill. Four at most; all are installed before an agent gets it.
+ * The ingredients of a task: only catalog skills that fit its own words (three at most). Each stage adds its own
+ * skill set when it dispatches, so a task needs no generic padding; that padding (flisk-byo, flisk-build-runtimes on
+ * every order) was the noise at the top of the skills scoreboard.
  */
-const orderSkills = (title: string, route: string) =>
-	[...new Set([...matchSkills(title, 3).map((s) => s.name), ...skillsFor(route, 2).map((s) => s.name), STAGE_SKILLS.spec[0]])].slice(0, 4);
+const orderSkills = (title: string, _route: string) => matchSkills(title, 3).map((s) => s.name);
 
 type Settings = { auto: boolean; idleMinutes: number };
 const SETTINGS = new JsonStore<Partial<Settings>>("kitchen.json");
@@ -254,10 +271,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(lessonsKeyOf(box))] : [])]);
 		const verdict = order.stage === "test" || order.stage === "review";
 		const card = order.zachman ? `\n\n${zachmanLines(order.zachman)}` : "";
+		const handed = (["spec", "build", "test"] as const)
+			.filter((st) => st !== order.stage && order.notes?.[st])
+			.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
+			.join("");
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}\n\nYour job: ${STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step."}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
 		const res = k.send(s, `#${order.n} ${order.stage}: ${order.title}`, text);
 		if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
 		const crew = { ...(order.crew ?? {}), [order.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
@@ -269,8 +290,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * and sends the order back to build.
 	 */
 	function serve(id: string, pass?: boolean): Out {
-		const t = readTasks().find((x) => x.id === id);
+		let t = readTasks().find((x) => x.id === id);
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
+		// Keep what this stage's agent handed on, so the next stages work from it instead of the title alone.
+		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
+			const said = handOff(k.read().find((x) => x.id === t?.assignee));
+			if (said) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: said } }) ?? t;
+		}
+		const order = t;
 		if (pass === false && (t.stage === "test" || t.stage === "review")) {
 			const builder = t.crew?.build?.id;
 			const why = lastSaid(k.read().find((x) => x.id === t.assignee)) || `${t.stage} said FAIL`;
