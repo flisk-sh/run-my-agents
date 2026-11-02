@@ -425,28 +425,6 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 #tip{position:fixed;z-index:9999;max-width:240px;padding:6px 9px;border-radius:8px;background:#0b0b10;color:var(--text);font:500 11px/1.35 var(--sans,system-ui);box-shadow:inset 0 0 0 1px var(--line),0 8px 24px rgba(0,0,0,.6);pointer-events:none;opacity:0;transform:translateY(3px);transition:opacity .12s,transform .12s}#tip.on{opacity:1;transform:none}#tip b{font-family:var(--mono);color:#6ee7a0}
 .gp .gpct{display:block;font:700 9px var(--mono);color:var(--muted);margin-top:1px}.gp .gpct.hot{color:#fb923c}.gp .gpct.over{color:#f43f5e}
 .gp .mdot{cursor:pointer;transition:r .15s}.gp .mdot:hover{r:7}.gp .led{cursor:pointer}.gp .led:hover{filter:brightness(1.35)}
-/* Plain design: one flat surface colour, no glow, gradient, bounce or all-caps labels. Toggled from the sidebar and kept in localStorage. */
-body.plain{background:#0d0d11}
-body.plain *,body.plain *::before,body.plain *::after{animation:none!important;text-shadow:none!important}
-body.plain .typing i{animation:ty 1.2s infinite!important}
-body.plain *:not(.th){background-image:none!important}
-body.plain .app{background:#0d0d11;border-radius:12px}
-body.plain .side,body.plain .main{background:#131318;border-radius:10px}
-body.plain .it,body.plain .it:hover{transform:none}body.plain .it.sel{background:#1f1f27;box-shadow:inset 2px 0 0 var(--mint)}
-body.plain .av,body.plain .av:hover{filter:none;transform:none}
-body.plain .btn,body.plain .tl2,body.plain .tl,body.plain .cb{background:#1c1c24!important;box-shadow:inset 0 0 0 1px var(--line)!important;border-radius:8px;transform:none!important}
-body.plain .btn:hover,body.plain .tl2:hover,body.plain .tl:hover,body.plain .cb:hover{background:#262630!important}
-body.plain .btn.new,body.plain .send{background:var(--green)!important;box-shadow:none!important;color:#04120a}
-body.plain .tl2.red.arm{background:#be123c!important;color:#fff}
-body.plain .tl2:hover .ic{transform:none}
-body.plain .swt{background:#2a2a34;box-shadow:inset 0 0 0 1px var(--line)}body.plain .swt.on{background:var(--green);box-shadow:none}body.plain .swt b{background:#e5e7eb;box-shadow:none;filter:none}
-body.plain .gby span{text-transform:none;letter-spacing:0;font-size:11px;font-family:var(--body)}
-body.plain .cmenu.gp,body.plain .dcard{background:#16161c;border-radius:12px;box-shadow:inset 0 0 0 1px var(--line),0 12px 32px rgba(0,0,0,.5)}
-body.plain .swg,body.plain .gcard,body.plain .gc{background:#1a1a21;border-radius:8px;box-shadow:none}
-body.plain .gby b.on,body.plain .gp.live .led.on{box-shadow:none}
-body.plain .compose .glow,body.plain .compose .sh,body.plain .compose .line,body.plain .compose .fill,body.plain .sky,body.plain .eq{display:none}
-body.plain .gcap,body.plain .grp,body.plain .gby,body.plain .ml,body.plain .cb,body.plain .tl2{text-transform:none;letter-spacing:0;font-family:var(--body)}
-body.plain .gcap{font-size:11px;font-weight:500}body.plain .gcap::first-letter{text-transform:uppercase}
 .dsw{display:flex;gap:2px;margin:6px 4px 0;padding:2px;border-radius:999px;background:rgba(255,255,255,.04);font:600 10px var(--body)}.dsw b{flex:1;text-align:center;padding:3px 0;border-radius:999px;color:var(--muted);cursor:pointer}.dsw b.on{background:#2a2a36;color:var(--text)}
 
 /* Cursors say what a click will do: text you can select shows the text cursor, things that act show a hand,
@@ -495,7 +473,57 @@ textarea,input[type="text"],input:not([type]),.rnm{cursor:text}
 .pp .pck{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}.pp .pck .swt{width:14px;height:14px;border-radius:4px;background:#1f1f27;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);animation:none}.pp .pck .swt b{display:none}.pp .pck .swt.on{background:var(--green);box-shadow:none}.pp .pck .swt.on::after{content:"";display:block;width:4px;height:8px;margin:1px 0 0 4.5px;border:solid #04120a;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .pp .prow{display:flex;flex-wrap:wrap;gap:6px}
 .pp .pfoot{display:flex;justify-content:space-between}.pp .pbtn.dng{color:#f87171}.pp .pbtn.dng.arm{background:#b91c1c;color:#fff}.pp .pbtn.dng.off{opacity:.45}
+/* Plain design: a light, GitHub-style developer UI. System font, grey borders, no mascots, glow, gradient or motion.
+   Every background is cleared first, then each surface gets one flat colour. */
+body.plain{--text:#1f2328;--muted:#59636e;--line:#d1d9e0;--green:#1a7f37;--mint:#1a7f37;--body:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;color-scheme:light;background:#fff;color:var(--text);padding:0;font-family:var(--body)}
+body.plain *,body.plain *::before,body.plain *::after{animation:none!important;transition:none!important;text-shadow:none!important;box-shadow:none!important;filter:none!important}
+body.plain :where(*:not(.th,.dot,.badge,.swt,.pbar i)){background:transparent!important}
+body.plain *{-webkit-text-fill-color:initial}
+body.plain .rich,body.plain .bub,body.plain .nm,body.plain .proj span{color:var(--text)!important}body.plain .it small,body.plain .meter{color:var(--muted)}body.plain .rich strong,body.plain .rich b,body.plain .rich h1,body.plain .rich h2,body.plain .rich h3,body.plain .ttl b,body.plain .ttl span,body.plain .dhd h3,body.plain .lbl{color:var(--text)!important}
+body.plain .typing i{animation:ty 1.2s infinite!important;background:#8c959f!important}
+body.plain .app{border-radius:0;padding:0;gap:0;background:#fff!important}
+body.plain .side{background:#f6f8fa!important;border-right:1px solid var(--line);border-radius:0;padding:8px}
+body.plain .main{border-radius:0}
+body.plain .proj{font-size:14px}body.plain .cnt{color:var(--muted)}
+body.plain .av,body.plain .watch,body.plain .sky,body.plain .eq,body.plain .compose .glow,body.plain .compose .sh,body.plain .compose .line,body.plain .compose .fill{display:none!important}
+body.plain .it{min-height:0;padding:8px 10px;border-radius:6px;transform:none!important}
+body.plain .it:hover{background:#eaeef2!important}body.plain .it.sel{background:#fff!important;outline:1px solid var(--line)}
 body.plain .nm::first-letter{font:inherit;color:inherit}
+body.plain .grp,body.plain .gby,body.plain .gby span{font:600 12px var(--body);color:var(--muted);text-transform:none;letter-spacing:0}
+body.plain .rl,body.plain .ag,body.plain .md,body.plain .prc,body.plain .ach,body.plain .mc,body.plain .tool,body.plain .rf{color:var(--muted)!important;font:12px var(--body);padding:0 6px 0 0;border:0;letter-spacing:0;text-transform:none}
+body.plain .avc .rl{padding:0;font-size:11px}
+body.plain .btn,body.plain .hb span,body.plain .gby b,body.plain .dsw b,body.plain .lbtn,body.plain .qnow,body.plain .cpb,body.plain .chev{background:#f6f8fa!important;color:var(--text);border:1px solid var(--line);border-radius:6px;font:500 12px var(--body)}
+body.plain .btn:hover,body.plain .hb span:hover,body.plain .gby b:hover,body.plain .dsw b:hover{background:#eaeef2!important}
+body.plain .gby b.on,body.plain .dsw b.on,body.plain .hb span.on{background:#ddf4ff!important;border-color:#54aeff;color:#0969da}
+body.plain .dsw{background:transparent!important;gap:4px;padding:0}
+body.plain .btn.new,body.plain .send{background:#1f883d!important;color:#fff!important;border:1px solid rgba(31,35,40,.15);border-radius:6px}
+body.plain .hd{border-bottom:1px solid var(--line)}
+body.plain .bar{background:#eaeef2!important;border-radius:3px}body.plain .bar i{background:#1f883d!important}body.plain .bar.hot i{background:#cf222e!important}
+body.plain .bub{background:#fff!important;border:1px solid var(--line);border-radius:6px;max-width:80%}
+body.plain .from-me .bub{background:#ddf4ff!important;border-color:#b6e3ff}
+body.plain .who b{color:var(--text)}body.plain .who time{color:var(--muted)}
+body.plain .rich a{color:#0969da}
+body.plain .rich code{background:#eff2f5!important;color:var(--text);font:12px var(--mono)}
+body.plain .rich pre{background:#f6f8fa!important;border:1px solid var(--line);border-radius:6px}body.plain .rich pre code{background:transparent!important}
+body.plain .tool{border:1px solid var(--line);border-radius:12px;padding:0 8px;font:11px var(--mono)}
+body.plain .compose{background:#fff!important;border:1px solid var(--line);border-radius:6px}
+body.plain #msg{color:var(--text);font-family:var(--body)}
+body.plain .newpill{background:#0969da!important;color:#fff;border-radius:6px}
+body.plain .toast{background:#1f2328!important;color:#fff;border-radius:6px}
+body.plain .badge{background:#0969da!important;color:#fff}
+body.plain .dot{box-shadow:none}
+body.plain #tip{background:#1f2328!important;color:#fff}body.plain #tip b{color:#fff}
+body.plain .cmenu,body.plain .dcard,body.plain .prpop{background:#fff!important;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(140,149,159,.2)!important;color:var(--text)}
+body.plain .f,body.plain textarea,body.plain input{background:#fff!important;border:1px solid var(--line);border-radius:6px;color:var(--text)}
+body.plain .pp .ph svg{display:none}
+body.plain .kbox{background:#fff!important;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(140,149,159,.25)!important;color:var(--text)}body.plain .kbox.pal{text-align:left}body.plain .pal-l{align-items:stretch}body.plain .pal-l .pi{width:100%;box-sizing:border-box;transform:none!important;opacity:1!important;text-align:left;border-radius:6px}body.plain .pal-l .pi svg,body.plain .pal-l .pi .ic{display:none}
+body.plain .umux,body.plain .umux.due{color:#9a6700;font:500 12px var(--body)}body.plain .pal input:focus{outline:2px solid #0969da;outline-offset:-1px}body.plain .pal-l>*:hover,body.plain .pal-l>.on{background:#ddf4ff!important;color:#0969da}
+body.plain .pp .pseg b,body.plain .pp .pbtn{background:#f6f8fa!important;color:var(--text);border:1px solid var(--line);border-radius:6px}
+body.plain .pp .pseg b:hover,body.plain .pp .pbtn:hover{background:#eaeef2!important}
+body.plain .pp .pseg b.on{background:#ddf4ff!important;border-color:#54aeff;color:#0969da}
+body.plain .pp .pbar{background:#eaeef2!important}body.plain .pp .pbar i{background:#1f883d}body.plain .pp .pbar.hot i{background:#bf8700}body.plain .pp .pbar.over i{background:#cf222e}
+body.plain .pp .pck .swt{background:#fff;border:1px solid #8c959f}body.plain .pp .pck .swt.on{background:#0969da;border-color:#0969da}body.plain .pp .pck .swt.on::after{border-color:#fff}
+body.plain .pp .pbtn.dng{color:#cf222e}body.plain .pp .pbtn.dng.arm{background:#cf222e!important;color:#fff}
 
 .md.nx.board{background:none;box-shadow:inset 0 0 0 1px currentColor;border-style:dashed;opacity:.85}
 </style></head><body><div id="tip" role="tooltip"></div>
@@ -705,7 +733,7 @@ function drawNew(){const o=OPT;
 async function openNew(){await opts();const cur=S.find(x=>x.id===sel)||S[0]||{};
  ND={agent:OPT.defaultAgent,role:"Code",manual:false,agentManual:false,model:"",effort:""};
  const d=$("dlg");d.hidden=false;
- d.innerHTML='<div class="dbg" data-act="newcancel"></div><div class="dcard gx"><div class="in"><div class="dhd"><h3>New session</h3><span class="dsub">the board starts it for you</span></div><div class="tbox"><textarea id="ntext" placeholder="What should the agent do?"></textarea></div><div class="lbl">AI</div><div class="seg" id="nagent"></div><div class="lbl">Agent type <em id="nauto"></em></div><div class="chips" id="nrole"></div><div class="lbl">Folder</div><div class="fch" id="nfold">'+OPT.folders.map(f=>'<span class="fc" data-folder="'+esc(f)+'" title="'+esc(f)+'">'+esc(folderName(f))+"</span>").join("")+'</div><div class="fbox"><input class="f" id="ncwd" autocomplete="off" spellcheck="false" placeholder="/path/to/project"></div><div id="nmrow" class="nrow"><div class="gc"><div class="gcap" style="margin:0 0 2px">model</div>'+dialHtml("")+'</div><div class="gc">'+ledsHtml("")+'</div></div><div class="dact"><button class="btn" data-act="newcancel">Cancel</button><button class="btn new" data-act="newgo">Start</button></div></div></div>';
+ d.innerHTML='<div class="dbg" data-act="newcancel"></div><div class="dcard gx"><div class="in"><div class="dhd"><h3>New session</h3><span class="dsub">the board starts it for you</span></div><div class="tbox"><textarea id="ntext" placeholder="What should the agent do?"></textarea></div><div class="lbl">AI</div><div class="seg" id="nagent"></div><div class="lbl">Agent type <em id="nauto"></em></div><div class="chips" id="nrole"></div><div class="lbl">Folder</div><div class="fch" id="nfold">'+OPT.folders.map(f=>'<span class="fc" data-folder="'+esc(f)+'" title="'+esc(f)+'">'+esc(folderName(f))+"</span>").join("")+'</div><div class="fbox"><input class="f" id="ncwd" autocomplete="off" spellcheck="false" placeholder="/path/to/project"></div><div id="nmrow" class="nrow">'+(design==="plain"?'<div class="pp" style="flex:1">'+plainTune("","")+"</div>":'<div class="gc"><div class="gcap" style="margin:0 0 2px">model</div>'+dialHtml("")+'</div><div class="gc">'+ledsHtml("")+"</div>")+'</div><div class="dact"><button class="btn" data-act="newcancel">Cancel</button><button class="btn new" data-act="newgo">Start</button></div></div></div>';
  $("ncwd").value=cur.cwd||OPT.folders[0]||"";$("ntext").value=loadDraft("new");drawNew();$("ntext").focus();
  const card=d.querySelector(".dcard");requestAnimationFrame(()=>requestAnimationFrame(()=>card.classList.add("live")))}
 $("dlg").addEventListener("click",e=>{const t=e.target;let el;
@@ -907,6 +935,9 @@ function gaugePanel(s){
  +'<div class="cpy"><span class="cb" data-copy="name" data-tip="Copy the session name">Name</span><span class="cb" data-copy="id" data-tip="Copy the session ID">'+P("ID","Session ID")+'</span><span class="cb" data-copy="resume" data-tip="Copy a command that resumes this session in a terminal">'+P("Resume cmd","Resume command")+'</span></div>'
  +'<div class="dz2"><span class="tl2 amb" data-close="1" data-tip="'+(s.hidden?"Bring it back to the list":"Hide it under Closed. Nothing is deleted")+'">'+ico(s.hidden?IC.eye:IC.eyeoff)+(s.hidden?"Reopen":"Close")+'</span><span class="tl2 red'+(s.viaApp===true?" off":"")+'" data-del="1" data-tip="'+(s.viaApp===true?"This session is in the Claude app. Delete it there.":"Delete this session for good")+'">'+ico(IC.trash)+"<b>Delete</b></span></div>"}
 const ENAME={low:"Low",medium:"Medium",high:"High",xhigh:"Extra high",max:"Max"};
+function plainTune(cm,ce,off){const sec=(t,h)=>'<div class="ps'+(off||"")+'"><div class="pl">'+t+"</div>"+h+"</div>";
+ return sec("Model",'<div class="pseg">'+MODELS.map(([k,l])=>'<b class="'+(k===cm?"on":"")+'" data-model="'+k+'" data-tip="'+MDESC[k]+'">'+(k?l[0]+l.slice(1).toLowerCase():"Auto")+"</b>").join("")+"</div>")
+ +sec("Effort",'<div class="pseg"><b class="'+(ce?"":"on")+'" data-effort="" data-tip="Claude picks the effort">Auto</b>'+EFFORTS.map(e=>'<b class="'+(e===ce?"on":"")+'" data-effort="'+e+'" data-tip="'+EDESC[e]+'">'+ENAME[e]+"</b>").join("")+"</div>")}
 function plainPanel(s){
  const lim=L.sessionTokens,used=s.tokens.used,ratio=used/(lim||2000000),claude=s.agent==="claude",cm=(s.tune&&s.tune.model)||"",ce=(s.tune&&s.tune.effort)||"",sec=(t,h,c)=>'<div class="ps'+(c||"")+'"><div class="pl">'+t+"</div>"+h+"</div>";
  return '<div class="ph">'+mini(s.face,28)+'<div style="min-width:0"><b>'+esc(s.title||"Untitled session")+"</b><small>"+esc(s.role)+" agent · "+(s.agent==="codex"?"Codex":"Claude Code")+"</small></div></div>"

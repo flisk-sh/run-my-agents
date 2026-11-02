@@ -315,6 +315,12 @@ describe("typing box", () => {
 		// the dots keep their own .typing rule
 		expect(PAGE).toContain(".typing{display:flex");
 	});
+	it("makes the plain design a light theme with no mascots, and gives its new-session dialog button rows", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toMatch(/body\.plain\{--text:#1f2328[^}]*color-scheme:light/);
+		expect(PAGE).toMatch(/body\.plain \.av,[^{]*\{display:none!important/);
+		expect(PAGE).toContain('design==="plain"?\'<div class="pp" style="flex:1">\'+plainTune("","")');
+	});
 	it("draws a plain agent panel with text controls and a tooltip on each", async () => {
 		const { PAGE } = await import("../src/page");
 		const panel = PAGE.split("function plainPanel(s){")[1].split("function tune(")[0];
