@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/index";
-import { readContainers } from "../src/kitchen/containers";
+import { podName, readContainers, reconcile } from "../src/kitchen/containers";
 import { haikuFit, policyFor, skillset } from "../src/kitchen/skills";
 import { parseSession, type Session } from "../src/sessions";
 
@@ -127,6 +127,19 @@ describe("agent containers", () => {
 		expect(readContainers()[0].pods[0].strikes).toBe(1);
 		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0].assignee).toBe("");
 		expect(existsSync(join(skills, "rma-lessons-builders", "SKILL.md"))).toBe(true);
+	});
+
+	it("names every pod after its container, so it is not another 'You are a Code agent' row", async () => {
+		const { post } = setup();
+		await post("/api/containers", { name: "Cooks", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
+		const named: [string, string][] = [];
+		const starts: { id: string }[] = [];
+		reconcile({ sessions: [], start: (n) => starts.push(n), close: () => {}, name: (id, label) => named.push([id, label]) });
+		expect(named).toEqual([[starts[0].id, podName({ name: "Cooks" }, starts[0].id)]]);
+		expect(named[0][1]).toMatch(/^Cooks [0-9a-f]{4}$/);
+		// It is named again when it reports ready, so pods started before this still get a name.
+		reconcile({ sessions: [{ id: starts[0].id }], start: () => {}, close: () => {}, name: (id, label) => named.push([id, label]) });
+		expect(named).toHaveLength(2);
 	});
 
 	it("rejects a container with no stage or folder", async () => {

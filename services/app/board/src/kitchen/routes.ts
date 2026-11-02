@@ -17,6 +17,8 @@ export type KitchenCtx = {
 	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string }) => void;
 	tune: (id: string, t: { model?: string; effort?: string }) => void;
 	close: (id: string) => void;
+	/** Names a session on the board (container agents get their container's name). */
+	name?: (id: string, label: string) => void;
 	guessRole: (title: string) => string;
 	sameOrigin: (c: Context) => boolean;
 	fetch?: typeof fetch;
@@ -42,7 +44,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const tick = () => {
 		missed();
 		auto();
-		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close });
+		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close, name: k.name });
 	};
 	if (k.every) setInterval(tick, k.every).unref?.();
 

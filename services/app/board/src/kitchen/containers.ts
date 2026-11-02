@@ -140,7 +140,7 @@ export type ReconcileCtx = {
 	/** Moves a fired agent to Closed on the board. */
 	close: (id: string) => void;
 	/** Names a pod on the board, so a container's agents are told apart from your own chats. */
-	name: (id: string, label: string) => void;
+	name?: (id: string, label: string) => void;
 	now?: number;
 };
 
@@ -166,7 +166,7 @@ export function reconcile(ctx: ReconcileCtx) {
 				const s = seen.get(p.session);
 				if (s && !s.hidden && p.status === "starting") {
 					p.status = "ready";
-					ctx.name(p.session, podName(c, p.session));
+					ctx.name?.(p.session, podName(c, p.session));
 					did.push(`${c.name}: ${p.session.slice(0, 8)} ready`);
 				}
 				// Gone or closed by hand: a starting pod gets 10 minutes to show up.
@@ -186,7 +186,7 @@ export function reconcile(ctx: ReconcileCtx) {
 			for (let i = live(c).length; i < c.replicas; i++) {
 				const id = randomUUID();
 				c.pods.push({ session: id, status: "starting", strikes: 0, served: 0, started: now });
-				ctx.name(id, podName(c, id));
+				ctx.name?.(id, podName(c, id));
 				ctx.start({ agent: "claude", cwd: c.cwd, text: bootPrompt(c), model: c.model || "haiku", effort: c.effort || "low", id, role: c.role });
 				did.push(`${c.name}: started ${id.slice(0, 8)}`);
 			}
