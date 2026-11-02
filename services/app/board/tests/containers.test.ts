@@ -158,6 +158,14 @@ describe("agent containers", () => {
 		for (const n of gained) expect(text).toContain(`/${n}`);
 	});
 
+	it("sends a failed ship back to ship, not to review without a PR", async () => {
+		const { post } = setup([]);
+		order({ stage: "test", shipping: true, assignee: "ship", sentAt: 1, cwd: "/repo" });
+		const r = await post("/api/tasks/serve", { id: "t" });
+		expect(r.body.stage).toBe("ship");
+		expect(r.body.pr).toBeUndefined();
+	});
+
 	it("counts an order a pod sat on past its miss time as a strike, and puts it back on the belt", async () => {
 		const sessions: Session[] = [];
 		const { post, started } = setup(sessions);

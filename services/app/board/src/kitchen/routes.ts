@@ -742,6 +742,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.shipping) {
 			const said = replyOf(t?.assignee);
 			const pr = /https:\/\/github\.com\/[^\s)>\]]+\/pull\/\d+/.exec(said)?.[0];
+			// Without a PR, the ship failed. Send it back to be re-shipped once, or mark it stuck if it failed twice.
+			if (!pr && !t.pr) return { status: 200, body: { ...updateTask(t.id, { stage: "ship", shipping: false, assignee: "", sentAt: 0, stuck: t.stuck }) } };
+			// No new PR (the old one is fine), or a new PR was created: proceed to review.
 			return { status: 200, body: { ...updateTask(t.id, { stage: "review", shipping: false, ...(pr ? { pr } : {}), assignee: "", sentAt: 0 }) } };
 		}
 		// Keep what this stage's agent handed on, so the next stages work from it instead of the title alone.
