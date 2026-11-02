@@ -140,3 +140,17 @@ describe("full SDLC, end to end", () => {
 		expect(existsSync(join(r, ".git", "kitchen", "order-1"))).toBe(true);
 	});
 });
+
+describe("ship guard", () => {
+	it("serves an order whose worktree has nothing to commit without starting a Ship agent", async () => {
+		const r = repo();
+		const { orderWorktree, headOf } = await import("../src/kitchen/routes");
+		const wt = orderWorktree(r, 5) as string;
+		const started: string[] = [];
+		const app = createApp(() => [], async () => {}, { start: async (n) => void started.push(n.text) });
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ id: "t", n: 5, title: "x", cwd: r, worktree: wt, base: headOf(wt), kind: "task", priority: "P1", stage: "review", assignee: "rev", sentAt: 1, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1, notes: { build: "Nothing to do." } }]));
+		const res = await (await app.request("/api/tasks/serve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "t", pass: true }) })).json();
+		expect(res).toMatchObject({ stage: "done" });
+		expect(started.filter((t) => t.startsWith("Ship order"))).toEqual([]);
+	});
+});

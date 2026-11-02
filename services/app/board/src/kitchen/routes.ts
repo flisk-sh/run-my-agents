@@ -559,8 +559,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.stage === "spec" && !t.approved) return { status: 200, body: { ...updateTask(t.id, { atPass: true, assignee: "", sentAt: 0 }) } };
 		const to = nextStage(t);
 		// Ship: the last check passed, so an agent commits the Build agent's worktree, pushes and opens a pull request.
-		// Only from the order's own worktree: shipping from the shared checkout would commit everyone's edits.
-		if (to === "done" && t.kind === "task" && t.notes?.build && t.worktree && isDir(t.worktree) && !t.pr && k.ship !== false) {
+		// Only from the order's own worktree (shipping from the shared checkout would commit everyone's edits), and only
+		// when it holds a change: an empty worktree has nothing to ship, and its agent would only ask what to do.
+		if (to === "done" && t.kind === "task" && t.notes?.build && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && !t.pr && k.ship !== false) {
 			const id = randomUUID();
 			const branch = `kitchen/order-${t.n}`;
 			k.start({
