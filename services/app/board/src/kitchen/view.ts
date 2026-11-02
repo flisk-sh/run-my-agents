@@ -66,6 +66,25 @@ export const KITCHEN_CSS = String.raw`
 .sfr .tt{display:grid;place-items:center;font:700 13px var(--mono)}.sfr.empty{background:#1a1a24}
 .stot{display:grid;place-items:center;border-radius:var(--r-row);background:#26263a;font:800 18px var(--mono);color:#fbbf24}
 .slegend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}.slegend b{font:800 11px var(--mono);border-radius:3px;padding:0 5px;color:#fff}
+/* Crew: model policy, skill sets per stage, agent containers (ReplicaSets of agents) */
+.pol{display:flex;gap:8px;flex-wrap:wrap}.pol span{background:#15151f;border-radius:var(--r-row);padding:6px 10px;font-size:12px}.pol b{font:700 11px var(--mono)}
+.mchip{font:700 10px var(--mono);border-radius:4px;padding:1px 6px;color:#0b0b10}.mchip.haiku{background:#6ee7a0}.mchip.sonnet{background:#38bdf8}.mchip.opus{background:#fbbf24}
+.sets{display:grid;gap:6px}.setrow{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;background:#12121a;border-radius:var(--r-row);padding:6px 8px}
+.setrow h5{margin:0;font:700 11px var(--mono);text-transform:uppercase;letter-spacing:.05em;display:grid;gap:3px}
+.chipz{display:flex;gap:4px;flex-wrap:wrap}.sk2{font:11px var(--mono);border-radius:5px;padding:2px 6px;background:#1e1e2a;display:inline-flex;gap:4px;align-items:center}.sk2 i{font-style:normal;font-size:9px;border-radius:3px;padding:0 3px;background:#6ee7a0;color:#062}
+.crewgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.crewbox{background:#12121a;border-radius:var(--r-panel);padding:10px;display:grid;gap:8px;box-shadow:inset 0 0 0 1px var(--line)}
+.crewbox .bh{display:flex;justify-content:space-between;align-items:center;gap:8px}.crewbox .bh b{font-size:14px}.crewbox .bh small{color:var(--muted);font:10px var(--mono)}
+.rep{display:flex;align-items:center;gap:6px;font:700 13px var(--mono)}.rep button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:#26263a;color:var(--text);cursor:pointer;font-weight:800}
+.rep .bar{flex:1;display:flex;gap:3px}.rep .bar i{flex:1;height:8px;border-radius:3px;background:#2a2a38}.rep .bar i.r{background:#22c55e}.rep .bar i.s{background:#f59e0b;animation:kfl .6s infinite alternate}
+.pods{display:grid;gap:4px}.pod{display:grid;grid-template-columns:28px 1fr auto auto;gap:6px;align-items:center;background:#1a1a24;border-radius:var(--r-row);padding:4px 6px;font-size:11.5px}
+.pod.dead{opacity:.55;background:repeating-linear-gradient(135deg,#1a1a24 0 6px,#20141a 6px 12px)}.pod .nm2{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.strk{display:flex;gap:2px}.strk i{width:8px;height:8px;border-radius:50%;background:#2a2a38}.strk i.on{background:#ef4444}
+.ghost{width:24px;height:24px;border-radius:50%;background:#2a2a38;display:grid;place-items:center;font-size:12px}
+.mk2{display:grid;gap:8px;background:#12121a;border-radius:var(--r-panel);padding:10px}.mk2 .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.mk2 input{background:#0b0b10;color:var(--text);border:1px solid var(--line);border-radius:var(--r-row);padding:6px 9px;font:13px var(--body);min-width:0}
+.pick{font:600 11px var(--body);border-radius:999px;padding:3px 9px;background:#1e1e2a;color:var(--muted);cursor:pointer;border:1px solid transparent}.pick.on{color:var(--text);border-color:var(--green);background:#16261c}
+.kh{margin:4px 0 0;font:700 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 /* Lanes */
 .lanes{display:grid;grid-template-columns:repeat(6,minmax(140px,1fr));gap:8px;overflow-x:auto}
 .lane{background:#12121a;border-radius:var(--r-row);padding:8px;display:flex;flex-direction:column;gap:6px;min-height:220px;box-shadow:inset 0 0 0 1px var(--line)}
@@ -80,7 +99,8 @@ export const KITCHEN_CSS = String.raw`
 export const KITCHEN_HTML = String.raw`<div class="ktabs" id="ktabs"></div><div id="kview" hidden></div>`;
 
 export const KITCHEN_JS = String.raw`
-const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lanes"],["scores","Scores"]];
+const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lanes"],["scores","Scores"],["crew","Crew"]];
+let CR=null,SS=null,NB={name:"",role:"Code",stages:["build"],replicas:2,model:"haiku",strikes:3};
 let SC=null,scBy=(()=>{try{return localStorage.getItem("rma-scby")||"agents"}catch(e){return"agents"}})();
 let ktab=(()=>{try{return localStorage.getItem("rma-ktab")||"chat"}catch(e){return"chat"}})();
 let kpri="P1",KD={stages:[],roles:{},tasks:[]},kauto=(()=>{try{return localStorage.getItem("rma-kauto")==="1"}catch(e){return false}})(),kdrag="",kbusy=false;
@@ -227,9 +247,38 @@ function kScores(){if(!SC)return '<p class="knote">Loading scores…</p>';
  return tabs+'<div class="sheet"><div class="srow head"><span>#</span><span>'+(scBy==="agents"?"Agent":scBy==="pairs"?"Pair":"Skill")+"</span>"+[1,2,3,4,5,6,7,8,9,10].map(i=>"<span>"+i+"</span>").join("")+"<span>Score</span></div>"+rows.map((r,i)=>'<div class="srow"><span class="srank">'+(i+1)+'</span><div class="swho"><b title="'+esc(r.label)+'">'+esc(r.label)+"</b><small>"+esc(r.sub)+" · "+r.strikes+"X "+r.spares+"/ · "+r.served+" served</small></div>"+Array.from({length:10},(_,j)=>fr(r.frames[j])).join("")+'<span class="stot">'+r.score+"</span></div>").join("")+'</div><div class="slegend"><span><b style="background:#16a34a">X</b> strike: served with no FAIL, 10 + next two frames</span><span><b style="background:#f59e0b;color:#22180e">/</b> spare: one FAIL, 10 + next frame</span><span><b style="background:#64748b">4</b> two FAILs</span><span><b style="background:#ef4444">-</b> gutter: served while stuck</span><span>Last 10 served orders make a game. 300 is perfect.</span></div>'}
 async function kScoreLoad(){try{SC=await (await fetch("api/scores")).json();if(ktab==="scores")kDraw()}catch(e){}}
 document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("[data-scby]");if(!b)return;scBy=b.dataset.scby;try{localStorage.setItem("rma-scby",scBy)}catch(_){}kDraw()});
-function kDraw(){kTabs();if(ktab==="chat")return;const v=$("kview");if(ktab==="kitchen"&&$("kcv")){const f=$("kform");if(f&&!f.contains(document.activeElement))f.outerHTML=kAdd();kStart();return}if(v.contains(document.activeElement)&&document.activeElement.id==="ktitle"){const keep=$("ktitle").value;v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():kLanes();const i=$("ktitle");i.value=keep;i.focus();return}
- v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():kLanes();kStart()}
-async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();if(ktab==="scores")await kScoreLoad();kDraw();if(kauto)kTick()}catch(e){}}
+
+/* ---------- Crew: the model policy, skill sets per stage, and agent containers ---------- */
+const MCH=m=>m?'<span class="mchip '+esc(m)+'">'+esc(m)+"</span>":"";
+function kCrew(){if(!CR||!SS)return '<p class="knote">Loading crew…</p>';
+ const pol='<div class="pol"><span>Orchestrator (spec): '+MCH(SS.policy.orchestrator.model)+" <b>"+SS.policy.orchestrator.effort+"</b></span><span>Workers (build, test, review): "+MCH(SS.policy.worker.model)+" <b>"+SS.policy.worker.effort+'</b></span><span style="color:var(--muted)">A container can pick its own model.</span></div>';
+ const sets='<div class="kh">Skill sets per stage</div><div class="sets">'+["spec","build","test","review"].map(st=>{const x=SS.stages[st];return '<div class="setrow"><h5>'+STN[st]+MCH(x.policy.model)+'</h5><div class="chipz">'+x.skills.map(k=>'<span class="sk2" title="'+esc(k.what)+'">/'+esc(k.name)+(k.haiku?"<i>haiku</i>":"")+"</span>").join("")+"</div></div>"}).join("")+"</div>";
+ const form='<div class="kh">New agent container</div><form class="mk2" id="nbox"><div class="row"><input id="nbname" placeholder="Name, like Builders" maxlength="60" value="'+esc(NB.name)+'" style="flex:1"><span class="kstats">Agents</span><div class="rep"><button type="button" data-nbrep="-1">−</button><span>'+NB.replicas+'</span><button type="button" data-nbrep="1">+</button></div></div>'
+  +'<div class="row"><span class="kstats">Type</span>'+["Code","Feature","Bug","Refactor","Design","Planner"].map(r=>'<span class="pick'+(NB.role===r?" on":"")+'" data-nbrole="'+r+'">'+r+"</span>").join("")+"</div>"
+  +'<div class="row"><span class="kstats">Cooks</span>'+["spec","build","test","review"].map(st=>'<span class="pick'+(NB.stages.includes(st)?" on":"")+'" data-nbst="'+st+'">'+STN[st]+"</span>").join("")+'<span class="kstats">Model</span>'+["haiku","sonnet","opus"].map(m=>'<span class="pick'+(NB.model===m?" on":"")+'" data-nbm="'+m+'">'+m+"</span>").join("")+'<span class="kstats">Fire after</span>'+[1,2,3,5].map(n=>'<span class="pick'+(NB.strikes===n?" on":"")+'" data-nbs="'+n+'">'+n+"</span>").join("")+'<span class="kstats">strikes</span></div>'
+  +'<div class="row"><span class="kstats">Folder: '+esc((sess(sel)||{}).cwd||"pick an agent in the sidebar first")+'</span><button class="kbtn go" style="margin-left:auto">Create container</button></div></form>';
+ const pod=(x,p)=>{const s=sess(p.session),dead=p.status==="evicted";return '<div class="pod'+(dead?" dead":"")+'" title="'+esc(p.reason||"")+'">'+(s?kFace(s,24):'<span class="ghost">'+(dead?"☠":"⏳")+"</span>")+'<span class="nm2">'+(dead?"Fired: "+esc(p.reason||""):s?esc(s.title||s.role):"Starting…")+'</span><span class="strk">'+Array.from({length:x.maxStrikes},(_,i)=>'<i class="'+(i<p.strikes?"on":"")+'"></i>').join("")+"</span>"+(dead?"<span></span>":'<button class="kbtn sm bad" data-kfire="'+p.session+'">Fire</button>')+"</div>"};
+ const boxes=CR.containers.map(x=>{const lv=x.pods.filter(p=>p.status!=="evicted");return '<div class="crewbox"><div class="bh"><div><b>'+esc(x.name)+"</b> "+MCH(x.model)+'<br><small>'+esc(x.role)+" · cooks "+x.stages.map(st=>STN[st]).join(", ")+" · fire after "+x.maxStrikes+" strikes · miss after "+x.missMinutes+' min</small></div><button class="kbtn sm" data-crewboxdel="'+x.id+'">Delete</button></div>'
+  +'<div class="rep"><button data-kscale="'+x.id+'" data-n="'+(x.replicas-1)+'">−</button><span>'+x.ready+"/"+x.replicas+'</span><button data-kscale="'+x.id+'" data-n="'+(x.replicas+1)+'">+</button><div class="bar">'+Array.from({length:Math.max(x.replicas,lv.length)},(_,i)=>{const p=lv[i];return '<i class="'+(p?p.status==="ready"?"r":"s":"")+'"></i>'}).join("")+"</div></div>"
+  +'<div class="pods">'+x.pods.slice().sort((a,b)=>(a.status==="evicted")-(b.status==="evicted")||b.started-a.started).slice(0,8).map(p=>pod(x,p)).join("")+"</div>"
+  +'<div class="chipz"><span class="sk2" title="Every agent in this container reads it before an order">/'+esc(x.lessonsSkill)+"<i>"+x.lessons.length+" lessons</i></span>"+x.skills.map(k=>'<span class="sk2">/'+esc(k.name)+(k.haiku?"<i>haiku</i>":"")+"</span>").join("")+"</div></div>"}).join("");
+ return pol+sets+'<div class="kh">Agent containers</div>'+(boxes?'<div class="crewgrid">'+boxes+"</div>":'<p class="knote">No containers yet. A container keeps a set number of agents running, like a ReplicaSet: an agent that fails or misses orders too often is fired and replaced, and its mistakes become a lessons skill the new agent reads.</p>')+form}
+async function kCrewLoad(){try{const [a,b]=await Promise.all([fetch("api/containers").then(r=>r.json()),fetch("api/skillsets").then(r=>r.json())]);CR=a;SS=b;if(ktab==="crew"&&!(document.activeElement&&document.activeElement.id==="nbname"))kDraw()}catch(e){}}
+document.addEventListener("click",async e=>{const t=e.target.closest&&e.target.closest("[data-nbrep],[data-nbrole],[data-nbst],[data-nbm],[data-nbs],[data-kscale],[data-kfire],[data-crewboxdel]");if(!t)return;const d=t.dataset;const nm=$("nbname");if(nm)NB.name=nm.value;
+ if(d.nbrep){NB.replicas=Math.max(0,Math.min(10,NB.replicas+ +d.nbrep));return kDraw()}
+ if(d.nbrole){NB.role=d.nbrole;return kDraw()}
+ if(d.nbst){NB.stages=NB.stages.includes(d.nbst)?NB.stages.filter(x=>x!==d.nbst):NB.stages.concat(d.nbst);return kDraw()}
+ if(d.nbm){NB.model=d.nbm;return kDraw()}
+ if(d.nbs){NB.strikes=+d.nbs;return kDraw()}
+ if(d.kscale){const r=await post("api/containers/scale",{id:d.kscale,replicas:+d.n});if(r.error)toast(r.error);else toast(r.name+": "+r.replicas+" agents");return kCrewLoad()}
+ if(d.kfire){const r=await post("api/containers/fire",{session:d.kfire});toast(r.error||"Fired. A new agent is starting.");return kCrewLoad()}
+ if(d.crewboxdel){const r=await post("api/containers/delete",{id:d.crewboxdel});toast(r.error||"Container deleted");return kCrewLoad()}});
+document.addEventListener("submit",async e=>{if(e.target.id!=="nbox")return;e.preventDefault();NB.name=$("nbname").value.trim();const cur=sess(sel);
+ const r=await post("api/containers",{name:NB.name,role:NB.role,stages:NB.stages,replicas:NB.replicas,model:NB.model,maxStrikes:NB.strikes,cwd:cur&&cur.cwd||""});
+ if(r.error)return toast(r.error);NB.name="";toast(r.name+" created: starting "+r.replicas+" agents");await post("api/containers/reconcile",{});kCrewLoad()});
+function kDraw(){kTabs();if(ktab==="chat")return;const v=$("kview");if(ktab==="kitchen"&&$("kcv")){const f=$("kform");if(f&&!f.contains(document.activeElement))f.outerHTML=kAdd();kStart();return}if(v.contains(document.activeElement)&&document.activeElement.id==="ktitle"){const keep=$("ktitle").value;v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():ktab==="crew"?kCrew():kLanes();const i=$("ktitle");i.value=keep;i.focus();return}
+ v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():ktab==="crew"?kCrew():kLanes();kStart()}
+async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();if(ktab==="scores")await kScoreLoad();if(ktab==="crew")await kCrewLoad();kDraw();if(kauto)kTick()}catch(e){}}
 /* Remembered per order on this computer: a spec the agent finished, waiting at the pass. */
 function markPass(){let m={};try{m=JSON.parse(localStorage.getItem("rma-kpass")||"{}")}catch(e){}for(const t of KD.tasks)t._atPass=t.stage==="spec"&&!t.approved&&!t.assignee&&!!m[t.id]}
 function setPass(id,on){let m={};try{m=JSON.parse(localStorage.getItem("rma-kpass")||"{}")}catch(e){}if(on)m[id]=1;else delete m[id];try{localStorage.setItem("rma-kpass",JSON.stringify(m))}catch(e){}}
@@ -244,7 +293,7 @@ async function kTick(){if(kbusy)return;kbusy=true;try{
  if(next){const r=await post("api/tasks/dispatch",{id:next.id});if(!r.error){toast("#"+next.n+" dispatched");kLoad()}}
  }finally{kbusy=false}}
 document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
- if(d.ktab){ktab=d.ktab;if(ktab==="scores")kScoreLoad();try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}
+ if(d.ktab){ktab=d.ktab;if(ktab==="scores")kScoreLoad();if(ktab==="crew")kCrewLoad();try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}
  if(d.kgo)return kGo(d.kgo);
  if(d.kserve){const t=find(d.kserve);if(t)return kServe(t,true)}
  if(d.kfail){const t=find(d.kfail);if(t)return kServe(t,false)}

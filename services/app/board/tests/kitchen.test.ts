@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/index";
 import { parseSession, type Session } from "../src/sessions";
-import { beltOrder, bowl, MAX_ROUNDS, nextStage, scoreboard, sendBack, type Task } from "../src/tasks";
+import { beltOrder, MAX_ROUNDS, nextStage, sendBack, type Task } from "../src/kitchen/pipeline";
+import { bowl, scoreboard } from "../src/kitchen/scores";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
 const line = (o: object) => JSON.stringify(o);

@@ -13,40 +13,15 @@ import { PAGE } from "./page";
 import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
-import SKILLS from "./skills.json";
-import { addTask, beltOrder, scoreboard, sendBack, installSkill, nextStage, PRIORITIES, readTasks, removeTask, STAGE_ROLES, STAGES, type Stage, skillState, updateTask } from "./tasks";
+import { mountKitchen } from "./kitchen/routes";
+import { skillsFor } from "./kitchen/skills";
+
+export { skillsFor };
 
 /** The avatar for a session: always its role's own face and color (Code is blue, Design purple, ...). */
 export function faceOf(s: Session) {
 	const a = AGENTS.find((x) => x.role === s.role) ?? (AGENTS.find((x) => x.role === "Code") as (typeof AGENTS)[number]);
 	return { shape: a.shape, eyes: a.eyes, color: a.color, extra: a.extra };
-}
-
-/** Which roadmap skill categories fit each agent's job. */
-const ROLE_CATS: Record<string, string[]> = {
-	Code: ["code", "debug", "test"],
-	Design: ["frontend"],
-	Planner: ["plan", "review"],
-	Chores: ["git", "ops"],
-	SEO: ["docs", "frontend"],
-	Social: ["docs"],
-	Video: ["frontend", "docs"],
-	Calls: ["docs", "plan"],
-	Calendar: ["plan"],
-	Bug: ["debug", "test", "code"],
-	Refactor: ["code", "test"],
-	Feature: ["code", "frontend", "test"],
-};
-
-/** The agent type a new order most likely needs, from its words. */
-const guessRoleForTitle = (title: string) => guessRole(title, []);
-
-/** Up to `n` skills for a role, Flisk's own first. */
-export function skillsFor(role: string, n = 8) {
-	const cats = ROLE_CATS[role] ?? ROLE_CATS.Code;
-	return SKILLS.filter((s) => cats.includes(s.cat))
-		.sort((a, b) => Number(b.source.startsWith("flisk-sh/")) - Number(a.source.startsWith("flisk-sh/")))
-		.slice(0, n);
 }
 
 /**
@@ -348,7 +323,7 @@ const BUILD = Bun.hash(PAGE).toString(36);
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { fetch?: typeof fetch; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
+	deps: { fetch?: typeof fetch; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -687,97 +662,25 @@ export function createApp(
 			});
 		return c.json({ started: true, id }, 202);
 	});
-	// The kitchen: orders on a belt, each cooked by one agent per stage. See src/tasks.ts.
-	const skillRef = (name: string) => SKILLS.find((k) => k.name === name);
-	const stock = (names: string[]) => {
-		for (const n of names) {
-			const k = skillRef(n);
-			if (k) void installSkill(k, deps.fetch);
-		}
-	};
-	app.get("/api/scores", (c) => c.json(scoreboard(readTasks())));
-	app.get("/api/tasks", (c) =>
-		c.json({
-			stages: STAGES,
-			roles: STAGE_ROLES,
-			tasks: beltOrder(readTasks()).map((t) => ({ ...t, skills: t.skills.map((name) => ({ name, state: skillState(name) })) })),
-		}),
-	);
-	app.post("/api/tasks", async (c) => {
-		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const b = (await c.req.json().catch(() => ({}))) as { title?: string; cwd?: string; priority?: string };
-		const title = String(b.title ?? "").trim();
-		if (!title) return c.json({ error: "Describe the order first." }, 400);
-		if (title.length > PROMPT_LIMIT) return c.json({ error: "That order is too long." }, 400);
-		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
-		// Ingredients: the top skills for the planner who specs it and the coder who builds it.
-		const route = guessRoleForTitle(title);
-		const skills = [...new Set([...skillsFor("Planner", 1), ...skillsFor(route, 2)].map((k) => k.name))];
-		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route });
-		stock(skills);
-		return c.json(t, 201);
-	});
-	app.post("/api/tasks/move", async (c) => {
-		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const b = (await c.req.json().catch(() => ({}))) as { id?: string; stage?: string; approved?: boolean; priority?: string };
-		if (b.stage && !(STAGES as readonly string[]).includes(b.stage)) return c.json({ error: "Unknown stage." }, 400);
-		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
-		const t = updateTask(String(b.id), {
-			...(b.stage ? { stage: b.stage as Stage, assignee: "", sentAt: 0 } : {}),
-			...(typeof b.approved === "boolean" ? { approved: b.approved } : {}),
-			...(b.priority ? { priority: b.priority as (typeof PRIORITIES)[number] } : {}),
-		});
-		return t ? c.json(t) : c.json({ error: "That order is gone." }, 404);
-	});
-	app.post("/api/tasks/drop", async (c) => {
-		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const { id } = (await c.req.json().catch(() => ({}))) as { id?: string };
-		return removeTask(String(id)) ? c.json({ dropped: true }) : c.json({ error: "That order is gone." }, 404);
-	});
-	app.post("/api/tasks/skills", async (c) => {
-		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const { id } = (await c.req.json().catch(() => ({}))) as { id?: string };
-		const t = readTasks().find((x) => x.id === id);
-		if (!t) return c.json({ error: "That order is gone." }, 404);
-		stock(t.skills);
-		return c.json({ installing: t.skills.filter((n) => skillState(n) !== "ok") }, 202);
-	});
-	// Hands an order to an agent: to the session you pick, or the first idle one whose type fits its stage.
-	app.post("/api/tasks/dispatch", async (c) => {
-		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const b = (await c.req.json().catch(() => ({}))) as { id?: string; session?: string };
-		let t = readTasks().find((x) => x.id === b.id);
-		if (!t) return c.json({ error: "That order is gone." }, 404);
-		if (t.stage === "done") return c.json({ error: "That order is already served." }, 400);
-		if (t.stage === "inbox") t = updateTask(t.id, { stage: "spec" }) ?? t;
-		if (t.skills.some((n) => skillState(n) !== "ok")) {
-			stock(t.skills);
-			return c.json({ error: "Its skills are still installing." }, 409);
-		}
-		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== t.id).map((x) => x.assignee));
-		if (t.stuck) return c.json({ error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` }, 409);
-		// Routing: build goes to the type the order was routed to first, then any builder.
-		const fits = t.stage === "build" ? [t.route, ...STAGE_ROLES.build.filter((r) => r !== t.route)] : STAGE_ROLES[t.stage];
-		const all = read();
-		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !sending.has(x.id) && !appBusy(x) && (!t.cwd || x.cwd === t.cwd);
-		const s = b.session ? all.find((x) => x.id === b.session) : fits.map((r) => all.find((x) => x.role === r && free(x))).find(Boolean);
-		if (!s) return c.json({ error: `No idle ${fits[0]} agent. Start one, or drop the order on an agent.` }, 409);
-		const skillLine = t.skills.length ? `\n\nUse these skills: ${t.skills.map((n) => `/${n}`).join(", ")}.` : "";
-		const body = `Order #${t.n} (${t.stage}): ${t.title}${skillLine}\n\n${t.stage === "test" || t.stage === "review" ? "End with one line: PASS or FAIL and why." : `When this ${t.stage} step is finished, say so in one line.`}`;
-		const res = sendNow(s, { qid: randomUUID(), text: `#${t.n} ${t.stage}: ${t.title}`, body, dirs: [] });
-		if (res.status >= 400) return res;
-		const crew = { ...(t.crew ?? {}), [t.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
-		return c.json(updateTask(t.id, { assignee: s.id, sentAt: Date.now(), crew }), 202);
-	});
-	// The agent said it is done: the order moves on, and waits at the pass when it leaves Discovery.
-	app.post("/api/tasks/serve", async (c) => {
-		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const { id, pass } = (await c.req.json().catch(() => ({}))) as { id?: string; pass?: boolean };
-		const t = readTasks().find((x) => x.id === id);
-		if (!t) return c.json({ error: "That order is gone." }, 404);
-		if (pass === false && (t.stage === "test" || t.stage === "review")) return c.json(updateTask(t.id, { ...sendBack(t), assignee: "", sentAt: 0 }));
-		const to = nextStage(t);
-		return c.json(updateTask(t.id, { stage: to, assignee: "", sentAt: 0, stuck: false, ...(to === "done" ? { servedAt: Date.now() } : {}) }));
+	// The kitchen: orders, scores, skill sets and agent containers. See src/kitchen/.
+	mountKitchen(app, {
+		read,
+		send: (s, text, body) => sendNow(s, { qid: randomUUID(), text, body, dirs: [] }),
+		busy: (s) => sending.has(s.id) || appBusy(s),
+		start: (n) => {
+			setRole(n.id, n.role);
+			sending.add(n.id);
+			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id })
+				.catch((e) => console.error("container start failed:", e))
+				.finally(() => sending.delete(n.id));
+		},
+		tune: (id, t) => setTune(id, t),
+		close: (id) => setHidden(id, true),
+		guessRole: (title) => guessRole(title, []),
+		sameOrigin,
+		fetch: deps.fetch,
+		promptLimit: PROMPT_LIMIT,
+		every: deps.kitchenEvery ?? 0,
 	});
 	app.get("/", (c) => c.html(PAGE));
 	return app;
@@ -785,6 +688,6 @@ export function createApp(
 
 if (import.meta.main) {
 	const port = Number(process.env.PORT || 4100);
-	Bun.serve({ port, hostname: "127.0.0.1", fetch: createApp().fetch });
+	Bun.serve({ port, hostname: "127.0.0.1", fetch: createApp(undefined, undefined, { kitchenEvery: 15_000 }).fetch });
 	console.log(`Run My Agents board on http://localhost:${port}`);
 }

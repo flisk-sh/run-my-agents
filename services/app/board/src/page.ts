@@ -6,7 +6,7 @@
 //
 //   app 22 ─ pad 8 ─► panel 14 ─ pad 6 ─► row 8 ─ pad 4 ─► chip 4
 
-import { KITCHEN_CSS, KITCHEN_HTML, KITCHEN_JS } from "./kitchen";
+import { KITCHEN_CSS, KITCHEN_HTML, KITCHEN_JS } from "./kitchen/view";
 import { renderMarkdown } from "./markdown";
 import { EXTRAS } from "../../web/src/avatars";
 
