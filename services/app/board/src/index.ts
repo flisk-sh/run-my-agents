@@ -1,10 +1,10 @@
-// The agents board: every Claude Code and Codex session on this computer as an agent with a face, its channel,
-// its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
+// The agents board: every Claude Code, Codex and Grok Build session on this computer as an agent with a face, its
+// channel, its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pr } from "./desktop";
 import { mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { Hono } from "hono";
 import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
@@ -123,8 +123,36 @@ export function boardMode(s: Pick<Session, "tune" | "mode">): string {
 	return "acceptEdits";
 }
 
+/**
+ * Grok Build has no stdin prompt mode (`-p`/`--resume` want the text as an argument), so the same "never put the
+ * user's text in argv" rule is kept by writing it to a private temp file instead and passing `--prompt-file`. The
+ * file is removed once the process ends, whichever way it ends.
+ */
+function runGrok(args: string[], text: string, cwd: string | undefined, run: typeof spawn): Promise<void> {
+	const tmp = join(tmpdir(), `rma-grok-${randomUUID()}.txt`);
+	writeFileSync(tmp, text, { mode: 0o600 });
+	const cleanup = () => {
+		try {
+			rmSync(tmp, { force: true });
+		} catch {}
+	};
+	return new Promise((resolve, reject) => {
+		const child = run("grok", [...args, "--prompt-file", tmp], { cwd, stdio: ["ignore", "ignore", "ignore"] });
+		child.on("error", (e) => {
+			cleanup();
+			reject(e);
+		});
+		child.on("close", () => {
+			cleanup();
+			resolve();
+		});
+	});
+}
+
 export function sendToSession(s: Session, text: string, run = spawn, dirs: string[] = []): Promise<void> {
 	dirs = [...dirs, ...workDirs(s)];
+	// Grok has no `--add-dir`: a resumed copy only reaches its own folder.
+	if (s.agent === "grok") return runGrok(["--cwd", s.cwd, "--resume", s.id, "--output-format", "json", "--permission-mode", boardMode(s)], text, s.cwd || undefined, run);
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
@@ -264,22 +292,26 @@ export async function ghPrs(s: Session, run = spawn): Promise<Pr[]> {
 	return prs;
 }
 
-/** Which of the two coding agents the board can start are installed. */
-export const installed = () => ({ claude: !!Bun.which("claude"), codex: !!Bun.which("codex") });
+/** A coding agent's own name, for messages. */
+export const AGENT_LABEL: Record<Session["agent"], string> = { claude: "Claude Code", codex: "Codex", grok: "Grok Build" };
+
+/** Which of the three coding agents the board can start are installed. */
+export const installed = () => ({ claude: !!Bun.which("claude"), codex: !!Bun.which("codex"), grok: !!Bun.which("grok") });
 
 export interface NewSession {
-	agent: "claude" | "codex";
+	agent: "claude" | "codex" | "grok";
 	cwd: string;
 	text: string;
 	model?: string;
 	effort?: string;
-	/** Claude lets the caller choose the session id, so the board knows it at once. */
+	/** Claude and Grok let the caller choose the session id, so the board knows it at once. */
 	id?: string;
 }
 const MODELS = ["opus", "sonnet", "haiku"];
 
-/** Starts a new headless session in a folder; the prompt goes on stdin. Its transcript is read like any other. */
+/** Starts a new headless session in a folder; the prompt goes on stdin (a temp file for Grok). Its transcript is read like any other. */
 export function startNewSession(n: NewSession, run = spawn): Promise<void> {
+	if (n.agent === "grok") return runGrok(["--cwd", n.cwd, "--session-id", n.id as string, "--output-format", "json", "--permission-mode", "acceptEdits"], n.text, n.cwd, run);
 	const [cmd, args] =
 		n.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
@@ -469,7 +501,9 @@ export function createApp(
 	// Detects the agent type (and, if the text names it, the AI) from what you typed.
 	app.get("/api/detect", (c) => {
 		const text = c.req.query("text") ?? "";
-		return c.json({ role: guessRole(text, []), agent: /\b(codex|gpt|openai)\b/i.test(text) && which().codex ? "codex" : null });
+		const have = which();
+		const agent = /\b(codex|gpt|openai)\b/i.test(text) && have.codex ? "codex" : /\b(grok|xai|x\.ai)\b/i.test(text) && have.grok ? "grok" : null;
+		return c.json({ role: guessRole(text, []), agent });
 	});
 	// Gives an existing session a type, or with an empty role goes back to the board's guess.
 	app.post("/api/role", async (c) => {
@@ -545,7 +579,13 @@ export function createApp(
 		if (!s) return c.json({ error: "That session is gone." }, 404);
 		if (s.viaApp === true) return c.json({ error: "This session is in the Claude app. Delete it there." }, 400);
 		if (Date.now() - s.updatedAt < 60_000) return c.json({ error: `${s.role} is working right now. Try again in a minute.` }, 409);
-		const base = resolve(s.agent === "codex" ? process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions") : process.env.CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects"));
+		const base = resolve(
+			s.agent === "codex"
+				? process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions")
+				: s.agent === "grok"
+					? process.env.GROK_SESSIONS_DIR || join(homedir(), ".grok", "sessions")
+					: process.env.CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects"),
+		);
 		const file = s.file ? resolve(s.file) : "";
 		if (!file.endsWith(".jsonl") || !file.startsWith(base + sep)) return c.json({ error: "Can't find that session's file." }, 400);
 		try {
@@ -554,6 +594,8 @@ export function createApp(
 			return c.json({ error: "Could not delete that session's file." }, 500);
 		}
 		if (s.agent === "claude") rmSync(join(dirname(file), s.id), { recursive: true, force: true });
+		// A Grok session is its own folder (chat_history.jsonl plus summary.json, usage.json, ...): remove all of it.
+		if (s.agent === "grok") rmSync(dirname(file), { recursive: true, force: true });
 		forgetSession(s.id);
 		return c.json({ deleted: true });
 	});
@@ -598,8 +640,8 @@ export function createApp(
 		const text = String(b.text ?? "").trim();
 		if (!text) return c.json({ error: "Describe the task first." }, 400);
 		if (text.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
-		if (b.agent !== "claude" && b.agent !== "codex") return c.json({ error: "Pick Claude Code or Codex." }, 400);
-		if (!which()[b.agent]) return c.json({ error: `${b.agent === "codex" ? "Codex" : "Claude Code"} is not installed on this computer.` }, 400);
+		if (b.agent !== "claude" && b.agent !== "codex" && b.agent !== "grok") return c.json({ error: "Pick Claude Code, Codex or Grok Build." }, 400);
+		if (!which()[b.agent]) return c.json({ error: `${AGENT_LABEL[b.agent]} is not installed on this computer.` }, 400);
 		if (b.role && !ROLES.includes(b.role)) return c.json({ error: "Unknown agent type." }, 400);
 		const cwd = resolve(String(b.cwd ?? ""));
 		try {
@@ -609,7 +651,8 @@ export function createApp(
 		}
 		const model = b.agent === "claude" && b.model && MODELS.includes(b.model) ? b.model : undefined;
 		const effort = b.agent === "claude" && b.effort && EFFORTS.includes(b.effort) ? b.effort : undefined;
-		const id = b.agent === "claude" ? randomUUID() : undefined;
+		// Claude and Grok both take a caller-chosen id for a new session; Codex always picks its own.
+		const id = b.agent === "claude" || b.agent === "grok" ? randomUUID() : undefined;
 		if (b.role) {
 			if (id) setRole(id, b.role);
 			else addPending({ agent: b.agent, cwd, prefix: (text.split("\n")[0] ?? "").slice(0, 40), role: b.role });

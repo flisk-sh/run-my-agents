@@ -20,7 +20,7 @@ export interface Tokens {
 export interface Session {
 	id: string;
 	/** Which coding agent wrote the session. */
-	agent: "claude" | "codex";
+	agent: "claude" | "codex" | "grok";
 	/** The model of the last reply, like claude-opus-5-5 or gpt-6. */
 	model: string;
 	tokens: Tokens;
@@ -143,6 +143,17 @@ const TOOL_NAMES: Record<string, string> = {
 };
 /** MCP servers by a short, readable name; an empty name means the tool's own label says enough. */
 const SERVERS: Record<string, string> = { Claude_Browser: "Browser", "claude-in-chrome": "Chrome", ccd_turn: "", ccd_session: "", ccd_view: "", visualize: "" };
+/**
+ * Grok Build's own tool names, mapped to the Claude Code tool with the same job. Its arguments already match
+ * Claude's shape (file_path, old_string/new_string, command, todos), so once a call is relabelled it reads
+ * exactly like a Claude one everywhere below: toolLabel, callDetail, editSize, EDIT_TOOLS, applyPlan, readOptions.
+ */
+const GROK_TOOL_ALIAS: Record<string, string> = {
+	read_file: "Read", write: "Write", search_replace: "Edit", run_terminal_command: "Bash",
+	grep: "Grep", list_dir: "Glob", todo_write: "TodoWrite", ask_user_question: "AskUserQuestion",
+};
+/** The two Grok tools whose file argument has its own name instead of Claude's `file_path`. */
+const GROK_FILE_KEY: Record<string, string> = { read_file: "target_file", list_dir: "target_directory" };
 /** Readable labels for MCP tools, keyed by the tool's own name. */
 const MCP_NAMES: Record<string, string> = {
 	browser_batch: "actions", computer: "", navigate: "open page", javascript_tool: "run script", read_page: "read page", get_page_text: "read page",
@@ -453,6 +464,169 @@ export function readCodexSessions(
 	return out;
 }
 
+/** A git worktree's current branch, read straight off disk (no `git` subprocess): fast enough to call on every poll. */
+function gitBranchOf(cwd: string): string {
+	try {
+		let gitDir = join(cwd, ".git");
+		if (statSync(gitDir).isFile()) {
+			const link = /^gitdir: (.+)$/m.exec(readFileSync(gitDir, "utf8"));
+			if (link) gitDir = link[1].trim();
+		}
+		const head = /^ref: refs\/heads\/(.+)$/m.exec(readFileSync(join(gitDir, "HEAD"), "utf8"));
+		return head ? head[1].trim() : "";
+	} catch {
+		return "";
+	}
+}
+
+/** A real user turn in Grok Build's chat_history.jsonl: every turn is wrapped in this tag; skills/MCP notices are not. */
+const USER_QUERY = /<user_query>\n?([\s\S]*?)\n?<\/user_query>/;
+
+/**
+ * One Grok Build session (~/.grok/sessions/<url-encoded cwd>/<id>/chat_history.jsonl) to a Session. `usage` is that
+ * session's ~/.grok/sessions/.../usage.json `session` object: Grok keeps running totals there, not per-message.
+ */
+export function parseGrokSession(
+	id: string,
+	cwd: string,
+	lines: string[],
+	usage: { inputTokens?: number; outputTokens?: number; cachedReadTokens?: number; cacheCreationTokens?: number } | undefined,
+	updatedAt: number,
+): Session | undefined {
+	if (!SESSION_ID.test(id) || id.startsWith("-")) return undefined;
+	const s: Session = { id, agent: "grok", model: "", tokens: { used: 0, cached: 0 }, cwd, branch: gitBranchOf(cwd), title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", pinned: false, feed: [] };
+	if (usage) {
+		s.tokens = { used: (usage.inputTokens ?? 0) + (usage.cacheCreationTokens ?? 0) + (usage.outputTokens ?? 0), cached: usage.cachedReadTokens ?? 0 };
+	}
+	let optItem: FeedItem | undefined;
+	let optToolId = "";
+	for (const line of lines) {
+		let d: { type?: string; content?: unknown; model_id?: string; tool_calls?: { id?: string; name?: string; arguments?: string }[]; tool_call_id?: string };
+		try {
+			d = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		const at = updatedAt;
+		if (d.type === "user") {
+			const raw = textOf(d.content).trim();
+			const m = USER_QUERY.exec(raw);
+			const t = m?.[1]?.trim();
+			if (t) {
+				if (!s.title) s.title = t.split("\n")[0].slice(0, 90);
+				s.feed.push({ at, who: "you", text: t.slice(0, 2000), tools: [] });
+				s.asked = at;
+				if (optItem) delete optItem.options;
+				optItem = undefined;
+				optToolId = "";
+			}
+			continue;
+		}
+		if (d.type === "tool_result") {
+			if (optToolId && d.tool_call_id === optToolId) {
+				if (optItem) delete optItem.options;
+				optItem = undefined;
+				optToolId = "";
+			}
+			continue;
+		}
+		if (d.type !== "assistant") continue;
+		if (typeof d.model_id === "string") s.model = d.model_id;
+		const words = typeof d.content === "string" ? d.content.trim() : "";
+		if (words) s.said = words.replace(/\s+/g, " ").slice(0, 160);
+		const last = s.feed[s.feed.length - 1];
+		const item = last?.who === "agent" ? last : { at, t0: at, who: "agent" as const, text: "", tools: [] as string[] };
+		if (item !== last) s.feed.push(item);
+		if (words) item.text = item.text ? `${item.text}\n\n${words}`.slice(-8000) : words.slice(0, 8000);
+		item.at = at;
+		for (const tc of d.tool_calls ?? []) {
+			if (!tc.name) continue;
+			const name = GROK_TOOL_ALIAS[tc.name] ?? tc.name;
+			let input: Record<string, unknown> = {};
+			try {
+				input = JSON.parse(tc.arguments ?? "{}");
+			} catch {}
+			const fileKey = GROK_FILE_KEY[tc.name];
+			if (fileKey && input[fileKey] !== undefined && input.file_path === undefined) input = { ...input, file_path: input[fileKey] };
+			const opts = readOptions(name, input);
+			if (opts) {
+				if (optItem && optItem !== item) delete optItem.options;
+				item.options = opts;
+				optItem = item;
+				optToolId = String(tc.id ?? "");
+			} else if (optItem) {
+				delete optItem.options;
+				optItem = undefined;
+				optToolId = "";
+			}
+			const file = String(input.file_path ?? "");
+			s.doing = file ? `${toolLabel(name, input)} ${basename(file)}` : toolLabel(name, input);
+			if (file && EDIT_TOOLS.has(name)) s.edits.push({ file, at, ...editSize(name, input) });
+			if (item.tools.length < 6) item.tools.push(s.doing);
+			if ((item.calls ??= []).length < 40) item.calls.push({ label: s.doing, ...callDetail(name, input) });
+			if (name === "TodoWrite") s.plan = applyPlan(s.plan, name, input);
+			if (tc.name === "run_terminal_command" && input.background === true) (s.bg ??= []).push({ what: String(input.description ?? input.command ?? "command").slice(0, 80), at });
+		}
+	}
+	if (!s.title && !s.said) return undefined;
+	s.awaiting = !!optItem;
+	s.feed = s.feed.filter((f) => f.text || f.tools.length).slice(-FEED_SIZE);
+	s.role = guessRole(s.title, s.edits.map((x) => x.file));
+	return s;
+}
+
+/**
+ * Grok Build sessions changed within maxAgeMs: one folder per working directory (URL-encoded), one per session id
+ * inside it. `grok sessions`, `grok export` and `grok usage` all read this same layout, so it is a stable interface.
+ */
+export function readGrokSessions(
+	root = process.env.GROK_SESSIONS_DIR || join(homedir(), ".grok", "sessions"),
+	maxAgeMs = 60 * 60_000,
+	now = Date.now(),
+): Session[] {
+	const out: Session[] = [];
+	let cwdDirs: string[] = [];
+	try {
+		cwdDirs = readdirSync(root);
+	} catch {
+		return out;
+	}
+	for (const enc of cwdDirs) {
+		const cwdPath = join(root, enc);
+		let ids: string[] = [];
+		try {
+			ids = readdirSync(cwdPath).filter((f) => SESSION_ID.test(f) && statSync(join(cwdPath, f)).isDirectory());
+		} catch {
+			continue;
+		}
+		for (const id of ids) {
+			const dir = join(cwdPath, id);
+			const chatPath = join(dir, "chat_history.jsonl");
+			let mtime: number;
+			try {
+				mtime = statSync(chatPath).mtimeMs;
+			} catch {
+				continue;
+			}
+			if (now - mtime > maxAgeMs) continue;
+			let info: { cwd?: string } | undefined;
+			try {
+				info = (JSON.parse(readFileSync(join(dir, "summary.json"), "utf8")).info ?? {}) as { cwd?: string };
+			} catch {}
+			let usage: { inputTokens?: number; outputTokens?: number; cachedReadTokens?: number; cacheCreationTokens?: number } | undefined;
+			try {
+				usage = JSON.parse(readFileSync(join(dir, "usage.json"), "utf8")).session;
+			} catch {}
+			const s = parseGrokSession(id, info?.cwd || decodeURIComponent(enc), readFileSync(chatPath, "utf8").split("\n"), usage, mtime);
+			if (s) {
+				s.file = chatPath;
+				out.push(s);
+			}
+		}
+	}
+	return out;
+}
+
 /** Files edited by two or more sessions within the window. */
 export function findClashes(sessions: Session[], now = Date.now(), windowMs = 10 * 60_000): Clash[] {
 	const byFile = new Map<string, Set<string>>();
@@ -530,5 +704,7 @@ export function readAllSessions(now = Date.now()): Session[] {
 	}
 	const codex = readCodexSessions(undefined, undefined, now);
 	for (const s of codex) s.pinned = isPinned(s.id, false);
-	return [...claude, ...codex].sort((a, b) => b.updatedAt - a.updatedAt);
+	const grok = readGrokSessions(undefined, undefined, now);
+	for (const s of grok) s.pinned = isPinned(s.id, false);
+	return [...claude, ...codex, ...grok].sort((a, b) => b.updatedAt - a.updatedAt);
 }

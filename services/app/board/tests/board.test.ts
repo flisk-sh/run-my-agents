@@ -141,6 +141,83 @@ describe("codex, limits and skills", () => {
 	});
 });
 
+describe("grok", () => {
+	const grokLine = (o: object) => JSON.stringify(o);
+	const userQuery = (text: string) =>
+		grokLine({ type: "user", content: [{ type: "text", text: `<user_query>\n${text}\n</user_query>` }] });
+	const askGrok = (question: string, options: string[]) =>
+		grokLine({
+			type: "assistant",
+			content: "Picking a direction.",
+			model_id: "grok-4.5-build",
+			tool_calls: [{ id: "call-1", name: "ask_user_question", arguments: JSON.stringify({ questions: [{ question, options: options.map((label) => ({ label, description: "" })) }] }) }],
+		});
+
+	it("reads a chat_history.jsonl: title, model, tokens from usage, a file edit and a background command", async () => {
+		const { parseGrokSession } = await import("../src/sessions");
+		const s = parseGrokSession(
+			"01a0d502-8233-7121-a6fd-d65bab536c67",
+			"/repo",
+			[
+				grokLine({ type: "system", content: "You are Grok." }),
+				userQuery("fix the sitemap"),
+				grokLine({
+					type: "assistant",
+					content: "Reading it first.",
+					model_id: "grok-4.5-build",
+					tool_calls: [
+						{ id: "call-a", name: "read_file", arguments: JSON.stringify({ target_file: "/repo/sitemap.xml" }) },
+						{ id: "call-b", name: "search_replace", arguments: JSON.stringify({ file_path: "/repo/sitemap.xml", old_string: "a\nb", new_string: "a\nb\nc" }) },
+						{ id: "call-c", name: "run_terminal_command", arguments: JSON.stringify({ command: "bun dev", description: "Start the dev server", background: true }) },
+						{ id: "call-d", name: "todo_write", arguments: JSON.stringify({ todos: [{ content: "Fix the sitemap", status: "in_progress" }] }) },
+					],
+				}),
+			],
+			{ inputTokens: 1000, outputTokens: 50, cachedReadTokens: 800, cacheCreationTokens: 0 },
+			now,
+		);
+		expect(s).toMatchObject({ id: "01a0d502-8233-7121-a6fd-d65bab536c67", agent: "grok", model: "grok-4.5-build", cwd: "/repo", title: "fix the sitemap", tokens: { used: 1050, cached: 800 } });
+		expect(s?.edits).toEqual([{ file: "/repo/sitemap.xml", at: now, add: 3, del: 2 }]);
+		expect(s?.feed[1].tools).toEqual(["Read sitemap.xml", "Edit sitemap.xml", "Bash", "Plan"]);
+		expect(s?.feed[1].calls?.[0]).toMatchObject({ label: "Read sitemap.xml", detail: "/repo/sitemap.xml" });
+		expect(s?.bg).toEqual([{ what: "Start the dev server", at: now }]);
+		expect(s?.plan).toEqual([{ text: "Fix the sitemap", status: "in_progress" }]);
+	});
+
+	it("waits for a question, then clears it once Grok's own tool_result reports the answer", async () => {
+		const { parseGrokSession } = await import("../src/sessions");
+		const asked = parseGrokSession("01a0d5ac-2686-7830-b28d-4b563bf98280", "/repo", [userQuery("go"), askGrok("Which fix?", ["Fast", "Thorough"])], undefined, now);
+		expect(asked?.awaiting).toBe(true);
+		expect(asked?.feed.at(-1)?.options).toEqual({ ask: "Which fix?", labels: ["Fast", "Thorough"] });
+		const answered = parseGrokSession(
+			"01a0d5ac-2686-7830-b28d-4b563bf98280",
+			"/repo",
+			[userQuery("go"), askGrok("Which fix?", ["Fast", "Thorough"]), grokLine({ type: "tool_result", tool_call_id: "call-1", content: 'User has answered your questions: "Which fix?"="Fast"' })],
+			undefined,
+			now,
+		);
+		expect(answered?.awaiting).toBe(false);
+	});
+
+	it("finds Grok Build sessions on disk: one folder per cwd, one per session id", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = mkdtempSync(join(tmpdir(), "rma-grok-"));
+		const enc = encodeURIComponent("/repo");
+		const id = "01a0d530-4c9a-7782-b980-1dc79bc04e29";
+		const dir = join(root, enc, id);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "chat_history.jsonl"), [userQuery("add tests"), grokLine({ type: "assistant", content: "On it.", model_id: "grok-4.5" })].join("\n"));
+		writeFileSync(join(dir, "summary.json"), JSON.stringify({ info: { id, cwd: "/repo" } }));
+		writeFileSync(join(dir, "usage.json"), JSON.stringify({ session: { inputTokens: 10, outputTokens: 5, cachedReadTokens: 0, cacheCreationTokens: 0 } }));
+		const { readGrokSessions } = await import("../src/sessions");
+		const sessions = readGrokSessions(root, 60 * 60_000, Date.now());
+		expect(sessions).toHaveLength(1);
+		expect(sessions[0]).toMatchObject({ id, agent: "grok", cwd: "/repo", title: "add tests", tokens: { used: 15, cached: 0 } });
+	});
+});
+
 describe("send", () => {
 	it("sends a message to the session and refuses empty text or a second send while one is on its way", async () => {
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
@@ -297,6 +374,29 @@ describe("send", () => {
 		expect(seen?.args).toEqual(["-p", "--resume", "a", "--permission-mode", "acceptEdits"]);
 		expect(seen?.stdin).toBe("-rf everything");
 	});
+
+	it("writes Grok's prompt to a --prompt-file, since it has no stdin prompt mode, and cleans it up", async () => {
+		const { sendToSession } = await import("../src/index");
+		const { readFileSync, existsSync } = await import("node:fs");
+		const s = { id: "01a0d530-4c9a-7782-b980-1dc79bc04e29", agent: "grok", cwd: "/repo", tune: {}, mode: "acceptEdits", edits: [] } as never;
+		let seen: { cmd: string; args: string[] } | undefined;
+		let promptFile = "";
+		let promptSeenByGrok = "";
+		const fake = ((cmd: string, args: string[]) => {
+			seen = { cmd, args };
+			promptFile = args[args.indexOf("--prompt-file") + 1];
+			promptSeenByGrok = readFileSync(promptFile, "utf8");
+			const child = new (require("node:events").EventEmitter)();
+			setTimeout(() => child.emit("close"), 0);
+			return child;
+		}) as never;
+		await sendToSession(s, "-rf everything", fake);
+		expect(seen?.cmd).toBe("grok");
+		expect(seen?.args).toEqual(["--cwd", "/repo", "--resume", "01a0d530-4c9a-7782-b980-1dc79bc04e29", "--output-format", "json", "--permission-mode", "acceptEdits", "--prompt-file", promptFile]);
+		expect(seen?.args.join(" ")).not.toContain("-rf everything");
+		expect(promptSeenByGrok).toBe("-rf everything");
+		expect(existsSync(promptFile)).toBe(false);
+	});
 });
 
 describe("page", () => {
@@ -415,19 +515,22 @@ describe("new sessions and agent types", () => {
 		app.request(path, { method: "POST", headers: J, body: JSON.stringify(body) });
 
 	it("detects the agent type from the text, and the AI when it is named", async () => {
-		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true }) });
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }) });
 		expect(await (await app.request("/api/detect?text=" + encodeURIComponent("cut the demo video"))).json()).toEqual({ role: "Video", agent: null });
 		expect((await (await app.request("/api/detect?text=" + encodeURIComponent("ask codex to fix sitemap"))).json()).agent).toBe("codex");
-		const noCodex = createApp(() => [], undefined, { which: () => ({ claude: true, codex: false }) });
+		const noCodex = createApp(() => [], undefined, { which: () => ({ claude: true, codex: false, grok: false }) });
 		expect((await (await noCodex.request("/api/detect?text=use+codex")).json()).agent).toBeNull();
+		const withGrok = createApp(() => [], undefined, { which: () => ({ claude: true, codex: false, grok: true }) });
+		expect((await (await withGrok.request("/api/detect?text=" + encodeURIComponent("ask grok to fix it"))).json()).agent).toBe("grok");
+		expect((await (await noCodex.request("/api/detect?text=ask+grok")).json()).agent).toBeNull();
 	});
 
 	it("offers installed agents, recent folders and every type with its face", async () => {
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
-		const app = createApp(() => (s ? [s] : []), undefined, { which: () => ({ claude: true, codex: false }) });
+		const app = createApp(() => (s ? [s] : []), undefined, { which: () => ({ claude: true, codex: false, grok: false }) });
 		const o = await (await app.request("/api/options")).json();
 		expect(o.defaultAgent).toBe("claude");
-		expect(o.agents).toEqual({ claude: true, codex: false });
+		expect(o.agents).toEqual({ claude: true, codex: false, grok: false });
 		expect(o.folders).toEqual(["/repo"]);
 		expect(o.roles.map((r: { role: string }) => r.role)).toContain("Video");
 	});
@@ -439,7 +542,7 @@ describe("new sessions and agent types", () => {
 		const dir = mkdtempSync(join(tmpdir(), "rma-new-"));
 		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-prefs-"));
 		let seen: { agent: string; cwd: string; text: string; model?: string; id?: string } | undefined;
-		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true }), start: async (n) => { seen = n; } });
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }), start: async (n) => { seen = n; } });
 		const res = await post(app, "/api/new", { agent: "claude", cwd: dir, text: "cut the demo", role: "Video", model: "haiku" });
 		expect(res.status).toBe(202);
 		const { id } = await res.json();
@@ -452,9 +555,28 @@ describe("new sessions and agent types", () => {
 			{ agent: "claude", cwd: dir, text: "x", role: "Wizard" },
 		])
 			expect((await post(app, "/api/new", bad)).status).toBe(400);
-		const none = createApp(() => [], undefined, { which: () => ({ claude: false, codex: false }) });
+		const none = createApp(() => [], undefined, { which: () => ({ claude: false, codex: false, grok: false }) });
 		expect((await post(none, "/api/new", { agent: "claude", cwd: dir, text: "x" })).status).toBe(400);
 		expect((await app.request("/api/new", { method: "POST", body: "text=x" })).status).toBe(403);
+	});
+
+	it("starts a Grok session with a board-chosen id, like Claude", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const dir = mkdtempSync(join(tmpdir(), "rma-new-grok-"));
+		let seen: { agent: string; cwd: string; text: string; id?: string } | undefined;
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: true }), start: async (n) => { seen = n; } });
+		const res = await post(app, "/api/new", { agent: "grok", cwd: dir, text: "scaffold a widget" });
+		expect(res.status).toBe(202);
+		const { id } = await res.json();
+		expect(id).toMatch(/^[\w-]{10,}$/);
+		expect(seen).toMatchObject({ agent: "grok", cwd: dir, text: "scaffold a widget", id });
+		const notInstalled = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }) });
+		const res2 = await post(notInstalled, "/api/new", { agent: "grok", cwd: dir, text: "x" });
+		expect(res2.status).toBe(400);
+		expect((await res2.json()).error).toBe("Grok Build is not installed on this computer.");
+		expect((await post(app, "/api/new", { agent: "gemini", cwd: dir, text: "x" })).status).toBe(400);
 	});
 
 	it("puts the prompt on stdin and never in the command line, for both AIs", async () => {
@@ -474,6 +596,27 @@ describe("new sessions and agent types", () => {
 		expect(x.cmd).toBe("codex");
 		expect(x.args).toEqual(["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]);
 		expect(x.stdin).toBe("do it");
+	});
+
+	it("starts a new Grok session with a chosen id, its prompt in a file", async () => {
+		const { startNewSession } = await import("../src/index");
+		const { readFileSync, existsSync } = await import("node:fs");
+		let seen: { cmd: string; args: string[] } | undefined;
+		let promptFile = "";
+		let promptSeenByGrok = "";
+		const fake = ((cmd: string, args: string[]) => {
+			seen = { cmd, args };
+			promptFile = args[args.indexOf("--prompt-file") + 1];
+			promptSeenByGrok = readFileSync(promptFile, "utf8");
+			const child = new (require("node:events").EventEmitter)();
+			setTimeout(() => child.emit("close"), 0);
+			return child;
+		}) as never;
+		await startNewSession({ agent: "grok", cwd: "/tmp", text: "scaffold the project", id: "01a0d892-323a-78c2-b0c6-7f654f5657af" }, fake);
+		expect(seen?.cmd).toBe("grok");
+		expect(seen?.args).toEqual(["--cwd", "/tmp", "--session-id", "01a0d892-323a-78c2-b0c6-7f654f5657af", "--output-format", "json", "--permission-mode", "acceptEdits", "--prompt-file", promptFile]);
+		expect(promptSeenByGrok).toBe("scaffold the project");
+		expect(existsSync(promptFile)).toBe(false);
 	});
 
 	it("lets you retype an existing session, and go back to the board's guess", async () => {
@@ -883,6 +1026,25 @@ describe("close and delete", () => {
 		expect(readPins().pinned).toEqual([]);
 	});
 
+	it("deletes a Grok session's whole folder, not only its chat_history.jsonl", async () => {
+		const { existsSync, mkdirSync, writeFileSync, mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = mkdtempSync(join(tmpdir(), "rma-del-grok-"));
+		process.env.GROK_SESSIONS_DIR = join(root, "sessions");
+		process.env.RUN_MY_AGENTS_DIR = join(root, "data");
+		const dir = join(root, "sessions", "%2Frepo", "01a0d5a0-5850-7fe3-973d-58bdd00f3236");
+		mkdirSync(dir, { recursive: true });
+		const file = join(dir, "chat_history.jsonl");
+		writeFileSync(file, "x");
+		writeFileSync(join(dir, "summary.json"), "{}");
+		const session = { id: "01a0d5a0-5850-7fe3-973d-58bdd00f3236", agent: "grok", cwd: "/repo", branch: "", title: "t", said: "", doing: "", edits: [], updatedAt: Date.now() - 600_000, role: "Code", pinned: false, feed: [], file, viaApp: false };
+		const app = createApp(() => [session as never]);
+		const res = await post(app, "/api/delete", { id: session.id });
+		expect(res.status).toBe(200);
+		expect(existsSync(dir)).toBe(false);
+	});
+
 	it("refuses to delete a Claude app session, a working one, a file outside the agent's folder, or from another site", async () => {
 		const { existsSync } = await import("node:fs");
 		const { file, root } = await setup();
@@ -958,7 +1120,7 @@ describe("chat layout, bigger text and avatar motion", () => {
 		let started = "";
 		const list: object[] = [];
 		const app2 = createApp(() => list as never, async () => {}, {
-			which: () => ({ claude: true, codex: false }),
+			which: () => ({ claude: true, codex: false, grok: false }),
 			start: async (n) => {
 				started = n.id ?? "";
 				await new Promise<void>((r) => {
