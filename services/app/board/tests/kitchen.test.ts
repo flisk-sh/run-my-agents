@@ -283,3 +283,22 @@ describe("chat sender labels", () => {
 		expect(kSender("please fix the login page")).toBe("You");
 	});
 });
+
+describe("order progress estimate", () => {
+	it("shows percent done across the order's own stages and the time left", async () => {
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		const js = KITCHEN_JS.slice(KITCHEN_JS.indexOf("function kWork("), KITCHEN_JS.indexOf("function kEstLine("));
+		const kEst = new Function(`${js}; return kEst;`)() as (t: object, per: number) => { pct: number; left: number };
+		const min = 60e3;
+		const now = Date.now();
+		expect(kEst({ stage: "inbox" }, 10 * min)).toEqual({ pct: 0, left: 40 * min });
+		const b = kEst({ stage: "build", stageAt: now - 5 * min }, 10 * min);
+		expect(b.pct).toBe(38); // 1.5 of 4 stages
+		expect(Math.round(b.left / min)).toBe(25);
+		expect(kEst({ stage: "build", lane: "fast", stageAt: now }, 10 * min).pct).toBe(0);
+		expect(kEst({ stage: "test", lane: "fast", stageAt: now - 60 * min }, 10 * min)).toEqual({ pct: 95, left: min });
+		expect(Math.round(kEst({ stage: "build", stageAt: now - 60 * min }, 10 * min).left / min)).toBe(21); // late build, test and review still ahead
+		expect(kEst({ stage: "done" }, 10 * min).pct).toBe(100);
+		expect(KITCHEN_JS).toContain("+kEstLine(t)");
+	});
+});
