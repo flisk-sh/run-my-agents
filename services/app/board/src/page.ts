@@ -6,6 +6,7 @@
 //
 //   app 22 ─ pad 8 ─► panel 14 ─ pad 6 ─► row 8 ─ pad 4 ─► chip 4
 
+import { KITCHEN_CSS, KITCHEN_HTML, KITCHEN_JS } from "./kitchen";
 import { renderMarkdown } from "./markdown";
 import { EXTRAS } from "../../web/src/avatars";
 
@@ -545,7 +546,7 @@ body.plain .pp .pbtn.dng{color:#cf222e}body.plain .pp .pbtn.dng.arm{background:#
 
 .bowl .bball{position:absolute;left:0;top:0;width:64px;height:64px;transform-origin:32px 40px;pointer-events:none;will-change:transform}.bowl .bball .av{cursor:default}.bowl .bball .dot{display:none}
 .bowl .bres{position:absolute;left:50%;top:12px;transform:translate(-50%,-6px);padding:4px 12px;border-radius:999px;font:600 12px var(--body);color:#fff;background:rgba(12,12,18,.7);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);opacity:0;transition:opacity .3s,transform .3s;pointer-events:none}.bowl .bres.on{opacity:1;transform:translate(-50%,0)}.bowl .bres.strike{color:#04120a;background:#6ee7a0;animation:glowp 1.6s ease-in-out infinite}
-</style></head><body><div id="tip" role="tooltip"></div>
+${KITCHEN_CSS}</style></head><body><div id="tip" role="tooltip"></div>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
 <radialGradient id="eye" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#cfd3e0"/></radialGradient>
@@ -553,7 +554,7 @@ body.plain .pp .pbtn.dng{color:#cf222e}body.plain .pp .pbtn.dng.arm{background:#
 <linearGradient id="gm" gradientUnits="userSpaceOnUse" x1="10" y1="0" x2="110" y2="0"><stop offset="0" stop-color="#a1a1b3"/><stop offset=".3" stop-color="#6ee7a0"/><stop offset=".65" stop-color="#38bdf8"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
 <radialGradient id="hub" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#8a90a6"/><stop offset="1" stop-color="#3a3f52"/></radialGradient>
 </defs></svg>
-<div class="app"><nav class="side" id="side"></nav><main class="main"><div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="newpill" id="newpill" data-act="tobottom">\u2193 New messages</div><div class="box" id="box"></div></main></div>
+<div class="app"><nav class="side" id="side"></nav><main class="main">${KITCHEN_HTML}<div class="hd" id="hd"></div><div id="meter"></div><div id="skills"></div><div id="roles"></div><div id="warns"></div><div class="feed" id="feed"></div><div class="newpill" id="newpill" data-act="tobottom">\u2193 New messages</div><div class="box" id="box"></div></main></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="dlg" id="dlg" hidden></div>
 <div id="drop" hidden><div class="dz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg><span id="dzt">Drop files to attach</span><small>up to 10 files, 25 MB each</small></div></div>
@@ -1077,4 +1078,5 @@ document.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Ente
 document.addEventListener("mousedown",e=>{const h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.drag;if(!h||e.button!==0||e.detail>1)return;
  if(e.target.closest('button,a,input,textarea,select,[data-act],[data-sel],[data-face],[data-msg],[data-opt],[data-mpick],[data-pick],[data-prs],[data-ctext],[data-grp],[draggable="true"],.bub,.cmenu,.dcard,.dz,.prpop,.rich,.swr,.led,.ml,.tl,.cb,.rc,.fc,.sg,.lbtn,.clip,.att,.obtn,.compose,#drop,.dlg'))return;h.postMessage(0)});
 load();setInterval(load,3000);
+${KITCHEN_JS}
 </script></body></html>`;

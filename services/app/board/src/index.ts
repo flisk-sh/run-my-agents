@@ -14,6 +14,7 @@ import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
+import { addTask, beltOrder, sendBack, installSkill, nextStage, PRIORITIES, readTasks, removeTask, STAGE_ROLES, STAGES, type Stage, skillState, updateTask } from "./tasks";
 
 /** The avatar for a session: always its role's own face and color (Code is blue, Design purple, ...). */
 export function faceOf(s: Session) {
@@ -36,6 +37,9 @@ const ROLE_CATS: Record<string, string[]> = {
 	Refactor: ["code", "test"],
 	Feature: ["code", "frontend", "test"],
 };
+
+/** The agent type a new order most likely needs, from its words. */
+const guessRoleForTitle = (title: string) => guessRole(title, []);
 
 /** Up to `n` skills for a role, Flisk's own first. */
 export function skillsFor(role: string, n = 8) {
@@ -344,7 +348,7 @@ const BUILD = Bun.hash(PAGE).toString(36);
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
+	deps: { fetch?: typeof fetch; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -682,6 +686,95 @@ export function createApp(
 				if (id) sending.delete(id);
 			});
 		return c.json({ started: true, id }, 202);
+	});
+	// The kitchen: orders on a belt, each cooked by one agent per stage. See src/tasks.ts.
+	const skillRef = (name: string) => SKILLS.find((k) => k.name === name);
+	const stock = (names: string[]) => {
+		for (const n of names) {
+			const k = skillRef(n);
+			if (k) void installSkill(k, deps.fetch);
+		}
+	};
+	app.get("/api/tasks", (c) =>
+		c.json({
+			stages: STAGES,
+			roles: STAGE_ROLES,
+			tasks: beltOrder(readTasks()).map((t) => ({ ...t, skills: t.skills.map((name) => ({ name, state: skillState(name) })) })),
+		}),
+	);
+	app.post("/api/tasks", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const b = (await c.req.json().catch(() => ({}))) as { title?: string; cwd?: string; priority?: string };
+		const title = String(b.title ?? "").trim();
+		if (!title) return c.json({ error: "Describe the order first." }, 400);
+		if (title.length > PROMPT_LIMIT) return c.json({ error: "That order is too long." }, 400);
+		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
+		// Ingredients: the top skills for the planner who specs it and the coder who builds it.
+		const route = guessRoleForTitle(title);
+		const skills = [...new Set([...skillsFor("Planner", 1), ...skillsFor(route, 2)].map((k) => k.name))];
+		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route });
+		stock(skills);
+		return c.json(t, 201);
+	});
+	app.post("/api/tasks/move", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const b = (await c.req.json().catch(() => ({}))) as { id?: string; stage?: string; approved?: boolean; priority?: string };
+		if (b.stage && !(STAGES as readonly string[]).includes(b.stage)) return c.json({ error: "Unknown stage." }, 400);
+		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
+		const t = updateTask(String(b.id), {
+			...(b.stage ? { stage: b.stage as Stage, assignee: "", sentAt: 0 } : {}),
+			...(typeof b.approved === "boolean" ? { approved: b.approved } : {}),
+			...(b.priority ? { priority: b.priority as (typeof PRIORITIES)[number] } : {}),
+		});
+		return t ? c.json(t) : c.json({ error: "That order is gone." }, 404);
+	});
+	app.post("/api/tasks/drop", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id } = (await c.req.json().catch(() => ({}))) as { id?: string };
+		return removeTask(String(id)) ? c.json({ dropped: true }) : c.json({ error: "That order is gone." }, 404);
+	});
+	app.post("/api/tasks/skills", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id } = (await c.req.json().catch(() => ({}))) as { id?: string };
+		const t = readTasks().find((x) => x.id === id);
+		if (!t) return c.json({ error: "That order is gone." }, 404);
+		stock(t.skills);
+		return c.json({ installing: t.skills.filter((n) => skillState(n) !== "ok") }, 202);
+	});
+	// Hands an order to an agent: to the session you pick, or the first idle one whose type fits its stage.
+	app.post("/api/tasks/dispatch", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const b = (await c.req.json().catch(() => ({}))) as { id?: string; session?: string };
+		let t = readTasks().find((x) => x.id === b.id);
+		if (!t) return c.json({ error: "That order is gone." }, 404);
+		if (t.stage === "done") return c.json({ error: "That order is already served." }, 400);
+		if (t.stage === "inbox") t = updateTask(t.id, { stage: "spec" }) ?? t;
+		if (t.skills.some((n) => skillState(n) !== "ok")) {
+			stock(t.skills);
+			return c.json({ error: "Its skills are still installing." }, 409);
+		}
+		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== t.id).map((x) => x.assignee));
+		if (t.stuck) return c.json({ error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` }, 409);
+		// Routing: build goes to the type the order was routed to first, then any builder.
+		const fits = t.stage === "build" ? [t.route, ...STAGE_ROLES.build.filter((r) => r !== t.route)] : STAGE_ROLES[t.stage];
+		const all = read();
+		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !sending.has(x.id) && !appBusy(x) && (!t.cwd || x.cwd === t.cwd);
+		const s = b.session ? all.find((x) => x.id === b.session) : fits.map((r) => all.find((x) => x.role === r && free(x))).find(Boolean);
+		if (!s) return c.json({ error: `No idle ${fits[0]} agent. Start one, or drop the order on an agent.` }, 409);
+		const skillLine = t.skills.length ? `\n\nUse these skills: ${t.skills.map((n) => `/${n}`).join(", ")}.` : "";
+		const body = `Order #${t.n} (${t.stage}): ${t.title}${skillLine}\n\n${t.stage === "test" || t.stage === "review" ? "End with one line: PASS or FAIL and why." : `When this ${t.stage} step is finished, say so in one line.`}`;
+		const res = sendNow(s, { qid: randomUUID(), text: `#${t.n} ${t.stage}: ${t.title}`, body, dirs: [] });
+		if (res.status >= 400) return res;
+		return c.json(updateTask(t.id, { assignee: s.id, sentAt: Date.now() }), 202);
+	});
+	// The agent said it is done: the order moves on, and waits at the pass when it leaves Discovery.
+	app.post("/api/tasks/serve", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, pass } = (await c.req.json().catch(() => ({}))) as { id?: string; pass?: boolean };
+		const t = readTasks().find((x) => x.id === id);
+		if (!t) return c.json({ error: "That order is gone." }, 404);
+		if (pass === false && (t.stage === "test" || t.stage === "review")) return c.json(updateTask(t.id, { ...sendBack(t), assignee: "", sentAt: 0 }));
+		return c.json(updateTask(t.id, { stage: nextStage(t), assignee: "", sentAt: 0, stuck: false }));
 	});
 	app.get("/", (c) => c.html(PAGE));
 	return app;
