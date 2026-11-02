@@ -33,6 +33,8 @@ const lastSaid = (s: Session | undefined) => {
 
 const SETTINGS = new JsonStore<{ auto: boolean }>("kitchen.json");
 const settings = () => SETTINGS.read()[0] ?? { auto: true };
+/** The most agents the autoscaler runs per folder. */
+export const MAX_AGENTS = 3;
 const saveSettings = (v: { auto: boolean }) => SETTINGS.write([v]);
 
 export function mountKitchen(app: Hono, k: KitchenCtx) {
@@ -75,7 +77,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
 		if (podsOnly) {
 			if (pod) return { session: pod, why: "" };
-			return { why: boxes.length ? "Its container agents are busy. It goes to the first one that finishes." : `No agent container cooks ${order.stage === "inbox" ? "spec" : order.stage}. Add one on the Crew tab, or press Dispatch to use one of your chats.` };
+			return { why: boxes.length ? "Its container agents are busy. It goes to the first one that finishes." : `No agent container cooks ${order.stage === "inbox" ? "spec" : order.stage}. Add one on the Crew tab, or drop the order on an agent to use that chat.` };
 		}
 		const session = pod ?? fits.map((r) => all.find((x) => x.role === r && free(x))).find(Boolean) ?? all.find(free);
 		if (session) return { session, why: "" };
@@ -101,7 +103,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			tasks: beltOrder(readTasks()).map((t) => ({
 				...t,
 				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
-				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? "Waiting at the pass for your approval." : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t, settings().auto).why,
+				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? (settings().auto ? "Spec done: crossing the pass." : "Waiting at the pass for your approval.") : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t, settings().auto).why,
 			})),
 		}),
 	);
@@ -161,6 +163,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.atPass) return { status: 409, body: { error: `#${t.n} waits at the pass for your approval.` } };
 		if (t.stage === "inbox") t = updateTask(t.id, { stage: "spec" }) ?? t;
 		if (t.stuck) return { status: 409, body: { error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` } };
+		// Never hand the same step to two agents: the first one still has it.
+		if (t.assignee && t.assignee !== session) return { status: 409, body: { error: `#${t.n} is already with ${k.read().find((x) => x.id === t.assignee)?.role ?? "an agent"}.` } };
 		if (t.skills.some((n) => skillState(n) !== "ok")) {
 			stock(t.skills, k.fetch);
 			return { status: 409, body: { error: "Its skills are still installing." } };
@@ -211,13 +215,26 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	};
 
 	/**
-	 * Auto-dispatch, run by the server loop so orders move with no board page open: finished steps move on (test and
-	 * review by their PASS or FAIL), then every waiting order goes to the next free container agent. On by default.
+	 * Autopilot, run by the server loop so orders move with no board page open and no buttons: specs cross the pass,
+	 * stuck orders close as failed, the autoscaler sizes the containers, finished steps move on (test and review by
+	 * their PASS or FAIL), then every waiting order goes to the next free container agent. On by default.
 	 * Your own chats only get orders you dispatch by hand.
 	 */
 	function auto(now = Date.now()) {
 		if (!settings().auto) return [];
 		const did: string[] = [];
+		// Autopilot: a finished spec crosses the pass by itself, and an order stuck after MAX_ROUNDS is closed as
+		// failed (a gutter on the scoreboard) so it never blocks the belt.
+		for (const t of readTasks()) {
+			if (t.atPass) {
+				updateTask(t.id, { atPass: false, approved: true, stage: "build", assignee: "", sentAt: 0 });
+				did.push(`#${t.n} approved`);
+			} else if (t.stuck && t.stage !== "done") {
+				updateTask(t.id, { stage: "done", failed: true, assignee: "", sentAt: 0, servedAt: now });
+				did.push(`#${t.n} closed as failed`);
+			}
+		}
+		did.push(...autoscale());
 		const all = k.read();
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
@@ -237,11 +254,44 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		return did;
 	}
 
+	/**
+	 * The autoscaler, like a Kubernetes HorizontalPodAutoscaler for agents. Per folder with waiting orders: no
+	 * container that cooks them means one is created; every agent busy means one more, up to MAX_AGENTS; no orders
+	 * left means back down to one. Containers you made by hand are scaled too, but never deleted.
+	 */
+	function autoscale() {
+		const did: string[] = [];
+		const tasks = readTasks();
+		const open = tasks.filter((t) => t.stage !== "done" && !t.stuck);
+		const folders = new Set([...open.map((t) => t.cwd), ...readContainers().map((x) => x.cwd)]);
+		for (const cwd of folders) {
+			if (!cwd) continue;
+			const here = open.filter((t) => t.cwd === cwd);
+			const waiting = here.filter((t) => !t.assignee && !t.atPass).length;
+			const working = here.filter((t) => t.assignee).length;
+			let box = readContainers().find((x) => x.cwd === cwd && x.stages.length >= 4) ?? readContainers().find((x) => x.cwd === cwd);
+			if (!box) {
+				if (!waiting) continue;
+				box = createContainer({ floor: 1, name: `Auto cooks · ${cwd.split("/").filter(Boolean).pop() ?? "folder"}`, role: "Code", stages: ["spec", "build", "test", "review"], replicas: 1, cwd, model: "", effort: "" });
+				stock(["spec", "build", "test", "review"].flatMap((st) => STAGE_SKILLS[st as Stage]), k.fetch);
+				did.push(`created ${box.name}`);
+				continue;
+			}
+			const floor = box.floor ?? box.replicas;
+			const want = Math.max(floor, 1, Math.min(MAX_AGENTS, working + waiting));
+			if (want !== box.replicas && (want > box.replicas || !here.length)) {
+				patchContainer(box.id, { replicas: want });
+				did.push(`${box.name}: ${box.replicas} → ${want} agents`);
+			}
+		}
+		return did;
+	}
+
 	app.post("/api/tasks/dispatch", async (c) => {
 		const no = guard(c);
 		if (no) return no;
 		const b = await body<{ id?: string; session?: string }>(c);
-		const r = dispatch(String(b.id), b.session);
+		const r = dispatch(String(b.id), b.session, true);
 		return c.json(r.body, r.status as 200);
 	});
 	app.post("/api/tasks/serve", async (c) => {
@@ -292,7 +342,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (no) return no;
 		const { id, replicas } = await body<{ id?: string; replicas?: number }>(c);
 		if (!Number.isFinite(replicas)) return c.json({ error: "Say how many agents." }, 400);
-		const box = patchContainer(String(id), { replicas: Number(replicas) });
+		const box = patchContainer(String(id), { replicas: Number(replicas), floor: Math.max(0, Math.min(10, Math.round(Number(replicas)))) });
 		if (!box) return c.json({ error: "That container is gone." }, 404);
 		tick();
 		return c.json(view(readContainers().find((x) => x.id === box.id) ?? box));

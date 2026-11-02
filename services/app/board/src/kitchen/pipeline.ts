@@ -42,6 +42,8 @@ export type Task = {
 	atPass?: boolean;
 	/** Agents that missed this order; it goes to someone else next. */
 	missedBy?: string[];
+	/** Closed by autopilot after too many FAILs: counts as a gutter, never as shipped work. */
+	failed?: boolean;
 	created: number;
 	updated: number;
 };
@@ -73,7 +75,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;

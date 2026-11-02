@@ -57,29 +57,33 @@ describe("orders", () => {
 		expect((await post("/api/tasks", { title: "x", priority: "P9" })).status).toBe(400);
 	});
 
-	it("dispatches to an idle agent of the right type and moves through the pass", async () => {
+	it("dispatches to the agent you name and moves through the pass", async () => {
 		const sent: string[] = [];
 		const planner = session("p", "Planner", "plan things");
 		const coder = session("c", "Code", "code things");
 		const { post } = app([planner, coder], sent);
 		const t = (await post("/api/tasks", { title: "add search filters" })).body;
 		await Bun.sleep(5);
-		const d = await post("/api/tasks/dispatch", { id: t.id });
+		const d = await post("/api/tasks/dispatch", { id: t.id, session: "p" });
 		expect(d.status).toBe(202);
 		expect(d.body).toMatchObject({ stage: "spec", assignee: "p" });
 		expect(sent[0]).toContain("Order #1 (spec): add search filters");
 		// The spec waits at the pass until approved.
 		expect((await post("/api/tasks/serve", { id: t.id })).body.stage).toBe("spec");
 		await post("/api/tasks/move", { id: t.id, approved: true, stage: "build" });
-		const b = await post("/api/tasks/dispatch", { id: t.id });
+		const b = await post("/api/tasks/dispatch", { id: t.id, session: "c" });
 		expect(b.body).toMatchObject({ stage: "build", assignee: "c" });
 		expect(b.body.crew).toMatchObject({ spec: { id: "p", role: "Planner" }, build: { id: "c", role: "Code" } });
 	});
 
-	it("gives an order to any idle agent when no type fits, and says why one waits", async () => {
+	it("only sends an order to a chat you name yourself, and says why one waits", async () => {
 		const { a, post } = app([session("c", "Code", "x")]);
 		writeFileSync(join(process.env.RUN_MY_AGENTS_DIR as string, "tasks.json"), JSON.stringify([{ id: "t", n: 1, title: "x", cwd: "", priority: "P1", stage: "spec", assignee: "", sentAt: 0, approved: false, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
-		expect((await post("/api/tasks/dispatch", { id: "t" })).body).toMatchObject({ assignee: "c", model: "opus", effort: "medium" });
+		// Pressing Dispatch never picks one of your chats: name the agent (drop the ticket on it) to use one.
+		expect((await post("/api/tasks/dispatch", { id: "t" })).body.error).toContain("No agent container cooks spec");
+		expect((await post("/api/tasks/dispatch", { id: "t", session: "c" })).body).toMatchObject({ assignee: "c", model: "opus", effort: "medium" });
+		// It is already with that agent, so a second press does not send it again.
+		expect((await post("/api/tasks/dispatch", { id: "t", session: "other" })).body.error).toContain("already with Code");
 		writeFileSync(join(process.env.RUN_MY_AGENTS_DIR as string, "tasks.json"), JSON.stringify([{ id: "t", n: 1, title: "x", cwd: "", priority: "P1", stage: "inbox", assignee: "", sentAt: 0, approved: false, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }, { id: "u", n: 2, title: "y", cwd: "", priority: "P1", stage: "build", assignee: "c", sentAt: 1, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
 		const list = await (await a.request("/api/tasks")).json();
 		expect(list.tasks.find((t: { id: string }) => t.id === "t").why).toContain("No agent container cooks spec");

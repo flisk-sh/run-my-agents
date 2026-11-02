@@ -86,7 +86,7 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
 			else r.steps += 1;
 		}
 		const crew = new Set(Object.values(t.crew ?? {}).map((c) => c?.id));
-		if (t.stage === "done") for (const id of crew) if (id) by.get(id)!.served += 1;
+		if (t.stage === "done" && !t.failed) for (const id of crew) if (id) by.get(id)!.served += 1;
 		const builder = t.crew?.build;
 		if (builder) {
 			get(builder).fails += t.rounds;

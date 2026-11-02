@@ -26,6 +26,8 @@ export type Container = {
 	role: string;
 	stages: Stage[];
 	replicas: number;
+	/** The size you chose: the autoscaler adds agents above it but never goes below it. */
+	floor?: number;
 	agent: "claude";
 	model: string;
 	effort: string;
@@ -61,6 +63,7 @@ export function createContainer(c: Partial<Container> & { name: string; role: st
 		role: c.role,
 		stages: c.stages,
 		replicas: Math.max(0, Math.min(10, c.replicas ?? 1)),
+		floor: Math.max(0, Math.min(10, c.floor ?? c.replicas ?? 1)),
 		agent: "claude",
 		model: c.model ?? "",
 		effort: c.effort ?? "",
@@ -76,7 +79,7 @@ export function createContainer(c: Partial<Container> & { name: string; role: st
 	return box;
 }
 
-export function patchContainer(id: string, patch: Partial<Pick<Container, "replicas" | "model" | "effort" | "skills" | "maxStrikes" | "missMinutes" | "name">>) {
+export function patchContainer(id: string, patch: Partial<Pick<Container, "replicas" | "floor" | "model" | "effort" | "skills" | "maxStrikes" | "missMinutes" | "name">>) {
 	return store.update((all) => {
 		const c = all.find((x) => x.id === id);
 		if (!c) return undefined;
@@ -136,8 +139,13 @@ export type ReconcileCtx = {
 	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string }) => void;
 	/** Moves a fired agent to Closed on the board. */
 	close: (id: string) => void;
+	/** Names a pod on the board, so a container's agents are told apart from your own chats. */
+	name: (id: string, label: string) => void;
 	now?: number;
 };
+
+/** What a pod is called on the board and on the scoreboard: its container and a short id. */
+export const podName = (c: Pick<Container, "name">, id: string) => `${c.name} ${id.slice(0, 4)}`;
 
 /** The first prompt a new pod gets: who it is, and the lessons it must read. */
 export function bootPrompt(c: Container) {
@@ -158,6 +166,7 @@ export function reconcile(ctx: ReconcileCtx) {
 				const s = seen.get(p.session);
 				if (s && !s.hidden && p.status === "starting") {
 					p.status = "ready";
+					ctx.name(p.session, podName(c, p.session));
 					did.push(`${c.name}: ${p.session.slice(0, 8)} ready`);
 				}
 				// Gone or closed by hand: a starting pod gets 10 minutes to show up.
@@ -177,6 +186,7 @@ export function reconcile(ctx: ReconcileCtx) {
 			for (let i = live(c).length; i < c.replicas; i++) {
 				const id = randomUUID();
 				c.pods.push({ session: id, status: "starting", strikes: 0, served: 0, started: now });
+				ctx.name(id, podName(c, id));
 				ctx.start({ agent: "claude", cwd: c.cwd, text: bootPrompt(c), model: c.model || "haiku", effort: c.effort || "low", id, role: c.role });
 				did.push(`${c.name}: started ${id.slice(0, 8)}`);
 			}

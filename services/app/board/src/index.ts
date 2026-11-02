@@ -676,6 +676,7 @@ export function createApp(
 		},
 		tune: (id, t) => setTune(id, t),
 		close: (id) => setHidden(id, true),
+		name: (id, label) => setName(id, label),
 		guessRole: (title) => guessRole(title, []),
 		sameOrigin,
 		fetch: deps.fetch,

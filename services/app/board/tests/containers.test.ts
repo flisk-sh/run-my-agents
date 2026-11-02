@@ -61,7 +61,7 @@ describe("model policy and skill sets", () => {
 	it("dispatches a build step on haiku/low with the stage's skills", async () => {
 		const { post, sent } = setup([session("c", "Code")]);
 		order({});
-		const r = await post("/api/tasks/dispatch", { id: "t" });
+		const r = await post("/api/tasks/dispatch", { id: "t", session: "c" });
 		expect(r.body).toMatchObject({ assignee: "c", model: "haiku", effort: "low" });
 		expect(sent[0]).toContain("/focused-fix");
 	});
@@ -137,7 +137,7 @@ describe("agent containers", () => {
 });
 
 describe("auto-dispatch on the server", () => {
-	it("is on by default, sends waiting orders to container agents only, moves finished steps, and holds a spec at the pass", async () => {
+	it("is on by default, sends waiting orders to container agents only, moves finished steps, and approves the spec itself", async () => {
 		const chat = { ...session("my-chat", "Planner"), updatedAt: Date.now() - 60_000 };
 		const sessions: Session[] = [chat];
 		const { app, post, sent, started } = setup(sessions);
@@ -159,13 +159,36 @@ describe("auto-dispatch on the server", () => {
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, sentAt: Date.now() - 60_000 }]));
 		cook.updatedAt = Date.now() - 20_000;
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 spec done"]);
-		const list = await (await app.request("/api/tasks")).json();
-		expect(list.tasks[0]).toMatchObject({ stage: "spec", atPass: true, assignee: "", why: "Waiting at the pass for your approval." });
-		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual([]);
-		// Approving lets it cross to build, and the next pass sends it to the cook again.
-		await post("/api/tasks/move", { id: "t", approved: true, stage: "build" });
-		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 sent"]);
+		// Autopilot: the next pass approves it at the pass and sends it on to build, no button needed.
+		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 approved", "#1 sent"]);
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "build", approved: true, assignee: cook.id });
 		expect((await post("/api/kitchen", { auto: false })).body).toEqual({ auto: false, did: [] });
 		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: false });
+	});
+});
+
+describe("autopilot", () => {
+	it("creates a container for a folder with waiting orders, scales up when busy, and back down when idle", async () => {
+		const { post, started } = setup([]);
+		order({ stage: "inbox", approved: false, cwd: "/work/app" });
+		const r = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(r).toContain("created Auto cooks · app");
+		expect(readContainers()[0]).toMatchObject({ cwd: "/work/app", replicas: 1, stages: ["spec", "build", "test", "review"] });
+		await post("/api/containers/reconcile", {});
+		expect(started.length).toBe(1);
+		// Three more orders wait: it scales to the 3-agent cap.
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1 }))));
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Auto cooks · app: 1 → 3 agents");
+		// All served: back to one.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1, stage: "done" }))));
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Auto cooks · app: 3 → 1 agents");
+	});
+
+	it("closes a stuck order as failed so it never blocks the belt", async () => {
+		const { post } = setup([]);
+		order({ stage: "test", stuck: true, rounds: 3 });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 closed as failed");
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "done", failed: true });
 	});
 });
