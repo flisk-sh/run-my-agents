@@ -7,9 +7,9 @@
 //   session B edits again  ──► allowed (a warning, not a lock)
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 const DIR = process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
 const FILE = join(DIR, "claims.json");
@@ -51,6 +51,23 @@ function lock() {
   }
 }
 
+/**
+ * The key a claim is stored under. Two sessions can reach one file through a symlinked folder, or with a different
+ * letter case on a case-insensitive disk (macOS), and must get the same key. The file may not exist yet (a Write
+ * that creates it), so fall back to the real path of its folder.
+ */
+function keyOf(file) {
+  try {
+    return realpathSync.native(file);
+  } catch {
+    try {
+      return join(realpathSync.native(dirname(file)), basename(file));
+    } catch {
+      return file;
+    }
+  }
+}
+
 function readJson(path, fallback) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -83,7 +100,7 @@ function main() {
   if (!session || !raw) return;
 
   const cwd = input.cwd || process.cwd();
-  const file = isAbsolute(raw) ? raw : resolve(cwd, raw);
+  const file = keyOf(isAbsolute(raw) ? raw : resolve(cwd, raw));
   const now = Date.now();
 
   mkdirSync(DIR, { recursive: true });

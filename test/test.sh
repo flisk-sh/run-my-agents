@@ -36,4 +36,14 @@ n=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.env.RUN_MY_AG
 [ "$n" = 20 ] || fail "20 parallel hooks should leave 20 claims, found $n"
 [ ! -e "$RUN_MY_AGENTS_DIR/claims.lock" ] || fail "the lock should be released"
 
-echo "PASS: 12 checks"
+# One file reached through a symlinked folder is the same file (#5).
+export RUN_MY_AGENTS_DIR=$(mktemp -d)
+real=$(mktemp -d); ln -s "$real" "$real-link"; : > "$real/sym.ts"
+symhook() { printf '{"session_id":"%s","cwd":"/tmp","tool_input":{"file_path":"%s"}}' "$1" "$2" | node "$here/hooks/check.mjs"; }
+[ -z "$(symhook sym1111 "$real/sym.ts")" ] || fail "first session on the real path should be allowed"
+out=$(symhook sym2222 "$real-link/sym.ts"); echo "$out" | grep -q '"deny"' || fail "the symlinked path is the same file and should warn"
+# A file that does not exist yet is keyed by its folder's real path.
+[ -z "$(symhook sym1111 "$real/new.ts")" ] || fail "a new file should be allowed for its first session"
+out=$(symhook sym2222 "$real-link/new.ts"); echo "$out" | grep -q '"deny"' || fail "a new file through a symlink should warn"
+
+echo "PASS: 16 checks"
