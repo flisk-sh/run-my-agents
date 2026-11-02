@@ -47,9 +47,13 @@ function main() {
   }
   const used = usage.used.toLocaleString("en-US");
   const max = limits.sessionTokens.toLocaleString("en-US");
-  const next = lower
-    ? `Tell the user to run /model ${lower} to continue on a cheaper model, then stop and wait.`
-    : "This is already the cheapest model. Tell the user, then stop and wait.";
+  // Said to the agent first: what to do with its own work, and how to tell its team, before what to tell the user.
+  const ask = lower ? `run /model ${lower} to continue on a cheaper model` : "raise the limit (this is already the cheapest model)";
+  const next =
+    "Start no new tool calls. End this turn with a short hand-off: what is done, what is left, and the next step, so the work can be picked up. " +
+    'If you are working on a kitchen order, end with ```kitchen\n{"blocked": "token limit"}\n``` so the order stops instead of waiting. ' +
+    `Then tell the user to ${ask}, and stop.\n` +
+    `run-my-agents-limit: ${JSON.stringify({ type: "token-limit", used: usage.used, limit: limits.sessionTokens, model: usage.model || null, next: lower || null, newSessionsMoved: Boolean(moved) })}`;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {

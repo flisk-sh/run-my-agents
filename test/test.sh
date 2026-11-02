@@ -22,6 +22,8 @@ out=$(hook bbbb2222); echo "$out" | grep -q '"deny"' || fail "second session sho
 echo "$out" | grep -q 'aaaa1111' || fail "the second warning should name the other session"
 echo "$out" | grep -q 'again' || fail "the second warning should say the other session edited it again"
 echo "$out" | grep -q 'claim drops' || fail "the warning should say when the other session's claim drops"
+echo "$out" | grep -q 'not a permission problem' || fail "the warning should tell the agent it is coordination, not a permission denial"
+echo "$out" | grep -q 'run-my-agents-claim: {\\"type\\":\\"claim\\"' || fail "the warning should carry the claim as data"
 [ -z "$(hook bbbb2222)" ] || fail "and B's deliberate retry still goes through"
 printf 'not json' | node "$here/hooks/check.mjs" || fail "bad input must not error"
 
@@ -67,7 +69,7 @@ big="$RUN_MY_AGENTS_DIR/big.jsonl"; small="$RUN_MY_AGENTS_DIR/small.jsonl"
 turn claude-opus-4-5 200 > "$big"; turn claude-opus-4-5 10 > "$small"
 limit() { printf '{"session_id":"%s","cwd":"%s","transcript_path":"%s","tool_name":"Bash"}' "$1" "$repo" "$2" | node "$here/hooks/limit.mjs"; }
 out=$(limit over1111 "$big")
-[ "$out" = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Run My Agents: this session used 200 tokens, over its limit of 100. Tell the user to run /model sonnet to continue on a cheaper model, then stop and wait."}}' ] || fail "over the limit: exact stop message, got $out"
+echo "$out" | grep -q '"deny"' && echo "$out" | grep -q 'used 200 tokens, over its limit of 100' && echo "$out" | grep -q 'Start no new tool calls' && echo "$out" | grep -q '{\\"blocked\\": \\"token limit\\"}' && echo "$out" | grep -q 'run /model sonnet' && echo "$out" | grep -q 'run-my-agents-limit: {\\"type\\":\\"token-limit\\",\\"used\\":200,\\"limit\\":100' || fail "over the limit: exact stop message, got $out"
 [ -z "$(limit over1111 "$big")" ] || fail "the same session is stopped only once"
 turn claude-sonnet-4-5 50 >> "$big"
 [ -z "$(limit over1111 "$big")" ] || fail "moving to a cheaper model must not stop the session a second time"

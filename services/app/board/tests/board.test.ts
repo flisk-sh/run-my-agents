@@ -381,9 +381,19 @@ describe("send", () => {
 		const { boardMode } = await import("../src/index");
 		expect(boardMode({ mode: "bypassPermissions" })).toBe("bypassPermissions");
 		expect(boardMode({ mode: "auto" })).toBe("auto");
-		expect(boardMode({ mode: "plan" })).toBe("acceptEdits");
+		// Plan mode is kept: the board never widens a session's own permissions.
+		expect(boardMode({ mode: "plan" })).toBe("plan");
+		expect(boardMode({ mode: "default" })).toBe("acceptEdits");
 		expect(boardMode({})).toBe("acceptEdits");
 		expect(boardMode({ mode: "bypassPermissions", tune: { mode: "default" } })).toBe("default");
+	});
+
+	it("resumes a session on its own model unless you picked one on the board", async () => {
+		const { boardModel } = await import("../src/index");
+		expect(boardModel({ agent: "claude", model: "claude-opus-5-5" })).toBe("claude-opus-5-5");
+		expect(boardModel({ agent: "claude", model: "claude-opus-5-5", tune: { model: "haiku" } })).toBe("haiku");
+		expect(boardModel({ agent: "claude", model: "<synthetic>" })).toBeUndefined();
+		expect(boardModel({ agent: "codex", model: "gpt-6" })).toBeUndefined();
 	});
 
 	it("puts the prompt on stdin, not in the command line", async () => {

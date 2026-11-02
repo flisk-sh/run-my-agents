@@ -100,9 +100,14 @@ export function workDirs(s: Session): string[] {
  */
 export function boardMode(s: Pick<Session, "tune" | "mode">): string {
 	if (s.tune?.mode) return s.tune.mode;
-	if (s.mode && s.mode !== "plan" && s.mode !== "default") return s.mode;
+	// A session in plan mode stays in plan mode: a board message never widens what the session itself chose.
+	// "default" asks before each edit, which `claude -p` cannot do, so it runs in acceptEdits, the nearest that works.
+	if (s.mode && s.mode !== "default") return s.mode;
 	return "acceptEdits";
 }
+
+/** The model a resumed turn runs on: the one you picked on the board, else the session's own last model. */
+export const boardModel = (s: Pick<Session, "tune" | "model" | "agent">): string | undefined => s.tune?.model || (s.agent === "claude" && /^claude-/.test(s.model ?? "") ? s.model : undefined);
 
 /**
  * Grok Build has no stdin prompt mode (`-p`/`--resume` want the text as an argument), so the same "never put the
@@ -137,7 +142,7 @@ export function sendToSession(s: Session, text: string, run = spawn, dirs: strin
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
-			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d]), ...(KITCHEN_CHAT.test(s.title ?? "") ? ["--allowedTools", ...KITCHEN_TOOLS] : [])]];
+			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(boardModel(s) ? ["--model", boardModel(s) as string] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d]), ...(KITCHEN_CHAT.test(s.title ?? "") ? ["--allowedTools", ...KITCHEN_TOOLS] : [])]];
 	return new Promise((resolve, reject) => {
 		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);

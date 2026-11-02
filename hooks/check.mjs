@@ -194,8 +194,12 @@ function main() {
     `Run My Agents: another Claude session (${other.session.slice(0, 8)}${where}, in ${other.cwd}) ` +
     `edited ${basename(file)} ${again ? "again since you were warned, " : ""}${ago(now - other.at)}. ` +
     `Its claim drops in ${drops} min, or when that session ends. ` +
-    "Your edit could overwrite its work. Read the file again first, or work on a different file. " +
-    "If you are sure, make the edit again and it will go through.";
+    "This is not a permission problem: it is a warning from the coordination hook, and the edit was not made. " +
+    "Your edit could overwrite its work. Read the file again first and redo your edit on top of what is there now, " +
+    "or work on a different file. If you are sure, make the edit again and it will go through. " +
+    "Say in your reply that this file is shared, so whoever reads it (a person or the kitchen) knows.\n" +
+    // The same facts as data, so an agent or the board does not have to parse the sentence above.
+    `run-my-agents-claim: ${JSON.stringify({ type: "claim", file, heldBy: other.session, branch: other.branch || null, cwd: other.cwd, editedMsAgo: now - other.at, dropsInMin: drops, again, retry: "allowed" })}`;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {

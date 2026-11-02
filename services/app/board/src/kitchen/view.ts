@@ -109,7 +109,7 @@ export const KITCHEN_HTML = String.raw`<div class="ktabs" id="ktabs"></div><div 
 
 export const KITCHEN_JS = String.raw`
 /* Who sent a "you" message in a chat: the kitchen sends orders, hand-offs and answers as the user, so name the real sender. */
-function kSender(t){t=String(t||"");let m=/^Order #\d+ \((\w+)\)/.exec(t);if(m){const st=m[1],prev={spec:"Intake",build:"Spec",test:"Build",review:"Test"}[st]||"Kitchen";return "Kitchen \u00b7 "+prev+" \u2192 "+(st[0].toUpperCase()+st.slice(1))}
+function kSender(t){t=String(t||"");const ev=/\x60{3}kitchen-message\n([\s\S]*?)\n\x60{3}\s*$/.exec(t);if(ev){try{const e=JSON.parse(ev[1]);if(e&&e.from&&e.type!=="order"){const k={order:"order",answer:"answer",policy:"policy",nudge:"nudge"}[e.type]||e.type;return (e.from==="Orchestrator"?"Orchestrator":"From "+e.from)+" \u00b7 #"+e.order+" "+k}}catch(_){}}let m=/^Order #\d+ \((\w+)\)/.exec(t);if(m){const st=m[1],prev={spec:"Intake",build:"Spec",test:"Build",review:"Test"}[st]||"Kitchen";return "Kitchen \u00b7 "+prev+" \u2192 "+(st[0].toUpperCase()+st.slice(1))}
  if(/^Ship order #/.test(t))return "Kitchen \u00b7 Review \u2192 Ship";if(/^Question #\d+ from the board/.test(t))return "Kitchen \u00b7 Front desk";
  if(/kitchen's orchestrator(, a program| answering for the user)/.test(t))return "Orchestrator";
  m=/^Question from the (\w+) agent on order #\d+/.exec(t);if(m)return "From "+m[1]+" (question)";

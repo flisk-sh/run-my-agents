@@ -18,11 +18,13 @@ export type StageRecord = {
 	verdict?: "PASS" | "FAIL";
 	evidence?: string;
 	handoff?: string;
+	/** The step cannot go on: a missing decision, a disagreement with the spec, a limit. The order stops with this. */
+	blocked?: string;
 };
 
 const BLOCK = /```kitchen[^\S\n]*\n([\s\S]*?)\n?```/g;
 
-/** The last well-formed `kitchen` block in a reply, or undefined when there is none. Ignores blocks with none of ask, verdict, or handoff. */
+/** The last well-formed `kitchen` block in a reply, or undefined when there is none. Ignores blocks with none of ask, verdict, handoff or blocked. */
 export function recordIn(text: string): StageRecord | undefined {
 	for (const m of [...String(text ?? "").matchAll(BLOCK)].reverse()) {
 		let raw: unknown;
@@ -41,8 +43,9 @@ export function recordIn(text: string): StageRecord | undefined {
 		if ((v === "PASS" || v === "FAIL") && !r.ask) r.verdict = v;
 		if (typeof o.evidence === "string" && o.evidence.trim()) r.evidence = o.evidence.trim().slice(0, 2000);
 		if (typeof o.handoff === "string" && o.handoff.trim()) r.handoff = o.handoff.trim();
-		// Ignore blocks that have none of ask, verdict, or handoff
-		if (r.ask || r.verdict || r.handoff) return r;
+		if (typeof o.blocked === "string" && o.blocked.trim()) r.blocked = o.blocked.trim().slice(0, 500);
+		// Ignore blocks that have none of ask, verdict, handoff or blocked
+		if (r.ask || r.verdict || r.handoff || r.blocked) return r;
 	}
 	return undefined;
 }
@@ -95,4 +98,37 @@ export function canAsk(from: string, to: AskStage, notes: Partial<Record<string,
 /** The only input of an asked stage's answer turn: its own record, not the asker's chat or its own session. */
 export function askInput(n: number, title: string, asker: string, to: string, record: string, question: string): string {
 	return `Order #${n}: ${title}\n\nYou answer for the ${to} stage of this order. Its record:\n${record}\n\nQuestion from the ${asker} agent: ${question}\n\nAnswer only from this record, in a few lines. If the record does not answer it, say so in one line starting with "Not in the record". Do not change any files.`;
+}
+
+/** What a kitchen message is, so the agent reading it does not have to guess from the prose. */
+export type MessageType = "order" | "answer" | "policy" | "nudge";
+export type Envelope = {
+	/** Who is speaking: "Orchestrator", or a stage's agent ("Spec") when it relays that stage's answer. */
+	from: string;
+	/** The stage agent it is for. */
+	to: string;
+	type: MessageType;
+	order: number;
+	stage: string;
+	/** The reply shape the orchestrator reads: a stage record, a verdict record, or nothing. */
+	expects: "record" | "verdict" | "none";
+	/** How the content was made, when not by `from` itself (an answer from a fresh turn on a stage's record). */
+	via?: string;
+};
+
+/**
+ * Every kitchen message ends with one `kitchen-message` block: who sends it, to whom, what it is and what reply it
+ * wants. The prose above it is for the model; the block is the part a program (the board, the next agent) can trust.
+ */
+export const envelope = (body: string, e: Envelope) => `${body}\n\n\`\`\`kitchen-message\n${JSON.stringify({ v: 1, ...e })}\n\`\`\``;
+
+/** The envelope at the end of a kitchen message, or undefined for a message a person wrote. */
+export function envelopeIn(text: string): (Envelope & { v: number }) | undefined {
+	const m = [...String(text ?? "").matchAll(/```kitchen-message\n([\s\S]*?)\n```/g)].at(-1);
+	try {
+		const e = m ? JSON.parse(m[1]) : undefined;
+		return e && typeof e === "object" && typeof e.type === "string" && typeof e.from === "string" ? e : undefined;
+	} catch {
+		return undefined;
+	}
 }

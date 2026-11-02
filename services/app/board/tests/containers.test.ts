@@ -973,6 +973,32 @@ describe("agent to agent", () => {
 		expect(tasks()[0].talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
 	});
 
+	it("stops an order whose agent says it is blocked, with its reason, instead of nudging it on", async () => {
+		const builder = agent("bld", "Build", 'The spec asks for two opposite things.\n```kitchen\n{"blocked": "spec says both keep and drop the cache"}\n```');
+		const { post, sent } = setup([builder]);
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 build blocked: spec says both keep and drop the cache");
+		expect(tasks()[0]).toMatchObject({ stuck: true, assignee: "" });
+		expect(tasks()[0].failures.at(-1)).toBe("build: blocked: spec says both keep and drop the cache");
+		expect(sent).toEqual([]);
+	});
+
+	it("ends every kitchen message with an envelope: who sends it, to whom, what it is, what reply it wants", async () => {
+		const builder = agent("bld", "Build", ask("test", "will the tests pass?"));
+		const { post, sent } = setup([builder]);
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		await post("/api/kitchen", { auto: true });
+		const { envelopeIn } = await import("../src/kitchen/protocol");
+		expect(envelopeIn(sent.at(-1) as string)).toEqual({ v: 1, from: "Orchestrator", to: "Build", type: "policy", order: 1, stage: "build", expects: "record" });
+		// A person's message has no envelope; a kitchen block (a record) is not one either.
+		expect(envelopeIn("please fix the tests")).toBeUndefined();
+		expect(envelopeIn('```kitchen\n{"verdict": "PASS"}\n```')).toBeUndefined();
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		const kSender = new Function(`${/function kSender\(t\)\{[\s\S]*?return "You"\}/.exec(KITCHEN_JS)?.[0]}; return kSender;`)() as (t: string) => string;
+		expect(kSender(sent.at(-1) as string)).toBe("Orchestrator · #1 policy");
+		expect(kSender('Answer\n```kitchen-message\n{"v":1,"from":"Spec","to":"Build","type":"answer","order":3,"stage":"build","expects":"record"}\n```')).toBe("From Spec · #3 answer");
+	});
+
 	it("does not ask a stage that has not run: the asker gets the policy, not a guess", async () => {
 		const builder = agent("bld", "Build", ask("test", "will the tests pass?"));
 		const { post, sent } = setup([builder]);

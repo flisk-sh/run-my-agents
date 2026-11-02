@@ -12,7 +12,7 @@ import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
 import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
-import { askInput, canAsk, handOffOf, recordIn, verdictIn, type AskStage } from "./protocol";
+import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
 import { kindOf, laneOf, needsWeb, quickMath, zachman, zachmanLines } from "./triage";
 import { haikuFit, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
@@ -72,7 +72,7 @@ export function failLine(text: string): string {
 export const MAX_ANSWERS = 2;
 /** Every kitchen message ends with who reads the reply, so agents stop writing to (and waiting on) a user. */
 export const ADDRESS =
-	"Your reply goes to the kitchen's orchestrator, a program, not a person: nobody will approve or answer in this chat. It reads only the fenced `kitchen` JSON block at the end of your reply. To ask the agent of an earlier stage of this order (one that already ran) one question, end with ```kitchen\n{\"ask\": {\"to\": \"spec\", \"question\": \"...\"}}\n``` and stop; the answer comes back as your next message. Test and Review end with ```kitchen\n{\"verdict\": \"PASS\" or \"FAIL\", \"evidence\": \"what you ran and what you got\"}\n```. Anything the next stage must read goes in your reply (or in \"handoff\"), not in a file outside the worktree.";
+	"Your reply goes to the kitchen's orchestrator, a program, not a person: nobody will approve or answer in this chat. It reads only the fenced `kitchen` JSON block at the end of your reply. To ask the agent of an earlier stage of this order (one that already ran) one question, end with ```kitchen\n{\"ask\": {\"to\": \"spec\", \"question\": \"...\"}}\n``` and stop; the answer comes back as your next message. Test and Review end with ```kitchen\n{\"verdict\": \"PASS\" or \"FAIL\", \"evidence\": \"what you ran and what you got\"}\n```. Anything the next stage must read goes in your reply (or in \"handoff\"), not in a file outside the worktree. If you cannot go on (a decision only a person can make, a spec you disagree with, a limit you hit), end with ```kitchen\n{\"blocked\": \"why\"}\n``` instead of asking: the order stops there and your reason is shown. Each message from the kitchen ends with a `kitchen-message` block saying who sent it, what it is, and what reply it expects; a message without one came from a person.";
 
 export { verdictIn };
 /** Questions one step's agent may send to other agents before it has to decide itself. */
@@ -357,6 +357,9 @@ const saveSettings = (v: Partial<Settings>) => SETTINGS.write([{ ...settings(), 
 
 export function mountKitchen(app: Hono, k: KitchenCtx) {
 	/** The Flisk kitchen agent, when one is set (KitchenCtx.agent, or agentUrl in kitchen.json). */
+	/** Sends a kitchen message with its envelope, from the orchestrator unless it relays a stage's answer. */
+	const post = (s: Session, title: string, body: string, t: Pick<Task, "n" | "stage">, type: MessageType, from = "Orchestrator", via?: string) =>
+		k.send(s, title, envelope(body, { from, to: STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage, type, order: t.n, stage: t.stage, expects: t.stage === "test" || t.stage === "review" ? "verdict" : "record", ...(via ? { via } : {}) }));
 	const agent = (): AgentCall | undefined => k.agent ?? (settings().agentUrl ? httpAgent(settings().agentUrl as string) : undefined);
 	/** Replies from Flisk agent turns, by assignee ("flisk:order-26-build"): what a chat's last message is for a session. */
 	const fliskReplies = new Map<string, string>();
@@ -604,7 +607,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
 				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
-		return text;
+		return order.kind === "question" ? text : envelope(text, { from: "Orchestrator", to: STAGE_TYPE[order.stage as keyof typeof STAGE_TYPE] ?? order.stage, type: "order", order: order.n, stage: order.stage, expects: verdict ? "verdict" : "record" });
 	}
 
 	function dispatch(id: string, session?: string, podsOnly = false): Out {
@@ -713,7 +716,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				const to = STAGE_TYPE[q.to];
 				const answer = canAsk(stage, q.to, cur.notes) ? await askStage(cur, q.to, q.question) : undefined;
 				updateTask(id, { asked: (cur.asked ?? 0) + 1, talk: [...(cur.talk ?? []), { at: Date.now(), from: asker, to, text: q.question.slice(0, 300) }, { at: Date.now(), from: answer ? to : "Orchestrator", to: asker, text: (answer ?? "not asked: that stage has no record").slice(0, 300) }].slice(-10) });
-				reply = await turn(sid, answer ? answerText(cur.n, q.to, q.question, answer) : cannotAsk(cur.n, q.to));
+				const env = { to: asker, order: cur.n, stage, expects: stage === "test" || stage === "review" ? ("verdict" as const) : ("record" as const) };
+				reply = await turn(sid, answer ? envelope(answerText(cur.n, q.to, q.question, answer), { ...env, from: to, type: "answer", via: `a fresh turn on the ${to} record` }) : envelope(cannotAsk(cur.n, q.to), { ...env, from: "Orchestrator", type: "policy" }));
 			}
 			// A build that changed nothing is asked once more, then fails; Test never gets an empty branch.
 			const wt = readTasks().find((x) => x.id === id)?.worktree;
@@ -753,6 +757,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		fliskReplies.set(who, reply);
 		const cur = readTasks().find((x) => x.id === id);
 		if (!cur || cur.assignee !== who) return;
+		const stop = recordIn(reply)?.blocked;
+		if (stop) {
+			updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur.failures ?? []), `${stage}: blocked: ${stop}`.slice(0, 300)].slice(-6), notes: { ...(cur.notes ?? {}), [stage]: handOffOf(reply) } });
+			return;
+		}
 		serve(id, stage === "test" || stage === "review" ? (verdictIn(reply) ?? false) : true);
 	}
 
@@ -930,7 +939,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				}
 				const text = got.answer ? answerText(t.n, w.stage as AskStage, w.question, got.answer) : `${cannotAsk(t.n, w.stage as AskStage)} (${got.error})`;
 				// The asker gets the answer, or the ask stays open and is delivered on the next pass.
-				if (!s || k.send(s, `#${t.n}: ${from} answered`, text).status >= 400) {
+				if (!s || post(s, `#${t.n}: ${from} answered`, text, t, "answer", got.answer ? from : "Orchestrator", got.answer ? `a fresh turn on the ${from} record` : undefined).status >= 400) {
 					did.push(`#${t.n} ${from} answer not delivered yet`);
 					continue;
 				}
@@ -940,6 +949,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				continue;
 			}
 			if (!finished(t, s, now)) continue;
+			// The agent said it cannot go on: the order stops with its reason, nobody nudges it to pretend otherwise.
+			const stop = s && !t.shipping ? recordIn(handOff(s))?.blocked : undefined;
+			if (stop) {
+				updateTask(t.id, { ...keep(t, s), stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), `${t.stage}: blocked: ${stop}`.slice(0, 300)].slice(-6) });
+				did.push(`#${t.n} ${t.stage} blocked: ${stop.slice(0, 60)}`);
+				continue;
+			}
 			// Agent to agent: the record's one ask goes to an earlier stage, answered by a fresh turn from that stage's record.
 			const q = s && !t.shipping ? recordIn(handOff(s))?.ask : undefined;
 			if (q && (t.asked ?? 0) < MAX_ASKS) {
@@ -950,7 +966,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					updateTask(t.id, { ...keep(t, s), asked: (t.asked ?? 0) + 1, waitingOn: { id: askId, stage: q.to, question: q.question, at: Date.now() }, talk });
 					startAsk(t, askId, q.to, q.question);
 					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.to]}`);
-				} else if (s && k.send(s, `#${t.n}: no ${STAGE_TYPE[q.to]} record`, cannotAsk(t.n, q.to)).status < 400) {
+				} else if (s && post(s, `#${t.n}: no ${STAGE_TYPE[q.to]} record`, cannotAsk(t.n, q.to), t, "policy").status < 400) {
 					updateTask(t.id, { ...keep(t, s), asked: (t.asked ?? 0) + 1, sentAt: Date.now(), talk });
 					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.to]}: no record to answer from, told to decide`);
 				}
@@ -959,7 +975,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// A build that left nothing in its worktree is not ready for Test: ask once more to make the change, then
 			// fail it, so Test is never handed an empty branch.
 			if (t.stage === "build" && !t.shipping && t.worktree && isDir(t.worktree) && !worktreeChanged(t.worktree, t.base)) {
-				if ((t.answered ?? 0) < MAX_ANSWERS && s && k.send(s, `#${t.n}: no changes`, NO_CHANGES).status < 400) {
+				if ((t.answered ?? 0) < MAX_ANSWERS && s && post(s, `#${t.n}: no changes`, NO_CHANGES, t, "nudge").status < 400) {
 					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} build left no changes: asked again`);
 				} else {
@@ -973,7 +989,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// worktree, then failed with the files named (#163).
 			const leaked = t.stage === "build" && !t.shipping && t.worktree ? leakedInto(t.cwd, t.baseDirty) : [];
 			if (leaked.length && t.worktree) {
-				if ((t.answered ?? 0) < MAX_ANSWERS && s && k.send(s, `#${t.n}: edits outside the worktree`, LEAKED(t.cwd, t.worktree, leaked)).status < 400) {
+				if ((t.answered ?? 0) < MAX_ANSWERS && s && post(s, `#${t.n}: edits outside the worktree`, LEAKED(t.cwd, t.worktree, leaked), t, "nudge").status < 400) {
 					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} build edited the shared checkout: asked to move it`);
 				} else {
@@ -984,7 +1000,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			}
 			// An agent that stopped to ask for approval gets the policy (decide or FAIL), never a "yes", at most twice per step.
 			if (s && asksBack(handOff(s), t) && (t.answered ?? 0) < MAX_ANSWERS) {
-				const res = k.send(s, `#${t.n}: orchestrator's policy`, DECIDE);
+				const res = post(s, `#${t.n}: orchestrator's policy`, DECIDE, t, "policy");
 				if (res.status < 400) {
 					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} answered ${t.stage} agent's question`);
@@ -994,7 +1010,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// A test or review agent that went quiet with no PASS or FAIL is asked once to finish; after that it counts as
 			// FAIL, so the order never waits forever.
 			if (!t.shipping && (t.stage === "test" || t.stage === "review") && verdictOf(s) === undefined && (t.answered ?? 0) < MAX_ANSWERS) {
-				if (s && k.send(s, `#${t.n}: no verdict`, NO_VERDICT).status < 400) {
+				if (s && post(s, `#${t.n}: no verdict`, NO_VERDICT, t, "nudge").status < 400) {
 					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} ${t.stage} gave no verdict: asked again`);
 					continue;
