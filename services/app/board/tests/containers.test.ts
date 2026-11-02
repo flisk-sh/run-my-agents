@@ -10,7 +10,8 @@ import { parseSession, type Session } from "../src/sessions";
 const now = Date.parse("2026-11-01T12:00:00Z");
 const session = (id: string, role: string) => {
 	const s = parseSession(id, [JSON.stringify({ type: "user", cwd: "/repo", message: { content: `${role} work` } })], now) as Session;
-	return { ...s, role, updatedAt: now };
+	// When the board last wrote to the chat is unknown here; tests that need it set asked themselves.
+	return { ...s, role, updatedAt: now, asked: undefined };
 };
 let dir = "";
 let skills = "";
@@ -853,7 +854,41 @@ describe("agent to agent", () => {
 		expect(sent.at(-1)).toContain("There is no Review agent on order #1 to ask");
 		const { ADDRESS, questionsIn } = await import("../src/kitchen/routes");
 		expect(ADDRESS).toContain("To Spec: <question>");
-		expect(questionsIn("**To Spec:** what is X?\nnot a question\nTo build: and Y")).toEqual([{ stage: "spec", question: "what is X?" }, { stage: "build", question: "and Y" }]);
+		expect(questionsIn("**To Spec:** what is X?\nnot a question\nTo Build: and Y?")).toEqual([{ stage: "spec", question: "what is X?" }, { stage: "build", question: "and Y?" }]);
+		// How to test or build the change is not a question for another agent.
+		expect(questionsIn("Build complete.\nTo test: run `bun test` in services/app/board\nTo build: make build")).toEqual([]);
+		expect(questionsIn("**To Test:**\n1. run bun test")).toEqual([]);
+	});
+
+	it("keeps what a step's agent said before the orchestrator answered it, so the next stage gets the whole hand-off", async () => {
+		const spec = agent("spc", "Spec", "## Spec\nGoal: add mean().\nChecks: mean([]) is 0.\n\nShall I proceed with this spec?");
+		const { post } = setup([spec]);
+		order({ kind: "task", stage: "spec", assignee: "spc", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 answered spec agent's question");
+		// It answers "Yes, go ahead" with one line; the spec it wrote before must still reach Build.
+		spec.feed = [...spec.feed, { who: "you", text: "Yes, go ahead.", at: 3 } as never, { who: "agent", text: "Spec is final.", at: 4 } as never];
+		spec.updatedAt = Date.now() - 10_000;
+		let t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, sentAt: Date.now() - 30_000 }]));
+		await post("/api/kitchen", { auto: true });
+		t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t.notes.spec).toContain("Goal: add mean().");
+		expect(t.notes.spec).toContain("Spec is final.");
+		expect(t.draft).toBeUndefined();
+	});
+
+	it("does not read a chat whose last message from the board is older than the order, as after a board restart", async () => {
+		// Order #27: the Spec chat was still on its start-up turn ("ready") when the order was sent.
+		const spec = { ...agent("spc", "Spec", "ready"), asked: Date.now() - 120_000 };
+		const { post } = setup([spec]);
+		order({ kind: "task", stage: "spec", assignee: "spc", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).not.toContain("#1 spec done");
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "spec", assignee: "spc" });
+		// The order lands and the agent replies: now its spec is read.
+		spec.asked = Date.now() - 50_000;
+		spec.feed = [...spec.feed, { who: "you", text: "Order #1 (spec)", at: 3 } as never, { who: "agent", text: "## Spec\nGoal: add mean().", at: 4 } as never];
+		await post("/api/kitchen", { auto: true });
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0].notes.spec).toBe("## Spec\nGoal: add mean().");
 	});
 });
 

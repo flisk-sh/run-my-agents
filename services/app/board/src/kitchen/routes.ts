@@ -73,9 +73,17 @@ export const MAX_ANSWERS = 2;
 export const ADDRESS =
 	"Your reply goes to the kitchen's orchestrator, not to a person. When you stop, it reads your last message and moves the order on. If you need something from another agent on this order, write a line `To Spec: <question>` (or Build, Test, Review); the orchestrator delivers it and brings the answer back to you. Do not ask the user anything; otherwise end with one clear result line.";
 
-/** "To Spec: …" lines in an agent's reply: questions for another stage's agent on the same order. */
+/**
+ * "To Spec: …?" lines in an agent's reply: questions for another stage's agent on the same order. The stage is
+ * capitalised and the line asks something, so "To test: run \`bun test\`" (how to test the change) and a "**To Test:**"
+ * heading are not questions: they sent Build a fake question and threw away its hand-off.
+ */
 export function questionsIn(text: string): { stage: "spec" | "build" | "test" | "review"; question: string }[] {
-	return [...text.matchAll(/^\s*[*_]*\s*To (Spec|Build|Test|Review)\s*[*_]*\s*:\s*[*_]*\s*(.+?)\s*[*_]*\s*$/gim)].map((m) => ({ stage: m[1].toLowerCase() as "spec", question: m[2].trim().slice(0, 1000) }));
+	return text
+		.split("\n")
+		.map((l) => /^[\s>*_-]*To (Spec|Build|Test|Review)[*_]*\s*:[\s*_]*(.+?)[\s*_]*$/.exec(l))
+		.filter((m): m is RegExpExecArray => !!m && m[2].includes("?"))
+		.map((m) => ({ stage: m[1].toLowerCase() as "spec", question: m[2].trim().slice(0, 1000) }));
 }
 /** Questions one step's agent may send to other agents before it has to decide itself. */
 export const MAX_ASKS = 2;
@@ -685,7 +693,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// Keep what this stage's agent handed on, so the next stages work from it instead of the title alone.
 		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
 			const said = replyOf(t?.assignee);
-			if (said) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: said } }) ?? t;
+			// What it said before the orchestrator wrote to it counts too: a Spec that ended "Shall I proceed?" handed
+			// Build only its answer to "Yes, go ahead" ("Spec is final.").
+			const all = [t.draft, said].filter(Boolean).join("\n\n").slice(-4000);
+			if (all) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: all }, draft: undefined }) ?? t;
 			// The Spec agent can move an order to the folder its code is in.
 			const moved = t.stage === "spec" ? folderHint(said) : t.stage === "build" ? elsewhere(said) : undefined;
 			if (moved && moved !== t.cwd && isDir(moved)) {
@@ -753,8 +764,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		return { status: 200, body: { ...updateTask(t.id, { stage: to, assignee: "", sentAt: 0, stuck: false, ...(to === "done" ? { servedAt: Date.now() } : {}) }) } };
 	}
 
-	/** An agent finished its step when it went quiet after the order was sent. */
-	const finished = (t: Task, s: Session | undefined, now: number) => !!s && t.sentAt > 0 && !k.busy(s) && s.updatedAt > t.sentAt + 1_000 && now - s.updatedAt > 3_000;
+	/**
+	 * An agent finished its step when it went quiet after the order was sent and the order is in its chat. Busy is only
+	 * known in memory, so after a board restart a chat still starting up looked finished: order #27's spec was read
+	 * as its start-up reply, "ready". The chat's last message from the board (asked) must be the one sent.
+	 */
+	const landed = (s: Session, at: number) => s.asked === undefined || s.asked >= at - 2_000;
+	const finished = (t: Task, s: Session | undefined, now: number) => !!s && t.sentAt > 0 && !k.busy(s) && landed(s, t.sentAt) && s.updatedAt > t.sentAt + 1_000 && now - s.updatedAt > 3_000;
+	/** Keeps what a step's agent said so far, before the orchestrator writes to it again. */
+	const keep = (t: Task, s: Session | undefined) => ({ draft: [t.draft, handOff(s)].filter(Boolean).join("\n\n").slice(-4000) || undefined });
 	const verdictOf = (s: Session | undefined) => verdictIn(handOff(s));
 
 	/**
@@ -797,7 +815,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (t.waitingOn) {
 				const w = t.waitingOn;
 				const target = all.find((x) => x.id === w.session);
-				const ready = target && !k.busy(target) && target.updatedAt > w.at + 1_000 && now - target.updatedAt > 3_000;
+				const ready = target && !k.busy(target) && landed(target, w.at) && target.updatedAt > w.at + 1_000 && now - target.updatedAt > 3_000;
 				const late = now - w.at > ASK_TIMEOUT_MS;
 				if (!ready && !late) continue;
 				const from = STAGE_TYPE[w.stage];
@@ -806,7 +824,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					? `Answer from the ${from} agent on order #${t.n} (to your question: ${w.question}):\n${answer}\n\nContinue your step.`
 					: `The ${from} agent did not answer in time. This is the kitchen's orchestrator: decide yourself from the spec you were given, and continue your step.`;
 				if (s) k.send(s, `#${t.n}: ${from} answered`, text);
-				updateTask(t.id, { waitingOn: undefined, sentAt: Date.now(), talk: [...(t.talk ?? []), { at: Date.now(), from: answer ? from : "Orchestrator", to: STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage, text: (answer || "no answer in time").slice(0, 300) }].slice(-10) });
+				updateTask(t.id, { ...keep(t, s), waitingOn: undefined, sentAt: Date.now(), talk: [...(t.talk ?? []), { at: Date.now(), from: answer ? from : "Orchestrator", to: STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage, text: (answer || "no answer in time").slice(0, 300) }].slice(-10) });
 				did.push(`#${t.n} ${answer ? `${from} answered` : `${from} did not answer`}`);
 				continue;
 			}
@@ -823,7 +841,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.stage]}`);
 				} else if (s) {
 					k.send(s, `#${t.n}: no ${STAGE_TYPE[q.stage]} agent`, `There is no ${STAGE_TYPE[q.stage]} agent on order #${t.n} to ask. This is the kitchen's orchestrator: decide yourself from the spec you were given, and continue your step.`);
-					updateTask(t.id, { asked: (t.asked ?? 0) + 1, sentAt: Date.now(), talk });
+					updateTask(t.id, { ...keep(t, s), asked: (t.asked ?? 0) + 1, sentAt: Date.now(), talk });
 					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.stage]}: no such agent, told to decide`);
 				}
 				continue;
@@ -832,7 +850,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// fail it, so Test is never handed an empty branch.
 			if (t.stage === "build" && !t.shipping && t.worktree && isDir(t.worktree) && !worktreeChanged(t.worktree, t.base)) {
 				if ((t.answered ?? 0) < MAX_ANSWERS && s && k.send(s, `#${t.n}: no changes`, NO_CHANGES).status < 400) {
-					updateTask(t.id, { answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
+					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} build left no changes: asked again`);
 				} else {
 					const why = `build: no changes made in the worktree. ${failLine(handOff(s)) || handOff(s).split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
@@ -845,7 +863,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (s && asksBack(handOff(s), t) && (t.answered ?? 0) < MAX_ANSWERS) {
 				const res = k.send(s, `#${t.n}: orchestrator's answer`, ORCHESTRATOR_ANSWER);
 				if (res.status < 400) {
-					updateTask(t.id, { answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
+					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} answered ${t.stage} agent's question`);
 					continue;
 				}
@@ -854,7 +872,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// FAIL, so the order never waits forever.
 			if (!t.shipping && (t.stage === "test" || t.stage === "review") && verdictOf(s) === undefined && (t.answered ?? 0) < MAX_ANSWERS) {
 				if (s && k.send(s, `#${t.n}: no verdict`, NO_VERDICT).status < 400) {
-					updateTask(t.id, { answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
+					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} ${t.stage} gave no verdict: asked again`);
 					continue;
 				}
