@@ -50,9 +50,8 @@ export function head(base: string, page: PageMeta): string {
 		page.noindex
 			? '<meta name="robots" content="noindex">'
 			: '<meta name="robots" content="index,follow,max-image-preview:large">',
-		`<meta name="theme-color" content="${SITE.themeColor.light}" media="(prefers-color-scheme: light)">`,
-		`<meta name="theme-color" content="${SITE.themeColor.dark}" media="(prefers-color-scheme: dark)">`,
-		'<meta name="color-scheme" content="light dark">',
+		`<meta name="theme-color" content="${SITE.themeColor.dark}">`,
+		'<meta name="color-scheme" content="dark">',
 		`<link rel="icon" href="${root}/${ICONS.ico}" sizes="32x32">`,
 		`<link rel="icon" href="${root}/${ICONS.svg}" type="image/svg+xml">`,
 		`<link rel="apple-touch-icon" href="${root}/${ICONS.apple}">`,
@@ -190,8 +189,8 @@ export function webManifest(base: string): string {
 			start_url: `${root}/`,
 			scope: `${root}/`,
 			display: "standalone",
-			background_color: SITE.themeColor.light,
-			theme_color: SITE.themeColor.light,
+			background_color: SITE.themeColor.dark,
+			theme_color: SITE.themeColor.dark,
 			icons: [
 				{ src: `${root}/${ICONS.png192}`, sizes: "192x192", type: "image/png" },
 				{ src: `${root}/${ICONS.png512}`, sizes: "512x512", type: "image/png" },

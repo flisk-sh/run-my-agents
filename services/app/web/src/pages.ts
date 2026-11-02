@@ -8,7 +8,6 @@ import { SITE } from "./site";
 
 const STYLE = `
 :root{color-scheme:dark;--bg:${SITE.themeColor.dark};--glow:rgba(34,197,94,.07);--surface:#111117;--text:#ececf1;--muted:rgba(236,236,241,.7);--faint:rgba(236,236,241,.48);--line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.2);--accent:#22c55e;--accent-text:#6ee7a0;--accent-tint:rgba(34,197,94,.12);--warn:#f59e0b;--shadow:0 18px 50px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4);--body:"Satoshi","DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
-@media (prefers-color-scheme:light){:root{color-scheme:light;--bg:${SITE.themeColor.light};--glow:rgba(34,197,94,.08);--surface:#fff;--text:#16161a;--muted:#52525b;--faint:#71717a;--line:rgba(0,0,0,.09);--line-strong:rgba(0,0,0,.22);--accent-text:#15803d;--accent-tint:rgba(34,197,94,.1);--warn:#b45309;--shadow:0 18px 50px rgba(0,0,0,.16),0 2px 8px rgba(0,0,0,.08)}}
 *{box-sizing:border-box}
 fieldset{border:0;margin:0;padding:0;min-width:0}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
