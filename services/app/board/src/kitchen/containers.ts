@@ -5,7 +5,7 @@
 // and the loop starts a fresh agent that reads those lessons.
 import { randomUUID } from "node:crypto";
 import type { Stage } from "./pipeline";
-import { lessonsSkill, skillInstalled, writeLessons } from "./skills";
+import { lessonsSkill, matchSkills, SKILLS, STAGE_SKILLS, skillInstalled, writeLessons } from "./skills";
 import { JsonStore } from "./store";
 
 /**
@@ -34,7 +34,31 @@ export type Pod = {
 	evictedAt?: number;
 	/** The order it is working on: a different order gets a fresh chat. */
 	lastOrder?: string;
+	/** Skills its container gained when it was fired, so the agent after it starts better equipped. */
+	gained?: string[];
 };
+
+/**
+ * Skills a container gains when it fires an agent, on top of catalog skills that fit why it failed: a Build agent
+ * fired for failing tests gets a checking and a debugging skill it did not have. Its own stage set is never repeated.
+ */
+export const FIRE_SKILLS: Partial<Record<Stage, string[]>> = {
+	spec: ["tdd"],
+	build: ["verification-loop", "systematic-debugging"],
+	test: ["systematic-debugging", "tdd"],
+	review: ["verification-loop", "systematic-debugging"],
+};
+
+/** The last lessons every container sharing this lessons key learned, oldest first, for an agent's order. */
+export function lessonsFor(key: string, n = 5): string[] {
+	return readContainers()
+		.filter((c) => lessonsKeyOf(c) === key)
+		.flatMap((c) => c.lessons)
+		.filter((l) => isLesson(l.reason))
+		.sort((a, b) => a.at - b.at)
+		.slice(-n)
+		.map((l) => `${l.order}: ${l.reason.replace(/\s+/g, " ").slice(0, 300)}`);
+}
 
 export type Container = {
 	id: string;
@@ -168,7 +192,7 @@ export const podOf = (session: string) => {
  * Gives a pod a strike for a failed or missed order. At maxStrikes it is fired: the reason becomes a lesson in the
  * container's skill, and the next reconcile replaces it. Returns the pod's new state.
  */
-export function strike(session: string, order: string, reason: string): { container: string; pod: Pod; fired: boolean } | undefined {
+export function strike(session: string, order: string, reason: string): { container: string; pod: Pod; fired: boolean; gained: string[] } | undefined {
 	return store.update((all) => {
 		for (const c of all) {
 			const p = c.pods.find((x) => x.session === session && x.status !== "evicted");
@@ -178,9 +202,21 @@ export function strike(session: string, order: string, reason: string): { contai
 			// refuse more, so they count as a strike but are not kept as lessons.
 			if (isLesson(reason)) c.lessons.push({ at: Date.now(), order, reason });
 			const fired = p.strikes >= c.maxStrikes;
-			if (fired) Object.assign(p, { status: "evicted", reason: `${p.strikes} strikes. Last: ${reason}`.slice(0, 300), evictedAt: Date.now() });
+			let gained: string[] = [];
+			if (fired) {
+				Object.assign(p, { status: "evicted", reason: `${p.strikes} strikes. Last: ${reason}`.slice(0, 300), evictedAt: Date.now() });
+				// The agent that replaces it starts with more skills than it had: its stage's fallbacks plus catalog skills
+				// that fit what went wrong.
+				const own = new Set(c.stages.flatMap((st) => STAGE_SKILLS[st]));
+				const why = [...c.lessons.slice(-c.maxStrikes).map((l) => l.reason), reason].join("\n");
+				gained = [...new Set([...c.stages.flatMap((st) => FIRE_SKILLS[st] ?? []), ...matchSkills(why, 2).map((s) => s.name)])]
+					.filter((n) => !own.has(n) && !c.skills.includes(n) && SKILLS.some((s) => s.name === n))
+					.slice(0, 3);
+				c.skills = [...c.skills, ...gained];
+				p.gained = gained;
+			}
 			writeShared(all, lessonsKeyOf(c), c.lessonsKey ? c.role : c.name);
-			return { container: c.id, pod: { ...p }, fired };
+			return { container: c.id, pod: { ...p }, fired, gained };
 		}
 		return undefined;
 	});

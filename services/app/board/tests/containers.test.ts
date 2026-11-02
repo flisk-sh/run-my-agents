@@ -116,6 +116,48 @@ describe("agent containers", () => {
 		expect(readContainers()[0].pods.find((p) => p.session === pod)?.status).toBe("evicted");
 	});
 
+	it("gives the agent that replaces a fired one the lessons in its order and skills the fired one did not have", async () => {
+		const sessions: Session[] = [];
+		const { post, started, sent } = setup(sessions);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo", maxStrikes: 2 });
+		await post("/api/containers/reconcile", {});
+		const first = started[0].id as string;
+		const tester = (reason: string) => ({ ...session("tester", "Test"), feed: [{ who: "you", text: "Order", at: 1 } as never, { who: "agent", text: reason, at: 2 } as never] });
+		sessions.push(session(first, "Build"));
+		await post("/api/containers/reconcile", {});
+		const before = readContainers()[0].skills;
+		// Two orders fail in test: the Build agent is fired.
+		sessions.push(tester("FAIL: mean([]) returns NaN, the empty list is not handled."));
+		order({ stage: "test", assignee: "tester", sentAt: 1, crew: { build: { id: first, role: "Build", name: "x" } } });
+		await post("/api/tasks/serve", { id: "t", pass: false });
+		sessions.splice(sessions.findIndex((x) => x.id === "tester"), 1, tester("FAIL: range(1,3) gives [1,2], the loop end is off by one."));
+		order({ stage: "test", assignee: "tester", sentAt: 1, rounds: 1, crew: { build: { id: first, role: "Build", name: "x" } } });
+		expect((await post("/api/tasks/serve", { id: "t", pass: false })).body.fired).toBe(true);
+		// More skills: the container gained skills its stage set and the fired agent did not have, and installs them.
+		const box = readContainers()[0];
+		const gained = box.pods.find((p) => p.session === first)?.gained ?? [];
+		expect(gained.length).toBeGreaterThan(0);
+		expect(gained).toContain("verification-loop");
+		for (const n of gained) expect(before).not.toContain(n);
+		expect(box.skills).toEqual(expect.arrayContaining(gained));
+		await Bun.sleep(10);
+		for (const n of gained) expect(existsSync(join(skills, n, "SKILL.md"))).toBe(true);
+		// A new agent spins up in its place.
+		await post("/api/containers/reconcile", {});
+		expect(started).toHaveLength(2);
+		const second = started[1].id as string;
+		sessions.push({ ...session(second, "Build"), updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
+		// More knowledge: its next order spells out what got the last agent fired, and lists the new skills.
+		order({ n: 2, title: "add median()", stage: "build", cwd: "/repo", kind: "task" });
+		expect((await post("/api/tasks/dispatch", { id: "t" })).body.assignee).toBe(second);
+		const text = sent.at(-1) as string;
+		expect(text).toContain("Lessons from agents this container fired");
+		expect(text).toContain("mean([]) returns NaN");
+		expect(text).toContain("the loop end is off by one");
+		for (const n of gained) expect(text).toContain(`/${n}`);
+	});
+
 	it("counts an order a pod sat on past its miss time as a strike, and puts it back on the belt", async () => {
 		const sessions: Session[] = [];
 		const { post, started } = setup(sessions);

@@ -8,7 +8,7 @@ import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
-import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
+import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
@@ -354,6 +354,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const inFlight = new Set<string>();
 	const replyOf = (id: string | undefined) => (id && fliskReplies.has(id) ? (fliskReplies.get(id) as string) : handOff(k.read().find((x) => x.id === id)));
 	const guard = (c: Context) => (k.sameOrigin(c) ? undefined : c.json({ error: "Send JSON from the board." }, 403));
+	/** A strike on a pod; when it fires the pod, the skills its container gained are installed for the next agent. */
+	const strike = (session: string, order: string, reason: string) => {
+		const r = strikePod(session, order, reason);
+		if (r?.gained.length) stock(r.gained, k.fetch);
+		return r;
+	};
 	const tick = () => {
 		missed();
 		auto();
@@ -560,7 +566,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * an idle agent (see pick). The step runs on the model policy (the container's own model if it set one).
 	 */
 	/** The message an order's stage agent gets: the order, its card, what earlier stages handed on, its job, its skills. */
-	function orderText(order: Task, use: string[], wt: string | undefined): string {
+	function orderText(order: Task, use: string[], wt: string | undefined, learned: string[] = []): string {
 		const verdict = order.stage === "test" || order.stage === "review";
 		const card = order.zachman ? `\n\n${zachmanLines(order.zachman)}` : "";
 		const handed = (["spec", "build", "test"] as const)
@@ -571,11 +577,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const lastTime = order.retryOf
 			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
 			: "";
+		// What got earlier agents in this container fired, in the order itself: a new agent must not need to open the
+		// lessons skill to know it.
+		const known = learned.length ? `\n\nLessons from agents this container fired. Do not repeat these mistakes:\n${learned.map((l) => `- ${l}`).join("\n")}` : "";
 		const fresh = order.requeued ? `\n\nThis order was requeued: treat it as new. Earlier verdicts or rejections of #${order.n} do not apply.` : "";
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 		return text;
 	}
 
@@ -608,7 +617,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
 		// Kept from the first build round: a retry after a leak must still see the leak.
 		if (wt && order.stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
-		const text = orderText(order, use, wt);
+		const text = orderText(order, use, wt, box ? lessonsFor(lessonsKeyOf(box)) : []);
 		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
 		if (box && order.skills.length) injectSkills(box.id, order.skills);
 		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
