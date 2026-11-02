@@ -1,4 +1,6 @@
 // Routes: the home and about pages, the SEO files and icons, the install steps as JSON and over MCP.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Hono } from "hono";
 import { ASSETS } from "./assets.generated";
 import {
@@ -123,6 +125,9 @@ export function createApp(options: AppOptions = {}) {
 			"content-type": "application/manifest+json",
 		}),
 	);
+	// The board preview on the home page, read once from next to this file.
+	const preview = readFileSync(join(import.meta.dir, "preview.gif"));
+	app.get("/preview.gif", (c) => c.body(preview as unknown as Uint8Array<ArrayBuffer>, 200, { "content-type": "image/gif", "cache-control": "public, max-age=86400" }));
 	app.get("/.well-known/security.txt", (c) => c.text(securityTxt(baseOf(c))));
 	for (const [name, file] of files)
 		app.get(`/${name}`, (c) =>

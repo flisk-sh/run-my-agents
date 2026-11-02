@@ -1,7 +1,7 @@
 // The pages, rendered on the server with no JavaScript (the Content-Security-Policy allows none): home, about with
 // the FAQ, and not found. Each one passes its own PageMeta to head(), which writes every SEO tag. The look is the
 // roadmap.flisk.si one: dark first, Satoshi and JetBrains Mono when installed, one green accent.
-import { AGENTS, avatar } from "./avatars";
+import { type Agent, AGENTS, avatar } from "./avatars";
 import { installSteps } from "./install";
 import { esc, faqJsonLd, head, type PageMeta } from "./seo";
 import { SITE } from "./site";
@@ -10,6 +10,8 @@ const STYLE = `
 :root{color-scheme:dark;--bg:${SITE.themeColor.dark};--glow:rgba(34,197,94,.07);--surface:#111117;--text:#ececf1;--muted:rgba(236,236,241,.7);--faint:rgba(236,236,241,.48);--line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.2);--accent:#22c55e;--accent-text:#6ee7a0;--accent-tint:rgba(34,197,94,.12);--warn:#f59e0b;--shadow:0 18px 50px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4);--body:"Satoshi","DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 @media (prefers-color-scheme:light){:root{color-scheme:light;--bg:${SITE.themeColor.light};--glow:rgba(34,197,94,.08);--surface:#fff;--text:#16161a;--muted:#52525b;--faint:#71717a;--line:rgba(0,0,0,.09);--line-strong:rgba(0,0,0,.22);--accent-text:#15803d;--accent-tint:rgba(34,197,94,.1);--warn:#b45309;--shadow:0 18px 50px rgba(0,0,0,.16),0 2px 8px rgba(0,0,0,.08)}}
 *{box-sizing:border-box}
+fieldset{border:0;margin:0;padding:0;min-width:0}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:radial-gradient(60rem 30rem at 85% -10%,var(--glow),transparent 70%),radial-gradient(40rem 24rem at -10% 20%,rgba(14,165,233,.05),transparent 70%),var(--bg);color:var(--text);font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 a{color:var(--accent-text)}.wrap{max-width:56rem;margin:0 auto;padding:0 16px}
 header.top{border-bottom:1px solid var(--line)}header.top .wrap{display:flex;align-items:center;gap:12px;height:56px}
@@ -22,6 +24,7 @@ h1{font-size:clamp(2.4rem,7vw,4rem);line-height:1.05;letter-spacing:-.03em;margi
 .install .bar{padding:10px 16px;border-bottom:1px solid var(--line);font-size:.8rem;color:var(--faint)}
 pre{margin:0;padding:16px;font:.9rem/1.7 var(--mono);overflow-x:auto}.p{color:var(--faint);user-select:none}
 .meta{margin-top:14px;color:var(--faint);font-size:.9rem}
+.shot{display:block;width:100%;max-width:800px;height:auto;margin:28px auto 0;border-radius:14px;box-shadow:0 0 0 1px var(--line,rgba(127,127,127,.25)),0 20px 50px -20px rgba(0,0,0,.6)}
 section{padding:40px 0}h2{font-size:1.6rem;letter-spacing:-.02em;margin:0 0 8px}.sub{color:var(--muted);margin:0 0 24px}
 .term{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;font:.85rem/1.7 var(--mono)}
 .who{color:var(--faint)}.ok{color:var(--accent-text)}.warn{color:var(--warn)}
@@ -31,14 +34,36 @@ section{padding:40px 0}h2{font-size:1.6rem;letter-spacing:-.02em;margin:0 0 8px}
 ul.limits{margin:0;padding-left:20px;color:var(--muted)}
 dt{font-weight:700;margin-top:20px;font-size:1.05rem}dd{margin:6px 0 0;color:var(--muted)}
 .prose{padding:56px 0 0}
-.board{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
-.board .bar{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--line);font-size:.8rem;color:var(--faint)}
-.row{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:14px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}
-.row b{display:block;font-size:.95rem}.row span{color:var(--muted);font-size:.85rem}.row code{font:.78rem var(--mono);color:var(--faint)}
-.st{font:600 .72rem var(--mono);border-radius:999px;padding:3px 10px;white-space:nowrap}.st.editing{color:var(--accent-text);background:var(--accent-tint)}.st.waiting{color:var(--warn);background:rgba(245,158,11,.12)}.st.done{color:var(--faint);background:var(--line)}
-.ava{display:block;flex:none}.clash{background:rgba(245,158,11,.06)}
+.ava{display:block;flex:none}
 .faces{display:flex;gap:6px;margin:0 0 22px;flex-wrap:wrap}
 footer{margin-top:48px;border-top:1px solid var(--line);padding:24px 0 40px;color:var(--faint);font-size:.85rem}
+/* The clickable demo: plain radio buttons and labels, so it works with the page's no-JavaScript CSP. */
+.demo{position:relative;display:grid;grid-template-columns:15rem minmax(0,1fr);background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.demo .dr{position:absolute;width:1px;height:1px;opacity:0}
+.demo .rows{border-right:1px solid var(--line);padding:6px;display:flex;flex-direction:column;gap:1px}
+.drow{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:10px;cursor:pointer;transition:background .15s}
+.drow:hover{background:var(--line)}
+.drow .ava{flex:none;animation:dbob 3.2s ease-in-out infinite}
+.drow .dt{min-width:0}.drow .dt b{display:block;font-size:.86rem}.drow .dt span{display:block;color:var(--faint);font-size:.76rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:9rem}
+.ddot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--line-strong)}
+.ddot.editing{background:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);animation:dpulse 1.7s ease-in-out infinite}
+.ddot.waiting{background:var(--warn)}
+.panes{position:relative;padding:18px 20px}
+.pane{display:none;flex-direction:column;gap:9px;min-height:15rem}
+.phd{display:flex;align-items:center;gap:8px;padding-bottom:11px;margin-bottom:3px;border-bottom:1px solid var(--line)}
+.phd b{font-size:.92rem}.phd code{font:.74rem var(--mono);color:var(--faint)}
+.pprc{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font:600 .68rem var(--mono);padding:3px 9px;border-radius:999px;background:var(--accent-tint);color:var(--accent-text)}
+.pck{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.bub{max-width:78%;padding:8px 12px;border-radius:14px;font-size:.87rem;line-height:1.5;animation:dup .3s ease both}
+.bub.you{align-self:flex-end;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.22);border-top-right-radius:4px}
+.bub.ag{align-self:flex-start;background:rgba(14,165,233,.11);border:1px solid rgba(14,165,233,.2);border-top-left-radius:4px;animation-delay:.1s}
+@keyframes dbob{50%{transform:translateY(-2px)}}
+@keyframes dpulse{50%{box-shadow:0 0 0 6px transparent}}
+@keyframes dup{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+#demo-0:checked~.rows .dr0,#demo-1:checked~.rows .dr1,#demo-2:checked~.rows .dr2,#demo-3:checked~.rows .dr3,#demo-4:checked~.rows .dr4{background:var(--line-strong)}
+#demo-0:checked~.panes .pn0,#demo-1:checked~.panes .pn1,#demo-2:checked~.panes .pn2,#demo-3:checked~.panes .pn3,#demo-4:checked~.panes .pn4{display:flex}
+#demo-0:focus-visible~.rows .dr0,#demo-1:focus-visible~.rows .dr1,#demo-2:focus-visible~.rows .dr2,#demo-3:focus-visible~.rows .dr3,#demo-4:focus-visible~.rows .dr4{outline:2px solid var(--accent-text);outline-offset:-2px}
+@media (max-width:640px){.demo{grid-template-columns:1fr}.rows{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.drow{flex:none}.drow .dt span{display:none}}
 `;
 
 function layout(base: string, meta: PageMeta, body: string): string {
@@ -60,18 +85,64 @@ function installBox(): string {
 		.join("\n")}</pre></div>`;
 }
 
-function board(): string {
-	const clash = AGENTS.find((a) => a.role === "Design");
-	const rows = AGENTS.map((a) => {
-		const warn = a === clash ? " clash" : "";
-		const note =
-			a === clash
-				? `<span class="warn">⚠ Code agent edited src/pages.ts 2 min ago, re-reading first</span>`
-				: `<span>${esc(a.task)} · <code>${esc(a.file)}</code></span>`;
-		const state = a === clash ? "waiting" : a.state;
-		return `<div class="row${warn}">${avatar(a)}<div><b>${esc(a.role)}</b>${note}</div><em class="st ${state}">${state}</em></div>`;
-	}).join("");
-	return `<div class="board"><div class="bar"><span>One repo · ${AGENTS.length} agents</span><span>~/code/app</span></div>${rows}</div>`;
+/** A short exchange for the clickable demo, keyed to an existing agent in AGENTS by role. */
+interface DemoStep {
+	role: string;
+	you: string;
+	agent: string;
+	pr?: number;
+}
+
+const DEMO: DemoStep[] = [
+	{
+		role: "Code",
+		you: "fix the 500 on checkout",
+		agent: "Found it — `total` was undefined on an empty cart. Fixed, tests added, pushed.",
+		pr: 41,
+	},
+	{
+		role: "Bug",
+		you: "why does the app crash on iOS only",
+		agent: "The crash log points at a race in the auth refresh. Reproducing it now, back in a minute.",
+	},
+	{
+		role: "Refactor",
+		you: "split payments.ts, it's 900 lines",
+		agent: "Split into charge, refund and webhooks, same tests, same behavior. Ready for a look.",
+	},
+	{
+		role: "Feature",
+		you: "add dark mode",
+		agent: "Added a theme toggle and a prefers-color-scheme default. Screenshot in the PR.",
+		pr: 52,
+	},
+	{
+		role: "Design",
+		you: "the pricing page feels cramped",
+		agent: "Opened up the spacing and gave the button its own row. Diff is small, want to see it?",
+	},
+];
+
+/**
+ * A board you can click: plain radio inputs and labels pick which agent's chat shows, matched in the CSS above by
+ * id. No JavaScript, so it works under the page's `default-src 'none'` CSP.
+ */
+function demoBoard(): string {
+	const steps = DEMO.map((d) => ({ ...d, a: AGENTS.find((a) => a.role === d.role) as Agent }));
+	const inputs = steps.map((_, i) => `<input type="radio" name="demo" id="demo-${i}" class="dr"${i === 0 ? " checked" : ""}>`).join("");
+	const rows = steps
+		.map(
+			(d, i) =>
+				`<label for="demo-${i}" class="drow dr${i}"><span class="ddot ${d.a.state}"></span>${avatar(d.a, 34)}<span class="dt"><b>${esc(d.a.role)}</b><span>${esc(d.a.task)}</span></span></label>`,
+		)
+		.join("");
+	const panes = steps
+		.map(
+			(d, i) =>
+				`<div class="pane pn${i}"><div class="phd">${avatar(d.a, 26)}<b>${esc(d.a.role)}</b><code>${esc(d.a.file)}</code>${d.pr ? `<span class="pprc"><span class="pck"></span>#${d.pr} merged</span>` : ""}</div><div class="bub you">${esc(d.you)}</div><div class="bub ag">${esc(d.agent)}</div></div>`,
+		)
+		.join("");
+	return `<fieldset class="demo"><legend class="sr-only">Click an agent to see its chat</legend>${inputs}<div class="rows">${rows}</div><div class="panes">${panes}</div></fieldset>`;
 }
 
 export function homePage(base: string): string {
@@ -86,8 +157,8 @@ export function homePage(base: string): string {
 <h1>Run My <span>Agents</span></h1>
 <p class="lede">Run many Claude Code sessions on one repo, and stop them overwriting each other's work.</p>
 ${installBox()}
-<p class="meta">No server. No account. No keys. Everything stays on your computer.</p></div>
-<section><h2>Your agent team, on one repo</h2><p class="sub">Every agent has its own job. When two reach for the same file, the second one waits and re-reads.</p>${board()}</section>
+<p class="meta">No server. No account. No keys. Everything stays on your computer.</p><img class="shot" src="/preview.gif" width="800" height="500" alt="The Run My Agents board: every Claude Code session, its model, tokens and pull requests on one screen"></div>
+<section><h2>Your agent team, on one repo</h2><p class="sub">Every agent has its own job. Click one to see what it's working on.</p>${demoBoard()}<p class="meta">A preview of five agents' chats. Install it and this runs for real, on your own repo.</p></section>
 <section><h2>What your agent sees</h2><p class="sub">Session 2 tries to edit a file session 1 changed two minutes ago.</p>
 <div class="term"><div><span class="who">session 1 ·</span> Edit api.ts <span class="ok">✓</span></div>
 <div><span class="who">session 2 ·</span> Edit api.ts</div>
