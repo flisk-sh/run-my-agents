@@ -111,7 +111,7 @@ export const KITCHEN_JS = String.raw`
 /* Who sent a "you" message in a chat: the kitchen sends orders, hand-offs and answers as the user, so name the real sender. */
 function kSender(t){t=String(t||"");let m=/^Order #\d+ \((\w+)\)/.exec(t);if(m){const st=m[1],prev={spec:"Intake",build:"Spec",test:"Build",review:"Test"}[st]||"Kitchen";return "Kitchen \u00b7 "+prev+" \u2192 "+(st[0].toUpperCase()+st.slice(1))}
  if(/^Ship order #/.test(t))return "Kitchen \u00b7 Review \u2192 Ship";if(/^Question #\d+ from the board/.test(t))return "Kitchen \u00b7 Front desk";
- if(/kitchen's orchestrator answering for the user/.test(t))return "Orchestrator";
+ if(/kitchen's orchestrator(, a program| answering for the user)/.test(t))return "Orchestrator";
  m=/^Question from the (\w+) agent on order #\d+/.exec(t);if(m)return "From "+m[1]+" (question)";
  m=/^Answer from the (\w+) agent on order #\d+/.exec(t);if(m)return "From "+m[1]+" (answer)";
  if(/^(There is no \w+ agent on order|The \w+ agent did not answer in time)/.test(t))return "Orchestrator";if(/^You are a \w+ agent in the "/.test(t))return "Kitchen \u00b7 Start";return "You"}

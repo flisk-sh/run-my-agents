@@ -66,8 +66,8 @@ export type Task = {
 	failures?: string[];
 	/** How many times the orchestrator answered a question from this step's agent (reset each step). */
 	answered?: number;
-	/** A question this order's current agent asked another stage's agent, waiting for its answer. */
-	waitingOn?: { stage: Stage; session: string; question: string; at: number };
+	/** The one open ask from this order's current agent to an earlier stage, matched to its answer by id. */
+	waitingOn?: { id: string; stage: Stage; question: string; at: number; session?: string };
 	/** Questions this step's agent asked other agents (reset each step). */
 	asked?: number;
 	/** Who asked whom on this order, newest last. */

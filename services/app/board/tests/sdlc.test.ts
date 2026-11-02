@@ -188,9 +188,9 @@ describe("full SDLC through the Flisk kitchen agent", () => {
 		const agent = async (session: string, t: { input: string; cwd?: string }) => {
 			turns.push(`${session}: ${t.input.split("\n")[0].slice(0, 60)}`);
 			const cwd = t.cwd as string;
-			if (session.endsWith("-spec") && t.input.startsWith("Question from the Build agent")) return "Yes: include b itself.";
+			if (session.includes("-spec-ask-")) return t.input.includes("Goal: range includes its end.") ? "Yes: include b itself." : "Not in the record";
 			if (session.endsWith("-spec")) return "Goal: range includes its end.\nChecks: range(1,3) is [1,2,3].";
-			if (session.endsWith("-build") && t.input.startsWith("Order #")) return "Reading the spec.\nTo Spec: should range include b itself?";
+			if (session.endsWith("-build") && t.input.startsWith("Order #")) return 'Reading the spec.\n```kitchen\n{"ask": {"to": "spec", "question": "should range include b itself?"}}\n```';
 			if (session.endsWith("-build")) {
 				writeFileSync(join(cwd, "math.ts"), readFileSync(join(cwd, "math.ts"), "utf8").replace("i < b", "i <= b"));
 				return "Changed math.ts: the loop includes b.";
@@ -214,8 +214,8 @@ describe("full SDLC through the Flisk kitchen agent", () => {
 		const t = tasks()[0];
 		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/77" });
 		expect(t.failed).toBeFalsy();
-		// Each step was one session on the agent; the builder's question went to the Spec session and back.
-		expect(turns.map((x) => x.split(":")[0])).toEqual(["order-1-spec", "order-1-build", "order-1-spec", "order-1-build", "order-1-test", "order-1-ship", "order-1-review"]);
+		// Each step was one session on the agent; the builder's ask was a fresh turn on the Spec record, not the Spec session.
+		expect(turns.map((x) => x.split(":")[0])).toEqual(["order-1-spec", "order-1-build", "order-1-spec-ask-1", "order-1-build", "order-1-test", "order-1-ship", "order-1-review"]);
 		expect(t.talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
 		expect(t.crew.build).toMatchObject({ id: "flisk:order-1-build", name: "Build · Flisk agent" });
 		expect(readFileSync(join(r, ".kitchen", "order-1", "math.ts"), "utf8")).toContain("i <= b");

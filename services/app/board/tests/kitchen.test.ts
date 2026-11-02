@@ -279,7 +279,7 @@ describe("chat sender labels", () => {
 		expect(kSender("Order #23 (test): Try complete this task")).toBe("Kitchen · Build → Test");
 		expect(kSender("Order #12 (review): seems agents")).toBe("Kitchen · Test → Review");
 		expect(kSender("Ship order #12: seems")).toBe("Kitchen · Review → Ship");
-		expect(kSender("Yes, go ahead. This is the kitchen's orchestrator answering for the user: nobody")).toBe("Orchestrator");
+		expect(kSender("This is the kitchen's orchestrator, a program: nobody will approve or answer this.")).toBe("Orchestrator");
 		expect(kSender("please fix the login page")).toBe("You");
 	});
 });

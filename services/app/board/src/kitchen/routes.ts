@@ -11,6 +11,7 @@ import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
 import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
+import { askInput, canAsk, handOffOf, recordIn, verdictIn, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
 import { kindOf, laneOf, needsWeb, quickMath, zachman, zachmanLines } from "./triage";
 import { haikuFit, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
@@ -42,7 +43,7 @@ export type KitchenCtx = {
 };
 
 const body = async <T>(c: Context) => (await c.req.json().catch(() => ({}))) as T;
-/** The agent's last reply, longer than lastSaid: a spec or build summary for the next stages. */
+/** Everything the agent said since the board last wrote to it; handOffOf turns it into the stage record. */
 const handOff = (s: Session | undefined) => {
 	// Everything the agent said since the order was sent, not just its closing line: a spec often ends with
 	// "Spec complete" after the spec itself.
@@ -54,8 +55,7 @@ const handOff = (s: Session | undefined) => {
 		.filter((x) => x.who === "agent")
 		.map((x) => String(x.text ?? "").trim())
 		.filter(Boolean)
-		.join("\n\n")
-		.slice(-3000);
+		.join("\n\n");
 };
 
 /** The line that says FAIL and why, without markdown, for a lesson. */
@@ -71,28 +71,17 @@ export function failLine(text: string): string {
 export const MAX_ANSWERS = 2;
 /** Every kitchen message ends with who reads the reply, so agents stop writing to (and waiting on) a user. */
 export const ADDRESS =
-	"Your reply goes to the kitchen's orchestrator, not to a person. When you stop, it reads your last message and moves the order on. If you need something from another agent on this order, write a line `To Spec: <question>` (or Build, Test, Review); the orchestrator delivers it and brings the answer back to you. Do not ask the user anything; otherwise end with one clear result line.";
+	"Your reply goes to the kitchen's orchestrator, a program, not a person: nobody will approve or answer in this chat. It reads only the fenced `kitchen` JSON block at the end of your reply. To ask the agent of an earlier stage of this order (one that already ran) one question, end with ```kitchen\n{\"ask\": {\"to\": \"spec\", \"question\": \"...\"}}\n``` and stop; the answer comes back as your next message. Test and Review end with ```kitchen\n{\"verdict\": \"PASS\" or \"FAIL\", \"evidence\": \"what you ran and what you got\"}\n```. Anything the next stage must read goes in your reply (or in \"handoff\"), not in a file outside the worktree.";
 
-/**
- * "To Spec: …?" lines in an agent's reply: questions for another stage's agent on the same order. The stage is
- * capitalised and the line asks something, so "To test: run \`bun test\`" (how to test the change) and a "**To Test:**"
- * heading are not questions: they sent Build a fake question and threw away its hand-off.
- */
-export function questionsIn(text: string): { stage: "spec" | "build" | "test" | "review"; question: string }[] {
-	return text
-		.split("\n")
-		.map((l) => /^[\s>*_-]*To (Spec|Build|Test|Review)[*_]*\s*:[\s*_]*(.+?)[\s*_]*$/.exec(l))
-		.filter((m): m is RegExpExecArray => !!m && m[2].includes("?"))
-		.map((m) => ({ stage: m[1].toLowerCase() as "spec", question: m[2].trim().slice(0, 1000) }));
-}
+export { verdictIn };
 /** Questions one step's agent may send to other agents before it has to decide itself. */
 export const MAX_ASKS = 2;
-/** How long an asked agent has to answer before the orchestrator answers instead. */
+/** How long an ask may stay open; past it the asking step fails, the orchestrator never answers in its place. */
 export const ASK_TIMEOUT_MS = 10 * 60_000;
 
 /** What the orchestrator says to a kitchen agent that asks while it holds no order. */
 export const STRAY_ANSWER =
-	"No. This is the kitchen's orchestrator answering for the user: no order is waiting on you right now, so there is nothing to ship or change. Do not run any command or edit any file. Stop here; the board will send you an order when there is one.";
+	"This is the kitchen's orchestrator, a program: no order is waiting on you right now, so there is nothing to ship or change. Do not run any command or edit any file. Stop here; the board will send you an order when there is one.";
 
 /** What the orchestrator says to a builder that finished without changing anything. */
 export const NO_CHANGES =
@@ -105,9 +94,20 @@ export const NO_CHANGES =
 export const NO_VERDICT =
 	"You stopped without a verdict, so the kitchen cannot move this order on. Finish your checks now: run each command in the foreground and wait for its result. Then end with one line: PASS, or FAIL: what you ran, what you expected and what you got.";
 
-/** What the orchestrator says to an agent that stopped to ask the user. */
-export const ORCHESTRATOR_ANSWER =
-	"Yes, go ahead. This is the kitchen's orchestrator answering for the user: nobody else will reply. Make the most reasonable choice yourself, do it, and finish this step. Do not ask again.";
+/**
+ * What the orchestrator says to an agent that stopped to ask for approval. It is policy, not consent: the orchestrator
+ * never says "yes" for the user, so asking is never how an agent gets a decision made.
+ */
+export const DECIDE =
+	"This is the kitchen's orchestrator, a program: nobody will approve or answer this. Do not ask again. If a reasonable choice exists, make it, say in your result what you assumed, and finish this step. If the step cannot be done without a decision from a person, end with one line: FAIL: the decision that is missing.";
+
+/** The answer to an ask, delivered to the asker as its next message. */
+export const answerText = (n: number, to: AskStage, question: string, answer: string) =>
+	`Answer from the ${STAGE_TYPE[to]} agent on order #${n} (to your question: ${question}), from its record:\n${answer}\n\nContinue your step.`;
+
+/** What the asker hears when the stage it asked has not run yet or left no record: the policy, not a guess. */
+export const cannotAsk = (n: number, to: AskStage) =>
+	`The ${STAGE_TYPE[to]} stage of order #${n} has not run or left no record, so it cannot answer: its answer would be a guess. ${DECIDE}`;
 
 /**
  * Did the agent end its turn by asking instead of finishing? A question at the end ("Would you like me to proceed?",
@@ -115,18 +115,11 @@ export const ORCHESTRATOR_ANSWER =
  */
 export function asksBack(text: string, t: Pick<Task, "stage" | "shipping">): boolean {
 	const tail = text.trim().slice(-400);
-	if (!tail) return false;
+	if (!tail || recordIn(text)) return false;
 	if ((t.stage === "test" || t.stage === "review") && !t.shipping && verdictIn(tail) !== undefined) return false;
 	if (t.shipping && /https:\/\/github\.com\/\S+\/pull\/\d+/.test(tail)) return false;
 	const last = tail.split("\n").map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
 	return /\?\s*\**\s*$/.test(last) || /\b(would you like|should i|shall i|do you want|want me to|let me know|awaiting (?:your )?(?:approval|confirmation)|please confirm|confirm (?:that|before)|approve the)\b/i.test(last);
-}
-
-/** The verdict a test or review agent gave: its last PASS or FAIL wins, so "FAIL … corrected verdict: PASS" passes. */
-export function verdictIn(text: string): boolean | undefined {
-	const all = [...text.matchAll(/\b(PASS|FAIL)\b/g)];
-	const last = all.at(-1)?.[1];
-	return last === "PASS" ? true : last === "FAIL" ? false : undefined;
 }
 
 const isDir = (p: string) => {
@@ -574,6 +567,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
 			.join("");
 		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
+		// The change itself is the record Test and Review check, not Build's summary of it.
+		const diff = wt && order.base && (order.stage === "test" || order.stage === "review") ? `\n\nThe change to check is \`git -C ${wt} diff ${order.base}\` (plus untracked files in \`git -C ${wt} status\`). Judge it, not the summary above.` : "";
 		const lastTime = order.retryOf
 			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
 			: "";
@@ -584,7 +579,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 		return text;
 	}
 
@@ -660,7 +655,19 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		return { status: 202, body: { ...t, model: policy.model, effort: policy.effort, via: "flisk" } };
 	}
 
-	/** Runs one Flisk turn for an order's step, answers its "To Spec:" questions, checks the build, then moves the order on. */
+	/**
+	 * One ask, answered by a fresh turn whose only input is the asked stage's record: not the asker's chat, and not
+	 * the asked agent's resumed session, which a person may be using. Undefined when nothing can answer.
+	 */
+	async function askStage(t: Task, to: AskStage, question: string): Promise<string | undefined> {
+		const asker = STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage;
+		const input = askInput(t.n, t.title, asker, STAGE_TYPE[to], t.notes?.[to] ?? "", question);
+		const call = agent();
+		const out = call ? await call(`order-${t.n}-${to}-ask-${(t.asked ?? 0) + 1}`, { input, cwd: t.worktree ?? t.cwd }) : k.ask ? await k.ask(input, t.cwd) : undefined;
+		return out?.trim() || undefined;
+	}
+
+	/** Runs one Flisk turn for an order's step, answers its asks, checks the build, then moves the order on. */
 	async function fliskTurn(id: string, sid: string, who: string, text: string, cwd: string, policy: { model: string; effort: string }) {
 		const call = agent();
 		const t0 = readTasks().find((x) => x.id === id);
@@ -671,20 +678,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		let reply: string;
 		try {
 			reply = await turn(sid, text);
-			// Agent to agent: a "To Spec: …" line is a turn on that stage's session for this order; its answer goes back.
+			// Agent to agent: the reply's record asks an earlier stage; a fresh turn answers from that stage's record.
 			for (let i = 0; i < MAX_ASKS; i++) {
-				const q = questionsIn(reply).find((x) => x.stage !== stage);
+				const q = recordIn(reply)?.ask;
 				if (!q) break;
-				const to = STAGE_TYPE[q.stage];
-				let answer: string;
-				try {
-					answer = await turn(`order-${t0.n}-${q.stage}`, `Question from the ${asker} agent on order #${t0.n}: ${q.question}\n\nAnswer it in a few lines from what you know about this order. Your reply goes back to the ${asker} agent through the kitchen's orchestrator; do not change any files.`);
-				} catch {
-					answer = `(no answer: the ${to} agent could not be reached; decide yourself from the spec)`;
-				}
 				const cur = readTasks().find((x) => x.id === id);
-				updateTask(id, { asked: (cur?.asked ?? 0) + 1, talk: [...(cur?.talk ?? []), { at: Date.now(), from: asker, to, text: q.question.slice(0, 300) }, { at: Date.now(), from: to, to: asker, text: answer.slice(0, 300) }].slice(-10) });
-				reply = await turn(sid, `Answer from the ${to} agent on order #${t0.n} (to your question: ${q.question}):\n${answer}\n\nContinue your step.`);
+				if (!cur) return;
+				const to = STAGE_TYPE[q.to];
+				const answer = canAsk(stage, q.to, cur.notes) ? await askStage(cur, q.to, q.question) : undefined;
+				updateTask(id, { asked: (cur.asked ?? 0) + 1, talk: [...(cur.talk ?? []), { at: Date.now(), from: asker, to, text: q.question.slice(0, 300) }, { at: Date.now(), from: answer ? to : "Orchestrator", to: asker, text: (answer ?? "not asked: that stage has no record").slice(0, 300) }].slice(-10) });
+				reply = await turn(sid, answer ? answerText(cur.n, q.to, q.question, answer) : cannotAsk(cur.n, q.to));
 			}
 			// A build that changed nothing is asked once more, then fails; Test never gets an empty branch.
 			const wt = readTasks().find((x) => x.id === id)?.worktree;
@@ -694,7 +697,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					const cur = readTasks().find((x) => x.id === id);
 					const why = `build: no changes made in the worktree. ${failLine(reply) || reply.split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
 					fliskReplies.set(who, reply);
-					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), why].slice(-6), notes: { ...(cur?.notes ?? {}), [stage]: reply.slice(-3000) } });
+					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), why].slice(-6), notes: { ...(cur?.notes ?? {}), [stage]: handOffOf(reply) } });
 					return;
 				}
 			}
@@ -706,7 +709,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				if (left.length) {
 					const cur = readTasks().find((x) => x.id === id);
 					fliskReplies.set(who, reply);
-					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), `build: edited the shared checkout ${t1.cwd}, not the worktree: ${left.join(", ")}`.slice(0, 300)], notes: { ...(cur?.notes ?? {}), [stage]: reply.slice(-3000) } });
+					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), `build: edited the shared checkout ${t1.cwd}, not the worktree: ${left.join(", ")}`.slice(0, 300)], notes: { ...(cur?.notes ?? {}), [stage]: handOffOf(reply) } });
 					return;
 				}
 			}
@@ -745,8 +748,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
 			const said = replyOf(t?.assignee);
 			// What it said before the orchestrator wrote to it counts too: a Spec that ended "Shall I proceed?" handed
-			// Build only its answer to "Yes, go ahead" ("Spec is final.").
-			const all = [t.draft, said].filter(Boolean).join("\n\n").slice(-4000);
+			// Build only its answer to the orchestrator ("Spec is final.").
+			const all = handOffOf([t.draft, said].filter(Boolean).join("\n\n"));
 			if (all) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: all }, draft: undefined }) ?? t;
 			// The Spec agent can move an order to the folder its code is in.
 			const moved = t.stage === "spec" ? folderHint(said) : t.stage === "build" ? elsewhere(said) : undefined;
@@ -827,8 +830,18 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const landed = (s: Session, at: number) => s.asked === undefined || s.asked >= at - 2_000;
 	const finished = (t: Task, s: Session | undefined, now: number) => !!s && t.sentAt > 0 && !k.busy(s) && landed(s, t.sentAt) && s.updatedAt > t.sentAt + 1_000 && now - s.updatedAt > 3_000;
 	/** Keeps what a step's agent said so far, before the orchestrator writes to it again. */
-	const keep = (t: Task, s: Session | undefined) => ({ draft: [t.draft, handOff(s)].filter(Boolean).join("\n\n").slice(-4000) || undefined });
+	const keep = (t: Task, s: Session | undefined) => ({ draft: [t.draft, handOff(s)].filter(Boolean).join("\n\n") || undefined });
 	const verdictOf = (s: Session | undefined) => verdictIn(handOff(s));
+	/** Answers to open asks, by ask id; an ask still running is in asking. */
+	const answers = new Map<string, { answer?: string; error?: string }>();
+	const asking = new Set<string>();
+	function startAsk(t: Task, id: string, to: AskStage, question: string) {
+		asking.add(id);
+		askStage(t, to, question)
+			.then((answer) => answers.set(id, answer ? { answer } : { error: `the ${STAGE_TYPE[to]} stage could not be asked` }))
+			.catch((e) => answers.set(id, { error: String((e as Error).message ?? e).slice(0, 200) }))
+			.finally(() => asking.delete(id));
+	}
 
 	/**
 	 * Autopilot, run by the server loop so orders move with no board page open and no buttons: specs cross the pass,
@@ -866,38 +879,49 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
-			// Agent to agent: bring back the answer to a question this order's agent asked another stage's agent.
+			// Agent to agent: deliver the answer to this order's open ask, matched by its id, never by a chat going quiet.
 			if (t.waitingOn) {
 				const w = t.waitingOn;
-				const target = all.find((x) => x.id === w.session);
-				const ready = target && !k.busy(target) && landed(target, w.at) && target.updatedAt > w.at + 1_000 && now - target.updatedAt > 3_000;
-				const late = now - w.at > ASK_TIMEOUT_MS;
-				if (!ready && !late) continue;
-				const from = STAGE_TYPE[w.stage];
-				const answer = ready ? handOff(target) : "";
-				const text = answer
-					? `Answer from the ${from} agent on order #${t.n} (to your question: ${w.question}):\n${answer}\n\nContinue your step.`
-					: `The ${from} agent did not answer in time. This is the kitchen's orchestrator: decide yourself from the spec you were given, and continue your step.`;
-				if (s) k.send(s, `#${t.n}: ${from} answered`, text);
-				updateTask(t.id, { ...keep(t, s), waitingOn: undefined, sentAt: Date.now(), talk: [...(t.talk ?? []), { at: Date.now(), from: answer ? from : "Orchestrator", to: STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage, text: (answer || "no answer in time").slice(0, 300) }].slice(-10) });
-				did.push(`#${t.n} ${answer ? `${from} answered` : `${from} did not answer`}`);
+				const from = STAGE_TYPE[w.stage as AskStage] ?? w.stage;
+				const got = answers.get(w.id);
+				if (!got && !asking.has(w.id)) {
+					// The board restarted while the ask ran: ask again, same id.
+					startAsk(t, w.id, w.stage as AskStage, w.question);
+					continue;
+				}
+				if (!got) {
+					if (now - w.at <= ASK_TIMEOUT_MS) continue;
+					// No answer in time: the step fails with the open ask named; nobody answers in the asked agent's place.
+					asking.delete(w.id);
+					updateTask(t.id, { waitingOn: undefined, stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), `${t.stage}: asked ${from} "${w.question.slice(0, 120)}" and got no answer in ${ASK_TIMEOUT_MS / 60_000} minutes`].slice(-6) });
+					did.push(`#${t.n} ${from} did not answer: failed`);
+					continue;
+				}
+				const text = got.answer ? answerText(t.n, w.stage as AskStage, w.question, got.answer) : `${cannotAsk(t.n, w.stage as AskStage)} (${got.error})`;
+				// The asker gets the answer, or the ask stays open and is delivered on the next pass.
+				if (!s || k.send(s, `#${t.n}: ${from} answered`, text).status >= 400) {
+					did.push(`#${t.n} ${from} answer not delivered yet`);
+					continue;
+				}
+				answers.delete(w.id);
+				updateTask(t.id, { ...keep(t, s), waitingOn: undefined, sentAt: Date.now(), talk: [...(t.talk ?? []), { at: Date.now(), from: got.answer ? from : "Orchestrator", to: STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage, text: (got.answer || got.error || "").slice(0, 300) }].slice(-10) });
+				did.push(`#${t.n} ${got.answer ? `${from} answered` : `${from} could not answer`}`);
 				continue;
 			}
 			if (!finished(t, s, now)) continue;
-			// Agent to agent: a "To Spec: …" line goes to the agent that did that stage for this order.
-			const asks = s && !t.shipping ? questionsIn(handOff(s)).filter((q) => q.stage !== t.stage) : [];
-			if (asks.length && (t.asked ?? 0) < MAX_ASKS) {
-				const q = asks[0];
+			// Agent to agent: the record's one ask goes to an earlier stage, answered by a fresh turn from that stage's record.
+			const q = s && !t.shipping ? recordIn(handOff(s))?.ask : undefined;
+			if (q && (t.asked ?? 0) < MAX_ASKS) {
 				const asker = STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage;
-				const target = t.crew?.[q.stage] ? all.find((x) => x.id === t.crew?.[q.stage]?.id) : undefined;
-				const talk = [...(t.talk ?? []), { at: Date.now(), from: asker, to: STAGE_TYPE[q.stage], text: q.question.slice(0, 300) }].slice(-10);
-				if (target && target.agent === "claude" && k.send(target, `#${t.n}: question from ${asker}`, `Question from the ${asker} agent on order #${t.n}: ${q.question}\n\nAnswer it in a few lines from what you know about this order. Your reply goes back to the ${asker} agent through the kitchen's orchestrator; do not change any files.`).status < 400) {
-					updateTask(t.id, { asked: (t.asked ?? 0) + 1, waitingOn: { stage: q.stage, session: target.id, question: q.question, at: Date.now() }, talk });
-					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.stage]}`);
-				} else if (s) {
-					k.send(s, `#${t.n}: no ${STAGE_TYPE[q.stage]} agent`, `There is no ${STAGE_TYPE[q.stage]} agent on order #${t.n} to ask. This is the kitchen's orchestrator: decide yourself from the spec you were given, and continue your step.`);
+				const talk = [...(t.talk ?? []), { at: Date.now(), from: asker, to: STAGE_TYPE[q.to], text: q.question.slice(0, 300) }].slice(-10);
+				if (canAsk(t.stage, q.to, t.notes) && (agent() || k.ask)) {
+					const askId = randomUUID();
+					updateTask(t.id, { ...keep(t, s), asked: (t.asked ?? 0) + 1, waitingOn: { id: askId, stage: q.to, question: q.question, at: Date.now() }, talk });
+					startAsk(t, askId, q.to, q.question);
+					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.to]}`);
+				} else if (s && k.send(s, `#${t.n}: no ${STAGE_TYPE[q.to]} record`, cannotAsk(t.n, q.to)).status < 400) {
 					updateTask(t.id, { ...keep(t, s), asked: (t.asked ?? 0) + 1, sentAt: Date.now(), talk });
-					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.stage]}: no such agent, told to decide`);
+					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.to]}: no record to answer from, told to decide`);
 				}
 				continue;
 			}
@@ -927,9 +951,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				}
 				continue;
 			}
-			// The orchestrator answers an agent that stopped to ask (nobody else will), at most twice per step.
+			// An agent that stopped to ask for approval gets the policy (decide or FAIL), never a "yes", at most twice per step.
 			if (s && asksBack(handOff(s), t) && (t.answered ?? 0) < MAX_ANSWERS) {
-				const res = k.send(s, `#${t.n}: orchestrator's answer`, ORCHESTRATOR_ANSWER);
+				const res = k.send(s, `#${t.n}: orchestrator's policy`, DECIDE);
 				if (res.status < 400) {
 					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} answered ${t.stage} agent's question`);

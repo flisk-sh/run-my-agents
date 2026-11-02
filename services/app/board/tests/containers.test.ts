@@ -485,11 +485,26 @@ describe("stage hand-off", () => {
 });
 
 describe("failure causes found in the agents' chats", () => {
-	it("takes the last verdict: FAIL then a corrected PASS passes (#15)", async () => {
+	it("hands on a spec's head, not just its closing line, and never the record block", async () => {
+		const { handOffOf } = await import("../src/kitchen/protocol");
+		const spec = `## Spec\nGoal: add mean().\nChecks: mean([]) is 0.\n${"detail ".repeat(2000)}\nSpec complete.\n\`\`\`kitchen\n{"evidence": "x"}\n\`\`\``;
+		const out = handOffOf(spec);
+		expect(out).toContain("Goal: add mean().");
+		expect(out).toContain("Spec complete.");
+		expect(out).not.toContain("```kitchen");
+		expect(out.length).toBeLessThan(6200);
+	});
+
+	it("reads the verdict from the record; a monologue that says both is no verdict (#15)", async () => {
 		const { verdictIn } = await import("../src/kitchen/routes");
-		expect(verdictIn("FAIL — eval is a regression.\n\nCorrected verdict:\n\nPASS — the 2+2 issue is fixed.")).toBe(true);
-		expect(verdictIn("PASS looks fine. Wait, FAIL: the date check returns 2013.")).toBe(false);
+		// The last word no longer wins: "FAIL … corrected verdict: PASS" is asked for a verdict instead of passing.
+		expect(verdictIn("FAIL — eval is a regression.\n\nCorrected verdict:\n\nPASS — the 2+2 issue is fixed.")).toBeUndefined();
+		expect(verdictIn("PASS looks fine. Wait, FAIL: the date check returns 2013.")).toBeUndefined();
 		expect(verdictIn("I need a concrete deliverable.")).toBeUndefined();
+		expect(verdictIn("Ran bun test.\n\n**PASS** — 12 pass.")).toBe(true);
+		// The record decides, whatever the prose says.
+		expect(verdictIn('PASS at first sight.\n```kitchen\n{"verdict": "FAIL", "evidence": "bun test: 2 fail"}\n```')).toBe(false);
+		expect(verdictIn('Mentions FAIL and PASS.\n```kitchen\n{"verdict": "PASS"}\n```')).toBe(true);
 	});
 
 	it("files orders about the board in the board's repo, and a named folder in that folder (#12, #19, #21)", async () => {
@@ -800,13 +815,14 @@ describe("the orchestrator answers agents", () => {
 		};
 		order({ kind: "task", stage: "build", assignee: "ask1", sentAt: Date.now() - 60_000, cwd: "/repo" });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 answered build agent's question");
-		expect(sent.at(-1)).toContain("This is the kitchen's orchestrator answering for the user");
+		expect(sent.at(-1)).toContain("nobody will approve or answer this");
+		expect(sent.at(-1)).not.toContain("Yes, go ahead");
 		due();
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 answered build agent's question");
 		due();
 		const did = (await post("/api/kitchen", { auto: true })).body.did;
 		expect(did).toContain("#1 build done");
-		expect(sent.filter((m) => m.includes("orchestrator answering"))).toHaveLength(2);
+		expect(sent.filter((m) => m.includes("nobody will approve or answer this"))).toHaveLength(2);
 		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "test", answered: 0 });
 	});
 });
@@ -841,7 +857,7 @@ describe("tidy and address", () => {
 		const { post, sent } = setup([{ ...session("b", "Build"), updatedAt: Date.now() - 60_000 }]);
 		order({ stage: "build", cwd: "/repo" });
 		await post("/api/tasks/dispatch", { id: "t", session: "b" });
-		expect(sent.at(-1)).toContain("Your reply goes to the kitchen's orchestrator, not to a person.");
+		expect(sent.at(-1)).toContain("Your reply goes to the kitchen's orchestrator, a program, not a person");
 	});
 });
 
@@ -880,62 +896,74 @@ describe("dispatch to agents in a worktree", () => {
 describe("agent to agent", () => {
 	const agent = (id: string, role: string, reply: string) => ({ ...session(id, role), updatedAt: Date.now() - 20_000, feed: [{ who: "you", text: "Order", at: 1 } as never, { who: "agent", text: reply, at: 2 } as never] });
 
-	it("delivers a 'To Spec:' question to the order's Spec agent and brings its answer back", async () => {
-		const builder = agent("bld", "Build", "I read the spec.\nTo Spec: does 'show the orchestrator' mean a chef on the Kitchen tab?");
+	const ask = (to: string, question: string) => `I read the spec.\n\`\`\`kitchen\n${JSON.stringify({ ask: { to, question } })}\n\`\`\``;
+	const tasks = () => JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+
+	it("answers a structured ask with a fresh turn on the asked stage's record, matched back by its id", async () => {
+		const builder = agent("bld", "Build", ask("spec", "does 'show the orchestrator' mean a chef on the Kitchen tab?"));
 		const spec = agent("spc", "Spec", "Goal: …");
-		const { post, sent } = setup([builder, spec]);
-		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo", crew: { spec: { id: "spc", role: "Spec", name: "Spec · repo spc0" }, build: { id: "bld", role: "Build", name: "Build · repo bld0" } } });
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 Build asked Spec");
-		expect(sent.at(-1)).toContain("Question from the Build agent on order #1: does 'show the orchestrator' mean a chef on the Kitchen tab?");
-		let t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
-		expect(t).toMatchObject({ assignee: "bld", asked: 1, waitingOn: { stage: "spec", session: "spc" } });
-		// Still waiting: the Spec agent has not answered yet, so nothing moves.
-		expect((await post("/api/kitchen", { auto: true })).body.did).not.toContain("#1 build done");
-		// The Spec agent answers; the board brings it back to the builder.
-		spec.feed = [...spec.feed, { who: "you", text: "Question from the Build agent", at: 3 } as never, { who: "agent", text: "Yes: a chef on the bridge, labelled Orchestrator.", at: 4 } as never];
-		spec.updatedAt = Date.now() - 10_000;
-		t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
-		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, waitingOn: { ...t.waitingOn, at: Date.now() - 60_000 } }]));
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 Spec answered");
-		expect(sent.at(-1)).toContain("Answer from the Spec agent on order #1");
-		expect(sent.at(-1)).toContain("Yes: a chef on the bridge, labelled Orchestrator.");
-		t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
-		expect(t.waitingOn).toBeUndefined();
-		expect(t.talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
-	});
-
-	it("tells the agent to decide itself when the stage it asks has no agent, and every message says who it can ask", async () => {
-		const builder = agent("bld", "Build", "To Review: what will you check?");
-		const { post, sent } = setup([builder]);
-		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo" });
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 Build asked Review: no such agent, told to decide");
-		expect(sent.at(-1)).toContain("There is no Review agent on order #1 to ask");
-		const { ADDRESS, questionsIn } = await import("../src/kitchen/routes");
-		expect(ADDRESS).toContain("To Spec: <question>");
-		expect(questionsIn("**To Spec:** what is X?\nnot a question\nTo Build: and Y?")).toEqual([{ stage: "spec", question: "what is X?" }, { stage: "build", question: "and Y?" }]);
-		// How to test or build the change is not a question for another agent.
-		expect(questionsIn("Build complete.\nTo test: run `bun test` in services/app/board\nTo build: make build")).toEqual([]);
-		expect(questionsIn("**To Test:**\n1. run bun test")).toEqual([]);
-	});
-
-	it("queues a question for a chat that is busy instead of stopping the reply it is running", async () => {
-		// Your own chat cooked the review step earlier and is busy with your next message when Build asks it something.
-		const builder = agent("bld", "Build", "To Review: will you check the README too?");
-		const mine = { ...session("mine", "Review"), updatedAt: Date.now() - 20_000 };
-		const sessions = [builder, mine];
-		const sent: string[] = [];
-		const app = createApp(() => sessions, async (_, text) => {
-			sent.push(text);
-			await new Promise(() => {});
+		const sent: { to: string; text: string }[] = [];
+		const asked: string[] = [];
+		let reply = (_: string) => {};
+		const answered = new Promise<void>((r) => (reply = () => r()));
+		const app = createApp(() => [builder, spec], async (s, text) => void sent.push({ to: s.id, text }), {
+			ask: async (q) => {
+				asked.push(q);
+				reply("");
+				return "Yes: a chef on the bridge, labelled Orchestrator.";
+			},
 		});
 		const post = async (path: string, body: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
-		await post("/api/send", { id: "mine", text: "my own work" });
-		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo", crew: { review: { id: "mine", role: "Review", name: "mine" } } });
-		expect((await post("/api/kitchen", { auto: true })).did).toContain("#1 Build asked Review");
-		// The question waits in the chat's queue; the reply it is running was not replaced.
-		expect(sent).toEqual(["my own work"]);
-		const queue = (await (await app.request("/api/sessions")).json()).sessions.find((x: { id: string }) => x.id === "mine").queue;
-		expect(queue.map((x: { text: string }) => x.text)).toEqual(["#1: question from Build"]);
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo", notes: { spec: "Goal: show the orchestrator.\nChecks: a chef labelled Orchestrator." }, crew: { spec: { id: "spc", role: "Spec", name: "Spec · repo spc0" }, build: { id: "bld", role: "Build", name: "Build · repo bld0" } } });
+		expect((await post("/api/kitchen", { auto: true })).did).toContain("#1 Build asked Spec");
+		await answered;
+		// The answer came from one fresh call whose only input is the Spec record, not from the Spec chat.
+		expect(asked[0]).toContain("Goal: show the orchestrator.");
+		expect(asked[0]).toContain("Question from the Build agent: does 'show the orchestrator' mean a chef on the Kitchen tab?");
+		expect(sent.filter((m) => m.to === "spc")).toEqual([]);
+		const t = tasks()[0];
+		expect(t).toMatchObject({ assignee: "bld", asked: 1, waitingOn: { stage: "spec", question: expect.any(String) } });
+		expect(typeof t.waitingOn.id).toBe("string");
+		await Bun.sleep(5);
+		// A Spec chat that moves on its own (a tool call, a person typing) is not the answer: only the ask id is.
+		spec.updatedAt = Date.now() - 10_000;
+		expect((await post("/api/kitchen", { auto: true })).did).toContain("#1 Spec answered");
+		expect(sent.at(-1)).toMatchObject({ to: "bld" });
+		expect(sent.at(-1)?.text).toContain("Yes: a chef on the bridge, labelled Orchestrator.");
+		expect(tasks()[0].waitingOn).toBeUndefined();
+		expect(tasks()[0].talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
+	});
+
+	it("does not ask a stage that has not run: the asker gets the policy, not a guess", async () => {
+		const builder = agent("bld", "Build", ask("test", "will the tests pass?"));
+		const { post, sent } = setup([builder]);
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 Build asked Test: no record to answer from, told to decide");
+		expect(sent.at(-1)).toContain("The Test stage of order #1 has not run or left no record");
+		expect(sent.at(-1)).toContain("FAIL: the decision that is missing");
+		const { ADDRESS, verdictIn } = await import("../src/kitchen/routes");
+		expect(ADDRESS).toContain("```kitchen");
+		// Prose that looks like a message is not one any more.
+		const { recordIn } = await import("../src/kitchen/protocol");
+		expect(recordIn("To Spec: what is X?")).toBeUndefined();
+		expect(recordIn('```kitchen\n{"ask": {"to": "Spec", "question": "what is X?"}}\n```')).toEqual({ ask: { to: "spec", question: "what is X?" } });
+		expect(recordIn("```kitchen\nnot json\n```")).toBeUndefined();
+		expect(verdictIn("x")).toBeUndefined();
+	});
+
+	it("fails the step when an ask times out instead of answering for the asked agent", async () => {
+		const builder = agent("bld", "Build", "working");
+		const sent: string[] = [];
+		const app = createApp(() => [builder], async (_, text) => void sent.push(text), { ask: () => new Promise<string>(() => {}) });
+		const post = async (path: string, body: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo", notes: { spec: "Goal" }, waitingOn: { id: "a1", stage: "spec", question: "q?", at: Date.now() - 11 * 60_000 } });
+		// The board restarted while the ask ran: it is asked again under the same id, not answered by the orchestrator.
+		await post("/api/kitchen", { auto: true });
+		expect(tasks()[0].waitingOn.id).toBe("a1");
+		expect((await post("/api/kitchen", { auto: true })).did).toContain("#1 Spec did not answer: failed");
+		expect(tasks()[0]).toMatchObject({ stuck: true, assignee: "" });
+		expect(tasks()[0].failures.at(-1)).toContain('asked Spec "q?" and got no answer');
+		expect(sent).toEqual([]);
 	});
 
 	it("keeps what a step's agent said before the orchestrator answered it, so the next stage gets the whole hand-off", async () => {
@@ -944,7 +972,7 @@ describe("agent to agent", () => {
 		order({ kind: "task", stage: "spec", assignee: "spc", sentAt: Date.now() - 60_000, cwd: "/repo" });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 answered spec agent's question");
 		// It answers "Yes, go ahead" with one line; the spec it wrote before must still reach Build.
-		spec.feed = [...spec.feed, { who: "you", text: "Yes, go ahead.", at: 3 } as never, { who: "agent", text: "Spec is final.", at: 4 } as never];
+		spec.feed = [...spec.feed, { who: "you", text: "Decide yourself.", at: 3 } as never, { who: "agent", text: "Spec is final.", at: 4 } as never];
 		spec.updatedAt = Date.now() - 10_000;
 		let t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, sentAt: Date.now() - 30_000 }]));
