@@ -188,6 +188,19 @@ describe("send", () => {
 		expect((await (await app.request("/api/sessions")).json()).sessions[0].queue).toEqual([]);
 	});
 
+	it("lets a resumed copy into the other repos the session worked in", async () => {
+		const { workDirs } = await import("../src/index");
+		const { mkdtempSync, mkdirSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const own = mkdtempSync(`${tmpdir()}/rma-own-`);
+		const other = mkdtempSync(`${tmpdir()}/rma-other-`);
+		mkdirSync(`${other}/.git`);
+		mkdirSync(`${other}/src`);
+		const cd = line({ type: "assistant", cwd: own, message: { content: [{ type: "tool_use", id: "b", name: "Bash", input: { command: `cd ${other}/src && ls` } }] } });
+		const s = parseSession("w", [ask("x"), edit(`${own}/a.ts`), cd], now);
+		expect(s && workDirs(s)).toEqual([other]);
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

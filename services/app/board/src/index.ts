@@ -80,7 +80,37 @@ const PROMPT_LIMIT = 20_000;
  * `claude -p --resume`, Codex with `codex exec resume`. The prompt goes on stdin, never into argv. The reply lands
  * in the session's own transcript, which the board already reads.
  */
+/**
+ * The folders a resumed copy of a session needs besides its own: the repositories it edited files in and the
+ * folders its shell commands went into. The Claude app lets a session into extra folders, but `claude -p` starts
+ * with only the session's own folder, so without these it is blocked from work it was already doing.
+ */
+export function workDirs(s: Session): string[] {
+	const root = (p: string) => {
+		for (let d = p; d !== dirname(d); d = dirname(d)) {
+			try {
+				if (statSync(join(d, ".git"))) return d;
+			} catch {}
+		}
+		return p;
+	};
+	const own = s.cwd ? resolve(s.cwd) : "";
+	const out = new Set<string>();
+	for (const p of [...s.edits.map((e) => dirname(e.file)), ...(s.dirs ?? [])]) {
+		const d = resolve(p);
+		try {
+			if (!statSync(d).isDirectory()) continue;
+		} catch {
+			continue;
+		}
+		const r = root(d);
+		if (r !== own && !(own && (r + sep).startsWith(own + sep))) out.add(r);
+	}
+	return [...out].slice(-8);
+}
+
 export function sendToSession(s: Session, text: string, run = spawn, dirs: string[] = []): Promise<void> {
+	dirs = [...dirs, ...workDirs(s)];
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]

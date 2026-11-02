@@ -33,6 +33,8 @@ export interface Session {
 	doing: string;
 	/** Files it edited, newest last, with the time of the edit. */
 	edits: { file: string; at: number }[];
+	/** Folders its shell commands changed into (`cd /path`), so a resumed copy can be let into them. */
+	dirs?: string[];
 	updatedAt: number;
 	role: string;
 	/** Pinned in the Claude desktop app. */
@@ -208,6 +210,12 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 				const file = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
 				s.doing = file ? `${c.name} ${basename(file)}` : c.name.replace(/^mcp__[^_]+__/, "");
 				if (file && EDIT_TOOLS.has(c.name)) s.edits.push({ file, at });
+				if (c.name === "Bash") {
+					for (const m of String(c.input?.command ?? "").matchAll(/\bcd\s+("[^"]+"|'[^']+'|[~/][^\s;&|)]*)/g)) {
+						const d = m[1].replace(/^["']|["']$/g, "").replace(/^~(?=\/|$)/, homedir());
+						if (d.startsWith("/") && !(s.dirs ??= []).includes(d)) s.dirs.push(d);
+					}
+				}
 				if (item.tools.length < 6) item.tools.push(s.doing);
 			}
 		}
