@@ -54,13 +54,41 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		}
 	}
 
+
+	/**
+	 * Who should cook an order's next step: a free pod of a container that cooks the stage, else an idle agent of a
+	 * type that fits, else any idle agent (the model policy still applies). Says why when nobody is free.
+	 */
+	function pick(order: Task): { session?: Session; why: string } {
+		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
+		const all = k.read();
+		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
+		const boxes = readContainers().filter((x) => x.stages.includes(order.stage));
+		const pod = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
+		const stage = order.stage === "inbox" ? "spec" : order.stage;
+		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
+		const session = pod ?? fits.map((r) => all.find((x) => x.role === r && free(x))).find(Boolean) ?? all.find(free);
+		if (session) return { session, why: "" };
+		const open = all.filter((x) => !x.hidden);
+		const why = !open.length
+			? "No agents on the board. Start a session or add an agent container."
+			: order.cwd && !open.some((x) => x.cwd === order.cwd)
+				? `No agent works in ${order.cwd}. Start one there.`
+				: "Every agent is busy. It goes to the first one that finishes.";
+		return { why };
+	}
+
 	// ---------- orders ----------
 	app.get("/api/scores", (c) => c.json(scoreboard(readTasks())));
 	app.get("/api/tasks", (c) =>
 		c.json({
 			stages: STAGES,
 			roles: STAGE_ROLES,
-			tasks: beltOrder(readTasks()).map((t) => ({ ...t, skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })) })),
+			tasks: beltOrder(readTasks()).map((t) => ({
+				...t,
+				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
+				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t).why,
+			})),
 		}),
 	);
 	app.post("/api/tasks", async (c) => {
@@ -125,14 +153,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			return c.json({ error: "Its skills are still installing." }, 409);
 		}
 		const order = t;
-		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
-		const all = k.read();
-		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
-		const boxes = readContainers().filter((x) => x.stages.includes(order.stage));
-		const podSession = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
-		const fits = order.stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[order.stage];
-		const s = b.session ? all.find((x) => x.id === b.session) : (podSession ?? fits.map((r) => all.find((x) => x.role === r && free(x))).find(Boolean));
-		if (!s) return c.json({ error: `No idle ${fits[0]} agent. Start one, add an agent container, or drop the order on an agent.` }, 409);
+		const s = b.session ? k.read().find((x) => x.id === b.session) : pick(order).session;
+		if (!s) return c.json({ error: pick(order).why }, 409);
 		const box = podOf(s.id)?.container;
 		const policy = policyFor(order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, policy);
