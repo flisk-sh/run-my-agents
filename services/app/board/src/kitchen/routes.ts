@@ -67,6 +67,10 @@ export function failLine(text: string): string {
 
 /** How many times the orchestrator answers one step's agent before the step moves on without it. */
 export const MAX_ANSWERS = 2;
+/** What the orchestrator says to a kitchen agent that asks while it holds no order. */
+export const STRAY_ANSWER =
+	"No. This is the kitchen's orchestrator answering for the user: no order is waiting on you right now, so there is nothing to ship or change. Do not run any command or edit any file. Stop here; the board will send you an order when there is one.";
+
 /** What the orchestrator says to an agent that stopped to ask the user. */
 export const ORCHESTRATOR_ANSWER =
 	"Yes, go ahead. This is the kitchen's orchestrator answering for the user: nobody else will reply. Make the most reasonable choice yourself, do it, and finish this step. Do not ask again.";
@@ -601,6 +605,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			serve(t.id, v);
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
 		}
+		did.push(...answerStrays(all, now));
 		for (const t of beltOrder(readTasks())) {
 			if (t.assignee || t.stage === "done" || t.stuck || t.atPass) continue;
 			// Auto-dispatch only uses container agents, so orders never land in a chat you are typing in.
@@ -654,6 +659,29 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					patchContainer(box.id, { replicas: want, downReason: undefined });
 					did.push(`${box.name}: ${box.replicas} → ${want} agents`);
 				}
+			}
+		}
+		return did;
+	}
+
+	/**
+	 * Kitchen agents that hold no order (a Ship agent whose order is done, an idle container agent) and stopped on a
+	 * question get one answer too: there is nothing for them to do, so they stop instead of waiting for the user.
+	 * Never "go ahead": an agent with no order has nothing safe to go ahead with.
+	 */
+	const strayAnswered = new Set<string>();
+	function answerStrays(all: Session[], now: number) {
+		const did: string[] = [];
+		const held = new Set(readTasks().filter((t) => t.assignee).map((t) => t.assignee));
+		const pods = new Set(readContainers().flatMap((c) => c.pods.filter((p) => p.status !== "evicted").map((p) => p.session)));
+		for (const s of all) {
+			if (held.has(s.id) || strayAnswered.has(s.id) || s.hidden || k.busy(s)) continue;
+			if (!pods.has(s.id) && !/^Ship · #\d+/.test(s.title ?? "")) continue;
+			if (now - s.updatedAt < 3_000 || now - s.updatedAt > 24 * 3_600_000) continue;
+			if (!asksBack(handOff(s), { stage: "build" })) continue;
+			if (k.send(s, "orchestrator: no order", STRAY_ANSWER).status < 400) {
+				strayAnswered.add(s.id);
+				did.push(`answered stray agent ${(s.title ?? s.id).slice(0, 30)}: no order`);
 			}
 		}
 		return did;

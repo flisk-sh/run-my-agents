@@ -739,3 +739,17 @@ describe("the orchestrator answers agents", () => {
 		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "test", answered: 0 });
 	});
 });
+
+describe("stray agents", () => {
+	it("tells a kitchen agent with no order that asks to stop, once, and leaves your own chats alone", async () => {
+		const ask = (id: string, title: string) => ({ ...session(id, "Build"), title, updatedAt: Date.now() - 20_000, feed: [{ who: "you", text: "Ship order #12", at: 1 } as never, { who: "agent", text: "Would you like me to proceed with shipping order #12?", at: 2 } as never] });
+		const { post, sent } = setup([ask("ship1", "Ship · #12"), ask("mine", "my own chat")]);
+		const did = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(did).toContain("answered stray agent Ship · #12: no order");
+		expect(sent).toHaveLength(1);
+		expect(sent[0]).toContain("no order is waiting on you");
+		expect(sent[0]).toContain("Do not run any command or edit any file");
+		await post("/api/kitchen", { auto: true });
+		expect(sent).toHaveLength(1);
+	});
+});
