@@ -36,6 +36,41 @@ export function setRole(id: string, role: string | null): void {
 	renameSync(tmp, file());
 }
 
+const nameFile = () => join(dir(), "names.json");
+
+/** The names you've typed for sessions in the board, keyed by session id. */
+export function readNames(): Record<string, string> {
+	try {
+		const raw = JSON.parse(readFileSync(nameFile(), "utf8")) as Record<string, unknown>;
+		return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === "string" && v.trim())) as Record<string, string>;
+	} catch {
+		return {};
+	}
+}
+
+/** Gives a session a name you typed, or with null goes back to its own title (the Claude app's, or the first line of the prompt). */
+export function setName(id: string, name: string | null): void {
+	const names = readNames();
+	const clean = (name ?? "").trim().slice(0, 120);
+	if (clean) names[id] = clean;
+	else delete names[id];
+	mkdirSync(dirname(nameFile()), { recursive: true });
+	const tmp = `${nameFile()}.${process.pid}.tmp`;
+	writeFileSync(tmp, JSON.stringify(names, null, 2));
+	renameSync(tmp, nameFile());
+}
+
+/** Applies the names you've chosen in the board, over whatever title the session itself has. */
+export function applyNames(sessions: Session[]): Session[] {
+	const names = readNames();
+	for (const s of sessions)
+		if (names[s.id]) {
+			s.title = names[s.id];
+			s.titleSet = true;
+		}
+	return sessions;
+}
+
 interface Pending {
 	agent: string;
 	cwd: string;
@@ -191,9 +226,10 @@ export function applyHidden(sessions: Session[]): Session[] {
 	return sessions;
 }
 
-/** Drops everything the board keeps about a session: its type, model, pins, closed state and attached files. */
+/** Drops everything the board keeps about a session: its type, name, model, pins, closed state and attached files. */
 export function forgetSession(id: string): void {
 	setRole(id, null);
+	setName(id, null);
 	setTune(id, { model: "", effort: "" });
 	const p = readPins();
 	mkdirSync(dirname(pinFile()), { recursive: true });

@@ -41,6 +41,8 @@ export interface Session {
 	pinned: boolean;
 	/** True when you chose this session's type, instead of the board guessing it. */
 	roleSet?: boolean;
+	/** True when you typed this session's name in the board, instead of using its own title. */
+	titleSet?: boolean;
 	/** The agent finished its turn with choices for you and is waiting. */
 	awaiting?: boolean;
 	/** Pull requests the Claude app attached to this session. */

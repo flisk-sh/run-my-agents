@@ -432,6 +432,24 @@ describe("new sessions and agent types", () => {
 		expect((await post(app, "/api/role", { id: "s1", role: "Wizard" })).status).toBe(400);
 	});
 
+	it("lets you rename a session, and go back to its own title", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-names-"));
+		const { applyNames } = await import("../src/prefs");
+		const fresh = () => [parseSession("s1", [ask("tune the parser")], now)].filter((s) => s !== undefined);
+		const app = createApp(() => applyNames(fresh()));
+		expect((await post(app, "/api/name", { id: "s1", name: "  Payments cleanup  " })).status).toBe(200);
+		let s = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect([s.title, s.titleSet]).toEqual(["Payments cleanup", true]);
+		await post(app, "/api/name", { id: "s1", name: "" });
+		s = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect([s.title, s.titleSet]).toEqual(["tune the parser", undefined]);
+		expect((await post(app, "/api/name", { id: "nope", name: "x" })).status).toBe(404);
+		expect((await post(app, "/api/name", { id: "s1", name: "x".repeat(121) })).status).toBe(400);
+	});
+
 	it("gives a just-started Codex session the type chosen for it once it appears", async () => {
 		const { mkdtempSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");
@@ -1053,7 +1071,7 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 
 	it("shows more chat text: tighter spacing, wider bubbles, smaller tool labels that group repeats, no early cut-off", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of [".bub{max-width:94%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>9000"]) expect(PAGE).toContain(part);
+		for (const part of [".bub{max-width:80%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>9000"]) expect(PAGE).toContain(part);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		const runs = new Function("esc", `${js.slice(js.indexOf("function toolRuns("), js.indexOf("function pinSession("))}; return toolRuns;`)((x: string) => x) as (t: string[]) => string;
 		const html = runs(["Bash", "Bash", "Bash", "Edit page.ts", "Bash"]);

@@ -153,15 +153,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
   // The paperclip: <input type=file> needs the app to show the open panel itself.
   func webView(_ w: WKWebView, runOpenPanelWith p: WKOpenPanelParameters, initiatedByFrame f: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
-    let panel = NSOpenPanel()
-    panel.allowsMultipleSelection = p.allowsMultipleSelection
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = false
-    panel.prompt = "Attach"
-    if let win = w.window {
-      panel.beginSheetModal(for: win) { r in completionHandler(r == .OK ? panel.urls : nil) }
-    } else {
-      completionHandler(panel.runModal() == .OK ? panel.urls : nil)
+    // Always answer WebKit exactly once; dropping the handler aborts the app.
+    var answered = false
+    let answer: ([URL]?) -> Void = { urls in
+      if answered { return }
+      answered = true
+      completionHandler(urls)
+    }
+    DispatchQueue.main.async {
+      let panel = NSOpenPanel()
+      panel.allowsMultipleSelection = p.allowsMultipleSelection
+      panel.canChooseFiles = true
+      panel.canChooseDirectories = false
+      panel.prompt = "Attach"
+      NSApp.activate(ignoringOtherApps: true)
+      panel.begin { r in answer(r == .OK ? panel.urls : nil) }
     }
   }
 

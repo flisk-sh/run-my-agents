@@ -11,7 +11,7 @@ import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../.
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
 import { GEIST, GEIST_MONO } from "./fonts.generated";
-import { addPending, applyHidden, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
+import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
@@ -284,7 +284,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 const BUILD = Bun.hash(PAGE).toString(36);
 
 export function createApp(
-	read = () => applyTune(applyRoles(applyHidden(readAllSessions()))),
+	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
 	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs } = {},
 ) {
@@ -447,6 +447,18 @@ export function createApp(
 		if (role && !ROLES.includes(role)) return c.json({ error: "Unknown agent type." }, 400);
 		setRole(id, role || null);
 		return c.json({ id, role: role || null });
+	});
+	// Gives an existing session a name you typed, or with an empty name goes back to its own title.
+	app.post("/api/name", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, name } = (await c.req.json().catch(() => ({}))) as { id?: string; name?: string };
+		if (!id || !/^[\w-]{1,80}$/.test(id)) return c.json({ error: "Unknown session." }, 400);
+		const clean = String(name ?? "").trim();
+		if (clean.length > 120) return c.json({ error: "Keep the name under 120 characters." }, 400);
+		if (!read().some((x) => x.id === id)) return c.json({ error: "That session is gone." }, 404);
+		setName(id, clean || null);
+		const s = read().find((x) => x.id === id);
+		return c.json({ id, titleSet: !!clean, title: s?.title ?? clean });
 	});
 	// Saves a file you attach, outside your projects, in ~/.run-my-agents/uploads/<session>/. The body is the raw file.
 	app.post("/api/upload", async (c) => {
