@@ -154,7 +154,7 @@ describe("auto-dispatch on the server", () => {
 		const chat = { ...session("my-chat", "Planner"), updatedAt: Date.now() - 60_000 };
 		const sessions: Session[] = [chat];
 		const { app, post, sent, started } = setup(sessions);
-		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: true });
+		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: true, idleMinutes: 10 });
 		order({ stage: "inbox", approved: false });
 		// Your own idle chat never gets an order from auto-dispatch.
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual([]);
@@ -176,7 +176,7 @@ describe("auto-dispatch on the server", () => {
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 approved", "#1 sent"]);
 		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "build", approved: true, assignee: cook.id });
 		expect((await post("/api/kitchen", { auto: false })).body).toEqual({ auto: false, did: [] });
-		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: false });
+		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: false, idleMinutes: 10 });
 	});
 });
 
@@ -195,9 +195,16 @@ describe("autopilot", () => {
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("created Build · app");
 		expect(readContainers().find((x) => x.name === "Build · app")).toMatchObject({ role: "Build", lessonsKey: "build", stages: ["build"] });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · app: 1 → 3 agents");
-		// All served: back to one.
+		// All served: the idle timer starts, and after 10 quiet minutes the stage's agents are let go.
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1, stage: "done" }))));
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · app: 3 → 1 agents");
+		expect((await post("/api/kitchen", { auto: true })).body.did.some((d: string) => d.includes("Build · app: idle"))).toBe(false);
+		const boxes = JSON.parse(readFileSync(join(dir, "containers.json"), "utf8"));
+		writeFileSync(join(dir, "containers.json"), JSON.stringify(boxes.map((b: { idleSince?: number }) => (b.idleSince ? { ...b, idleSince: Date.now() - 11 * 60_000 } : b))));
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · app: idle 11 min, 3 → 0 agents");
+		await post("/api/containers/reconcile", {});
+		const build = readContainers().find((x) => x.name === "Build · app");
+		expect(build?.pods.filter((p) => p.status !== "evicted")).toEqual([]);
+		expect(build?.pods.every((p) => p.reason === "Idle 11 min" || p.status !== "evicted")).toBe(true);
 	});
 
 	it("clears a container's lessons", async () => {
@@ -360,5 +367,28 @@ describe("skills and tools that fit the order", () => {
 		await post({ title: "how are you", cwd: "/repo" });
 		await Bun.sleep(5);
 		expect(asked).toEqual([{ q: "whats the weather in Australia?", web: true }, { q: "how are you", web: false }]);
+	});
+});
+
+describe("idle timer", () => {
+	it("keeps the size you set by hand, and wakes back up when an order arrives", async () => {
+		const { post } = setup([]);
+		const box = (await post("/api/containers", { name: "Cooks", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" })).body;
+		await post("/api/containers/scale", { id: box.id, replicas: 2 });
+		await post("/api/kitchen", { auto: true });
+		const all = JSON.parse(readFileSync(join(dir, "containers.json"), "utf8"));
+		writeFileSync(join(dir, "containers.json"), JSON.stringify(all.map((b: object) => ({ ...b, idleSince: Date.now() - 60 * 60_000 }))));
+		await post("/api/kitchen", { auto: true });
+		expect(readContainers()[0]).toMatchObject({ replicas: 2, floorByHand: true });
+		// An order in its stage clears the timer.
+		order({ stage: "build", cwd: "/repo" });
+		await post("/api/kitchen", { auto: true });
+		expect(readContainers()[0].idleSince).toBeUndefined();
+	});
+
+	it("lets you change the idle minutes", async () => {
+		const { post } = setup([]);
+		expect((await post("/api/kitchen", { idleMinutes: 3 })).body).toMatchObject({ auto: true, idleMinutes: 3 });
+		expect((await post("/api/kitchen", { idleMinutes: 0 })).status).toBe(400);
 	});
 });

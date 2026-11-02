@@ -46,15 +46,17 @@ const lastSaid = (s: Session | undefined) => {
 const orderSkills = (title: string, route: string) =>
 	[...new Set([...matchSkills(title, 3).map((s) => s.name), ...skillsFor(route, 2).map((s) => s.name), STAGE_SKILLS.spec[0]])].slice(0, 4);
 
-const SETTINGS = new JsonStore<{ auto: boolean }>("kitchen.json");
-const settings = () => SETTINGS.read()[0] ?? { auto: true };
+type Settings = { auto: boolean; idleMinutes: number };
+const SETTINGS = new JsonStore<Partial<Settings>>("kitchen.json");
+/** Autopilot on, and idle agents let go after 10 minutes, unless kitchen.json says otherwise. */
+const settings = (): Settings => ({ auto: true, idleMinutes: 10, ...(SETTINGS.read()[0] ?? {}) });
 /** The most agents the autoscaler runs per folder. */
 export const MAX_AGENTS = 3;
 /** The stage that has to staff an order next: an inbox task goes to spec, or straight to build on the fast lane. */
 const staffStage = (t: Task) => (t.stage === "inbox" ? (t.lane === "fast" ? "build" : "spec") : t.stage);
 /** The assignee of a question the front desk is answering. */
 export const FRONT_DESK = "front-desk";
-const saveSettings = (v: { auto: boolean }) => SETTINGS.write([v]);
+const saveSettings = (v: Partial<Settings>) => SETTINGS.write([{ ...settings(), ...v }]);
 
 export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const guard = (c: Context) => (k.sameOrigin(c) ? undefined : c.json({ error: "Send JSON from the board." }, 403));
@@ -316,7 +318,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				did.push(`#${t.n} closed as failed`);
 			}
 		}
-		did.push(...autoscale());
+		did.push(...autoscale(), ...letIdleGo(now));
 		const all = k.read();
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
@@ -374,13 +376,42 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					did.push(`created ${box.name}`);
 					continue;
 				}
-				const floor = box.floor ?? 1;
-				const want = Math.max(floor, Math.min(MAX_AGENTS, working + waiting));
-				if (want !== box.replicas && (want > box.replicas || !here.length)) {
-					patchContainer(box.id, { replicas: want });
+				// Grow while every agent is busy; shrinking is the idle timer's job (see letIdleGo).
+				const want = Math.min(MAX_AGENTS, working + waiting);
+				if (want > box.replicas) {
+					patchContainer(box.id, { replicas: want, downReason: undefined });
 					did.push(`${box.name}: ${box.replicas} → ${want} agents`);
 				}
 			}
+		}
+		return did;
+	}
+
+	/**
+	 * The idle timer: a container whose stages have had no orders in its folder for idleMinutes lets its agents go,
+	 * down to the size you set by hand (none if you never did). The autoscaler starts one again when an order needs it.
+	 */
+	function letIdleGo(now = Date.now()) {
+		const did: string[] = [];
+		const idleMs = settings().idleMinutes * 60_000;
+		const open = readTasks().filter((t) => t.stage !== "done" && !t.stuck);
+		for (const box of readContainers()) {
+			const pods = new Set(box.pods.filter((p) => p.status !== "evicted").map((p) => p.session));
+			const busy = open.some((t) => (t.assignee && pods.has(t.assignee)) || (t.cwd === box.cwd && (box.stages as string[]).includes(staffStage(t))));
+			if (busy) {
+				if (box.idleSince) patchContainer(box.id, { idleSince: undefined });
+				continue;
+			}
+			const keep = box.floorByHand ? (box.floor ?? 0) : 0;
+			if (box.replicas <= keep) continue;
+			if (!box.idleSince) {
+				patchContainer(box.id, { idleSince: now });
+				continue;
+			}
+			if (now - box.idleSince < idleMs) continue;
+			const mins = Math.round((now - box.idleSince) / 60_000);
+			patchContainer(box.id, { replicas: keep, downReason: `Idle ${mins} min` });
+			did.push(`${box.name}: idle ${mins} min, ${box.replicas} → ${keep} agents`);
 		}
 		return did;
 	}
@@ -403,7 +434,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.post("/api/kitchen", async (c) => {
 		const no = guard(c);
 		if (no) return no;
-		const { auto: on } = await body<{ auto?: boolean }>(c);
+		const { auto: on, idleMinutes } = await body<{ auto?: boolean; idleMinutes?: number }>(c);
+		if (idleMinutes !== undefined) {
+			if (!Number.isFinite(idleMinutes) || idleMinutes < 1 || idleMinutes > 24 * 60) return c.json({ error: "Pick 1 to 1440 idle minutes." }, 400);
+			saveSettings({ idleMinutes: Math.round(idleMinutes) });
+		}
+		if (on === undefined && idleMinutes !== undefined) return c.json({ ...settings(), did: [] });
 		if (typeof on !== "boolean") return c.json({ error: "Say on or off." }, 400);
 		saveSettings({ auto: on });
 		return c.json({ auto: on, did: on ? auto() : [] });
@@ -441,7 +477,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (no) return no;
 		const { id, replicas } = await body<{ id?: string; replicas?: number }>(c);
 		if (!Number.isFinite(replicas)) return c.json({ error: "Say how many agents." }, 400);
-		const box = patchContainer(String(id), { replicas: Number(replicas), floor: Math.max(0, Math.min(10, Math.round(Number(replicas)))) });
+		const box = patchContainer(String(id), { replicas: Number(replicas), floor: Math.max(0, Math.min(10, Math.round(Number(replicas)))), floorByHand: true, idleSince: undefined, downReason: "Scaled down" });
 		if (!box) return c.json({ error: "That container is gone." }, 404);
 		tick();
 		return c.json(view(readContainers().find((x) => x.id === box.id) ?? box));

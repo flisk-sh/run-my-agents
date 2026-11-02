@@ -41,6 +41,12 @@ export type Container = {
 	lessons: { at: number; order: string; reason: string }[];
 	/** Containers with the same key share one lessons skill: every Build container learns from every build. */
 	lessonsKey?: string;
+	/** You set its size with − / +: the idle timer keeps that many agents instead of letting them all go. */
+	floorByHand?: boolean;
+	/** When its stage last ran out of orders; cleared when an order arrives. */
+	idleSince?: number;
+	/** Why its last agents were let go, shown on the evicted pods. */
+	downReason?: string;
 	created: number;
 };
 
@@ -82,7 +88,7 @@ export function createContainer(c: Partial<Container> & { name: string; role: st
 	return box;
 }
 
-export function patchContainer(id: string, patch: Partial<Pick<Container, "replicas" | "floor" | "role" | "lessonsKey" | "model" | "effort" | "skills" | "maxStrikes" | "missMinutes" | "name">>) {
+export function patchContainer(id: string, patch: Partial<Pick<Container, "replicas" | "floor" | "floorByHand" | "idleSince" | "downReason" | "role" | "lessonsKey" | "model" | "effort" | "skills" | "maxStrikes" | "missMinutes" | "name">>) {
 	return store.update((all) => {
 		const c = all.find((x) => x.id === id);
 		if (!c) return undefined;
@@ -202,7 +208,7 @@ export function reconcile(ctx: ReconcileCtx) {
 			const pods = live(c);
 			// Too many: fire the newest, the way a ReplicaSet scales down.
 			for (const p of pods.sort((a, b) => b.started - a.started).slice(0, Math.max(0, pods.length - c.replicas))) {
-				Object.assign(p, { status: "evicted", reason: "Scaled down", evictedAt: now });
+				Object.assign(p, { status: "evicted", reason: c.downReason ?? "Scaled down", evictedAt: now });
 				ctx.close(p.session);
 				did.push(`${c.name}: scaled down ${p.session.slice(0, 8)}`);
 			}
