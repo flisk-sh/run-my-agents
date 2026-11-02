@@ -119,7 +119,7 @@ let CR=null,SS=null,NB={name:"",role:"Code",stages:["build"],replicas:2,model:"h
 let SC=null,scBy=(()=>{try{return localStorage.getItem("rma-scby")||"agents"}catch(e){return"agents"}})();
 let ktab=(()=>{try{return localStorage.getItem("rma-ktab")||"chat"}catch(e){return"chat"}})();
 let kIdleMin=10,kpri="P1",KD={stages:[],roles:{},tasks:[]},kauto=true,kdrag="",kbusy=false;
-const STN={inbox:"Inbox",spec:"Spec",build:"Build",test:"Test",review:"Review",done:"Served"};
+const STN={front:"Front",inbox:"Inbox",spec:"Spec",orchestrator:"Orchestrator",build:"Build",test:"Test",review:"Review",done:"Served"};
 function kTabs(){const n=KD.tasks.filter(t=>t.stage!=="done").length;
  $("ktabs").innerHTML=KT.map(([k,l])=>'<button class="ktab'+(ktab===k?" on":"")+'" data-ktab="'+k+'">'+l+(k!=="chat"&&n?"<i>"+n+"</i>":"")+"</button>").join("");
  document.querySelector(".main").classList.toggle("kmode",ktab!=="chat");$("kview").hidden=ktab==="chat"}
@@ -161,7 +161,7 @@ function kKitchen(){return kAdd()+'<div class="kgame"><canvas id="kcv" width="10
 const KG={chefs:{},parts:[],clouds:[0,1,2,3,4].map(i=>({x:i*240,y:30+((i*97)%380),w:90+(i*37)%80,v:6+i%3*4})),hits:[],t0:performance.now(),raf:0};
 /* Stations in scene units (1000 x 580). Island 1 is Discovery, island 2 is Delivery. */
 const ISL=[{x:40,y:150,w:330,h:330,name:"DISCOVERY"},{x:560,y:120,w:400,h:380,name:"DELIVERY"}];
-const ST={inbox:{x:110,y:205,kind:"crate"},spec:{x:290,y:205,kind:"board"},build:{x:630,y:175,kind:"stove"},test:{x:760,y:175,kind:"taste"},review:{x:890,y:175,kind:"sink"},done:{x:890,y:440,kind:"hatch"}};
+const ST={front:{x:70,y:205,kind:"desk"},inbox:{x:110,y:205,kind:"crate"},spec:{x:290,y:205,kind:"board"},orchestrator:{x:465,y:300,kind:"bell"},build:{x:630,y:175,kind:"stove"},test:{x:760,y:175,kind:"taste"},review:{x:890,y:175,kind:"sink"},done:{x:890,y:440,kind:"hatch"}};
 const PASS={x:465,y:300};
 function kRR(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 function kIsland(c,I,t){/* shadow, basket rim, planks, wall */
@@ -194,6 +194,8 @@ function kStation(c,k,s,t,hot,busy){const x=s.x,y=s.y;
  else if(s.kind==="taste"){c.fillStyle="#e2e8f0";c.beginPath();c.ellipse(x,y,26,16,0,0,7);c.fill();c.fillStyle="#22c55e";c.beginPath();c.ellipse(x,y,16,9,0,0,7);c.fill();c.fillStyle="#b45309";c.fillRect(x+12,y-22,4,22)}
  else if(s.kind==="sink"){c.fillStyle="#cbd5e1";kRR(c,x-30,y-16,60,32,8);c.fill();c.fillStyle="#7dd3fc";kRR(c,x-24,y-10,48,20,6);c.fill();c.fillStyle="#94a3b8";c.fillRect(x-3,y-24,6,14)}
  else if(s.kind==="hatch"){c.fillStyle="#1f2937";kRR(c,x-34,y-18,68,36,6);c.fill();c.fillStyle="#22c55e";for(let i=0;i<5;i++){c.fillRect(x-30+((i*14+t*30)%60),y-3,8,6)}}
+ else if(s.kind==="desk"){c.fillStyle="#8b5e34";kRR(c,x-32,y-20,64,40,8);c.fill();c.fillStyle="#d2b48c";for(let i=0;i<3;i++){c.fillRect(x-28+i*18,y-16,14,30)}}
+ else if(s.kind==="bell"){c.fillStyle="#fbbf24";c.beginPath();c.arc(x,y-14,16,0,7);c.fill();c.fillStyle="#f59e0b";c.beginPath();c.arc(x,y+6,12,0,7);c.fill();c.fillStyle="#e2d6bf";c.fillRect(x-8,y+6,16,6)}
  c.fillStyle="#0f172a";kRR(c,x-34,y+32,68,16,5);c.fill();c.fillStyle="#fff";c.font="700 10px monospace";c.textAlign="center";c.fillText(STN[k].toUpperCase(),x,y+44);c.textAlign="left";
  if(busy&&(s.kind==="stove"||s.kind==="board")&&Math.random()<.25)KG.parts.push({x:x-20+Math.random()*20,y:y-18,vx:(Math.random()-.5)*8,vy:-24-Math.random()*16,life:1.4,kind:"steam"});
  if(hot&&Math.random()<.7)KG.parts.push({x:x-30+Math.random()*60,y:y-20,vx:(Math.random()-.5)*14,vy:-40-Math.random()*40,life:.9,kind:"fire"})}
@@ -243,7 +245,7 @@ function kFrame(now){const cv=$("kcv");if(!cv||ktab!=="kitchen"){KG.raf=0;return
  /* chefs walk to their station, idle ones wander their island */
  const seen=new Set();
  live.slice(0,14).forEach((s,i)=>{seen.add(s.id);const o=KD.tasks.find(x=>x.assignee===s.id);let ch=KG.chefs[s.id];
-  const home=s.role==="Planner"||s.role==="Calls"||s.role==="Calendar"?ISL[0]:ISL[1];
+  const home=s.role==="Front"||s.role==="Orchestrator"?ISL[0]:(s.role==="Planner"||s.role==="Calls"||s.role==="Calendar"?ISL[0]:ISL[1]);
   if(!ch)ch=KG.chefs[s.id]={x:home.x+home.w/2,y:home.y+home.h-60,tx:0,ty:0,seed:i*1.7,next:0};
   if(o){const st=ST[o.stage]||ST.inbox,n=(byStage[o.stage]||[]).indexOf(o);ch.tx=st.x-30+n*44;ch.ty=st.y+88;ch.work=Math.hypot(ch.tx-ch.x,ch.ty-ch.y)<6&&!kReady(o);ch.plate="#"+o.n}
   else{ch.work=false;ch.plate="";if(now>ch.next){ch.tx=home.x+40+Math.random()*(home.w-80);ch.ty=home.y+home.h-130+Math.random()*90;ch.next=now+3000+Math.random()*4000}}
@@ -252,7 +254,12 @@ function kFrame(now){const cv=$("kcv");if(!cv||ktab!=="kitchen"){KG.raf=0;return
   let gx=ch.tx,gy=ch.ty;if((ch.x<465)!==(ch.tx<465)){const near=ch.x<465?365:565,far=ch.x<465?565:365;gx=Math.abs(ch.y-PASS.y)>4&&Math.abs(ch.x-near)>4&&(ch.x<360||ch.x>570)?near:far;gy=PASS.y}
   const dx=gx-ch.x,dy=gy-ch.y,d=Math.hypot(dx,dy),sp=130*dt;if(d>sp){ch.x+=dx/d*sp;ch.y+=dy/d*sp}else{ch.x=gx;ch.y=gy}});
  for(const id of Object.keys(KG.chefs))if(!seen.has(id))delete KG.chefs[id];
- Object.entries(KG.chefs).sort((a,b)=>a[1].y-b[1].y).forEach(([id,ch])=>{const s=S.find(x=>x.id===id);if(s)kChefDraw(c,ch,s,t)});
+ const drawn=new Set(Object.keys(KG.chefs));
+ /* synthetic front-desk figure for tasks assigned to "front-desk" */
+ const fdTasks=KD.tasks.filter(o=>o.assignee==="front-desk"&&o.stage!=="done");if(fdTasks.length){if(!KG.chefs["front-desk"])KG.chefs["front-desk"]={x:ST.front.x,y:ST.front.y+88,tx:ST.front.x,ty:ST.front.y+88,seed:99,ring:"",work:false,plate:""};const fd=KG.chefs["front-desk"];fd.plate="#"+fdTasks[0].n;fd.work=true;drawn.add("front-desk")}
+ /* synthetic orchestrator figure for spec and answered tasks */
+ const orchTasks=KD.tasks.filter(o=>(o.stage==="spec"||o.answered>0)&&o.stage!=="done");if(orchTasks.length){if(!KG.chefs["orchestrator"])KG.chefs["orchestrator"]={x:ST.orchestrator.x,y:ST.orchestrator.y+88,tx:ST.orchestrator.x,ty:ST.orchestrator.y+88,seed:98,ring:"",work:false,plate:""};const orch=KG.chefs["orchestrator"];orch.plate="#"+orchTasks[0].n;orch.work=true;drawn.add("orchestrator")}
+ Object.entries(KG.chefs).filter(([id])=>drawn.has(id)).sort((a,b)=>a[1].y-b[1].y).forEach(([id,ch])=>{const s=S.find(x=>x.id===id)||{id,role:id==="front-desk"?"Front":"Orchestrator",face:{color:id==="front-desk"?"#fbbf24":"#a78bfa"}};kChefDraw(c,ch,s,t)});
  /* steam and fire */
  KG.parts=KG.parts.filter(p=>(p.life-=dt)>0);for(const p of KG.parts){p.x+=p.vx*dt;p.y+=p.vy*dt;
   if(p.kind==="fire"){c.fillStyle="rgba(255,"+(120+((p.life*120)|0))+",40,"+Math.min(1,p.life*1.4)+")";c.beginPath();c.arc(p.x,p.y,4+p.life*7,0,7);c.fill()}
