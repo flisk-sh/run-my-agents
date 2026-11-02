@@ -1504,3 +1504,40 @@ describe("a whole turn's text", () => {
 		expect(s?.feed.at(-1)?.text).toBe("First I looked.\n\nThen I fixed it.");
 	});
 });
+
+describe("tool chips", () => {
+	// The page script is one string; lift toolRuns out of it and run it with a stub for OPEN and esc.
+	const load = async (open: string[]) => {
+		const html = await (await createApp(() => []).request("/")).text();
+		const src = html.slice(html.indexOf("function toolRuns("));
+		const fn = src.slice(0, src.indexOf("\nfunction pinSession"));
+		const esc = (x: string) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+		return new Function("esc", "OPEN", `${fn}; return toolRuns;`)(esc, new Set(open)) as (
+			ts: string[],
+			sid: string,
+			fi: number,
+			calls?: { label: string; what?: string; detail: string }[],
+		) => string;
+	};
+	const calls = [{ label: "Bash", what: "run", detail: "ls <dir>" }];
+
+	it("a chip with kept calls toggles inline instead of opening a popup", async () => {
+		const html = (await load([]))(["Bash"], "s1", 2, calls);
+		expect(html).toContain('data-act="toolx"');
+		expect(html).toContain('data-tk="s1:2:0"');
+		expect(html).not.toContain("data-pop");
+		expect(html).not.toContain("clist");
+	});
+
+	it("an open chip lists the commands, escaped", async () => {
+		const html = (await load(["s1:2:0"]))(["Bash"], "s1", 2, calls);
+		expect(html).toContain('class="tool on"');
+		expect(html).toContain("<code>ls &lt;dir></code>");
+	});
+
+	it("a chip with no kept calls is inert", async () => {
+		const html = (await load(["s1:2:0"]))(["Bash"], "s1", 2, []);
+		expect(html).not.toContain("data-act");
+		expect(html).not.toContain("clist");
+	});
+});
