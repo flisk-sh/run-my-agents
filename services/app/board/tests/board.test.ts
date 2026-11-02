@@ -291,6 +291,13 @@ describe("typing box", () => {
 		// the dots keep their own .typing rule
 		expect(PAGE).toContain(".typing{display:flex");
 	});
+	it("offers a plain design that drops glow and animation, and remembers the choice", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain('data-design="\'+k+\'"');
+		expect(PAGE).toContain('localStorage.setItem("rma-design",design)');
+		expect(PAGE).toMatch(/body\.plain \*,[^{]*\{animation:none!important/);
+		expect(PAGE).toContain('P("Resume cmd","Resume command")');
+	});
 	it("gives every control in the agent panel a hover tooltip", async () => {
 		const { PAGE } = await import("../src/page");
 		const panel = PAGE.split("function gaugePanel(s){")[1].split("function tune(")[0];
