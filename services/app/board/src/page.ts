@@ -496,6 +496,8 @@ textarea,input[type="text"],input:not([type]),.rnm{cursor:text}
 .pp .prow{display:flex;flex-wrap:wrap;gap:6px}
 .pp .pfoot{display:flex;justify-content:space-between}.pp .pbtn.dng{color:#f87171}.pp .pbtn.dng.arm{background:#b91c1c;color:#fff}.pp .pbtn.dng.off{opacity:.45}
 body.plain .nm::first-letter{font:inherit;color:inherit}
+
+.md.nx.board{background:none;box-shadow:inset 0 0 0 1px currentColor;border-style:dashed;opacity:.85}
 </style></head><body><div id="tip" role="tooltip"></div>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
@@ -540,7 +542,9 @@ const TIER={opus:"#fbbf24",sonnet:"#38bdf8",haiku:"#6ee7a0"};
 function mdl(m){m=(m||"").toLowerCase();const t=/opus|sonnet|haiku/.exec(m);if(t)return{label:t[0].toUpperCase(),color:TIER[t[0]]};const g=/gpt-?(\\d+)/.exec(m);return m?{label:g?"GPT-"+g[1]:m.slice(0,8).toUpperCase(),color:"#6ee7b7"}:null}
 function mtag(s){const m=mdl(s.model),want=s.tune&&s.tune.model,tier=/opus|sonnet|haiku/.exec((s.model||"").toLowerCase());
  const base=m?'<span class="md" data-mpick="'+s.id+'" title="'+esc(s.model)+' \u00b7 click to change" style="color:'+m.color+';background:color-mix(in srgb,'+m.color+' 16%,transparent)">'+m.label+"</span>":"";
- const next=want&&(!tier||tier[0]!==want)?'<span class="md nx" data-mpick="'+s.id+'" title="The next message you send from the board uses '+want+'" style="color:'+(TIER[want]||"#fff")+'">&rarr; '+want.toUpperCase()+"</span>":"";
+ /* In the Claude app the session keeps its own model; only messages sent from the board use the pick. Say so. */
+ const app=s.viaApp!==false,now=tier?tier[0]:"its model";
+ const next=want&&(!tier||tier[0]!==want)?'<span class="md nx'+(app?" board":"")+'" data-mpick="'+s.id+'" title="'+(app?"Only messages you send from the board use "+want+". The Claude app stays on "+now+" until you run /model "+want+" in it.":"The next message you send from the board uses "+want)+'" style="color:'+(TIER[want]||"#fff")+'">'+(app?"board: ":"&rarr; ")+want.toUpperCase()+"</span>":"";
  return base+next}
 function motion(s){const h=[...s.id].reduce((a,c)=>(a*31+c.charCodeAt(0))>>>0,7);const age=Date.now()-s.updatedAt;
  /* every agent has its own base rate; recent work speeds it up, idling slows it down */
@@ -620,7 +624,7 @@ document.addEventListener("click",e=>{
   else if(k==="setrole"){post("api/role",{id:s.id,role:a.dataset.role}).then(()=>{last="";load();toast(a.dataset.role?"Now a "+a.dataset.role+" agent":"Back to automatic")})}
   else if(k==="tobottom"){const f=$("feed");f.scrollTo({top:f.scrollHeight,behavior:"smooth"});setTimeout(updatePill,700)}
   else if(k==="skills"){showSkills=!showSkills;render()}
-  else if(k==="down"){post("api/downgrade",{id:s.id}).then(r=>{if(r.error){toast(r.error);return}navigator.clipboard?.writeText("/model "+r.model).catch(()=>{});s.tune=Object.assign({},s.tune,{model:r.model});s.lower=r.next;last="";render();toast("Moved to "+r.model+". Copied /model "+r.model+" for the Claude app")})}
+  else if(k==="down"){post("api/downgrade",{id:s.id}).then(r=>{if(r.error){toast(r.error);return}navigator.clipboard?.writeText("/model "+r.model).catch(()=>{});s.tune=Object.assign({},s.tune,{model:r.model});s.lower=r.next;last="";render();toast(s.viaApp!==false?"Board messages and new sessions here use "+r.model+". In the Claude app, paste /model "+r.model+" (copied)":"Moved to "+r.model+". Copied /model "+r.model)})}
   return}
  const lb=e.target.closest("[data-lim]");if(lb){LIM.tokens=Math.max(0,LIM.tokens+Number(lb.dataset.lim));renderLim();return}
  const ls=e.target.closest("[data-limset]");if(ls){LIM.tokens=Number(ls.dataset.limset);renderLim();return}
@@ -864,8 +868,8 @@ function showPrs(chip){hidePrs();const id=chip.dataset.prs,s=S.find(x=>x.id===id
  fetch("api/prs?id="+encodeURIComponent(id)).then(r=>r.json()).then(d=>{PRC[id]={at:Date.now(),d};if(prEl===p)fillPrs(p,d)}).catch(()=>{if(prEl===p)p.querySelector(".prb").innerHTML='<div class="pre">Could not load pull requests.</div>'})}
 document.addEventListener("mouseover",e=>{const c=e.target.closest&&e.target.closest("[data-prs]");if(c){clearTimeout(prT);if(!prEl||prEl._chip!==c)prT=setTimeout(()=>showPrs(c),140)}else if(prEl&&!e.target.closest(".prpop"))schedHide()});
 function showModelPick(el,s){hideMenu();const cur=(s.tune&&s.tune.model)||"";const m=document.createElement("div");m.className="cmenu mpop gx";
- m.innerHTML='<div class="gcap" style="margin:0 2px 5px;text-align:left">model for '+esc(s.role)+'</div><div class="mls">'+MODELS.map(([k,l,a,c])=>'<span class="ml'+(k===cur?" on":"")+'" data-pick="'+k+'" style="--c:'+c+'">'+l+"</span>").join("")+'</div><div class="mnote">Every message you send from the board to this agent uses it. For the Claude app, paste /model after choosing (it is copied).</div>';
- m.addEventListener("click",e=>{e.stopPropagation();const p=e.target.closest("[data-pick]");if(!p)return;const k=p.dataset.pick;hideMenu();tune(s,{model:k}).then(r=>{if(r.error)return;render();if(k)navigator.clipboard?.writeText("/model "+k).catch(()=>{});toast(k?k.toUpperCase()+" is set for your next message from the board. Copied /model "+k:"Model back to automatic")})});
+ m.innerHTML='<div class="gcap" style="margin:0 2px 5px;text-align:left">model for '+esc(s.role)+'</div><div class="mls">'+MODELS.map(([k,l,a,c])=>'<span class="ml'+(k===cur?" on":"")+'" data-pick="'+k+'" style="--c:'+c+'">'+l+"</span>").join("")+'</div><div class="mnote">'+(s.viaApp!==false?"<b>Board messages only.</b> This session runs in the Claude app, which keeps its own model. After you pick, paste the copied <code>/model</code> command there to switch it.":"Every message you send from the board to this agent uses it.")+'</div>';
+ m.addEventListener("click",e=>{e.stopPropagation();const p=e.target.closest("[data-pick]");if(!p)return;const k=p.dataset.pick;hideMenu();tune(s,{model:k}).then(r=>{if(r.error)return;render();if(k)navigator.clipboard?.writeText("/model "+k).catch(()=>{});toast(!k?"Model back to automatic":s.viaApp!==false?"Board messages now use "+k.toUpperCase()+". The Claude app keeps its model: paste /model "+k+" there (copied)":k.toUpperCase()+" is set for your next message. Copied /model "+k)})});
  document.body.appendChild(m);const b=el.getBoundingClientRect(),r=m.getBoundingClientRect();m.style.left=Math.max(8,Math.min(b.left,innerWidth-r.width-8))+"px";m.style.top=Math.max(8,Math.min(b.bottom+6,innerHeight-r.height-8))+"px";MENU={el:m,items:[],sid:s.id}}
 function optsHtml(o){return '<div class="opts">'+(o.recap?'<div class="orec">'+renderMarkdown(o.recap)+"</div>":"")+(o.ask?'<div class="oask">'+esc(o.ask)+"</div>":"")+'<div class="obtns">'+o.labels.map((l,i)=>'<span class="obtn'+(i===0?" first":"")+'" data-opt="'+esc(l)+'">'+esc(l)+(i===0?"<kbd>\u2318\u21b5</kbd>":"")+"</span>").join("")+"</div></div>"}
 async function answer(label){const s=S.find(x=>x.id===sel);if(!s)return;const r=await post("api/send",{id:s.id,text:label}).catch(()=>({error:"The board is not answering."}));if(r.error){toast(r.error);return}
