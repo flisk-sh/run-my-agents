@@ -662,6 +662,15 @@ describe("ship and the skill sidecar", () => {
 		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "done", pr });
 	});
 
+	it("ships the change in the worktree even when the Build agent's summary is empty", async () => {
+		// Order #30: 114 changed lines sat in its worktree, never shipped, because its build hand-off was empty.
+		const { post, started } = setup([]);
+		order({ kind: "task", worktree: tmpdir(), stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: {} });
+		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "test", shipping: true });
+		expect(started.at(-1)?.text).toContain("gh pr create");
+		expect(started.at(-1)?.text).not.toContain("From the Build agent");
+	});
+
 	it("starts kitchen agents in auto mode, and the board makes each order's worktree and starts its agent there", async () => {
 		const { execFileSync } = await import("node:child_process");
 		const repo = mkdtempSync(join(tmpdir(), "rma-wt-"));

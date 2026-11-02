@@ -779,13 +779,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// Ship: tests passed, so an agent commits the Build agent's worktree, pushes and opens a pull request (or pushes
 		// a fix to the one already open), and the Review agent then reviews that pull request. Only from the order's own
 		// worktree (shipping from the shared checkout would commit everyone's edits), and only when it holds a change:
-		// an empty worktree has nothing to ship, and its agent would only ask what to do.
-		if (to === "review" && t.kind === "task" && t.notes?.build && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && k.ship !== false) {
+		// an empty worktree has nothing to ship, and its agent would only ask what to do. The change is what ships, not
+		// the Build agent's summary: order #30 left 114 changed lines that were never shipped because its summary was empty.
+		if (to === "review" && t.kind === "task" && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && k.ship !== false) {
 			const branch = `kitchen/order-${t.n}`;
 			const how = t.pr
 				? `commit any new change with \`git commit -s\` and a short conventional message, and push the branch: pull request ${t.pr} updates by itself. Reply with its URL.`
 				: `commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".`;
-			const shipText = `Ship order #${t.n}: ${t.title}\n\nYou are in this order's worktree: ${t.worktree} (branch ${branch}). In that worktree: ${how}\n\n${ADDRESS}\n\nFrom the Build agent:\n${t.notes.build}`;
+			const shipText = `Ship order #${t.n}: ${t.title}\n\nYou are in this order's worktree: ${t.worktree} (branch ${branch}). In that worktree: ${how}\n\n${ADDRESS}${t.notes?.build ? `\n\nFrom the Build agent:\n${t.notes.build}` : ""}`;
 			const call = agent();
 			if (call) {
 				const who = `flisk:order-${t.n}-ship`;
