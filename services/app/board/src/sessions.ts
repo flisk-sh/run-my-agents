@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { type Pr, readDesktopMeta } from "./desktop";
+import { type DesktopMeta, type Pr, readDesktopMeta } from "./desktop";
 import { isPinned, readPins } from "./prefs";
 
 export interface Tokens {
@@ -680,6 +680,24 @@ export function readSessions(
 }
 
 /**
+ * Sessions the Claude app lists that have no transcript yet, like a sub-session another session just started: the
+ * app writes the transcript only once the first turn runs, which can be a minute or more later.
+ */
+export function waitingSessions(meta: Map<string, DesktopMeta>, have: ReadonlySet<string>, now = Date.now(), maxAgeMs = 60 * 60_000): Session[] {
+	const out: Session[] = [];
+	for (const [id, m] of meta) {
+		if (have.has(id) || m.archived || !SESSION_ID.test(id) || now - m.at > maxAgeMs) continue;
+		const s: Session = { id, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: m.cwd, branch: "", title: m.title, said: "", doing: "Starting", edits: [], updatedAt: m.at, role: "Code", pinned: isPinned(id, m.pinned), feed: [], viaApp: true };
+		if (m.effort) s.effort = m.effort;
+		if (m.prs.length) s.prs = m.prs;
+		if (m.branches.length) s.branches = m.branches;
+		s.role = guessRole(s.title, []);
+		out.push(s);
+	}
+	return out;
+}
+
+/**
  * Every agent's sessions on this computer, newest first: Claude Code sessions with the names, pins and archive
  * state from the Claude desktop app (pinned ones show whatever their age), plus Codex sessions.
  */
@@ -702,6 +720,7 @@ export function readAllSessions(now = Date.now()): Session[] {
 		if (m.branches.length) s.branches = m.branches;
 		s.role = guessRole(s.title, s.edits.map((e) => e.file));
 	}
+	claude.push(...waitingSessions(meta, new Set(claude.map((s) => s.id)), now));
 	const codex = readCodexSessions(undefined, undefined, now);
 	for (const s of codex) s.pinned = isPinned(s.id, false);
 	// Grok sessions are usually run by hand and come back days later, so keep them on the board for a week.

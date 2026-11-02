@@ -484,6 +484,21 @@ describe("motion and model tags", () => {
 });
 
 describe("claude desktop pins and names", () => {
+	it("shows a session the app lists before its transcript exists, like a new sub-session", async () => {
+		const { waitingSessions } = await import("../src/sessions");
+		const now = 1_000_000_000;
+		const m = (o: Record<string, unknown>) => ({ title: "", pinned: false, archived: false, effort: "", at: now - 1000, prs: [], branches: [], cwd: "/w", ...o });
+		const meta = new Map([
+			["cli-new", m({ title: "Run-my-agents card: smaller badges" })],
+			["cli-has", m({ title: "Has a transcript" })],
+			["cli-arch", m({ archived: true })],
+			["cli-old", m({ at: now - 2 * 60 * 60_000 })],
+		]);
+		const out = waitingSessions(meta, new Set(["cli-has"]), now);
+		expect(out.map((s) => s.id)).toEqual(["cli-new"]);
+		expect(out[0]).toMatchObject({ title: "Run-my-agents card: smaller badges", cwd: "/w", doing: "Starting", viaApp: true, updatedAt: now - 1000 });
+	});
+
 	it("reads the app's names and pins, keyed by the CLI session id", async () => {
 		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");
@@ -497,8 +512,8 @@ describe("claude desktop pins and names", () => {
 		writeFileSync(join(dir, "local_b.json"), JSON.stringify({ sessionId: "local_b", cliSessionId: "cli-b", title: "Ghostfolio", isArchived: true }));
 		writeFileSync(join(dir, "local_c.json"), "not json");
 		const meta = readDesktopMeta(root);
-		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "", at: 0, prs: [], branches: [] });
-		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "", at: 0, prs: [], branches: [] });
+		expect(meta.get("cli-a")).toEqual({ title: "Flisk 5-second YouTube Short", pinned: true, archived: false, effort: "", at: 0, prs: [], branches: [], cwd: "" });
+		expect(meta.get("cli-b")).toEqual({ title: "Ghostfolio", pinned: false, archived: true, effort: "", at: 0, prs: [], branches: [], cwd: "" });
 		expect(meta.size).toBe(2);
 	});
 

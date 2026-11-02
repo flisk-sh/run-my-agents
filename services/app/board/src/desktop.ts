@@ -37,6 +37,8 @@ export interface DesktopMeta {
 	prs: Pr[];
 	/** Branches the session wrote to. */
 	branches: string[];
+	/** The folder the session works in. */
+	cwd: string;
 }
 
 function defaultRoot(): string {
@@ -48,7 +50,7 @@ function defaultRoot(): string {
 }
 
 /** One small record per session file, kept until the file changes, because there are hundreds and the board polls. */
-const cache = new Map<string, { mtime: number; rec: { cli: string; local: string; title: string; archived: boolean; effort: string; at: number; prs: Pr[]; branches: string[] } | null }>();
+const cache = new Map<string, { mtime: number; rec: { cli: string; local: string; title: string; archived: boolean; effort: string; at: number; prs: Pr[]; branches: string[]; cwd: string } | null }>();
 
 function readPrs(raw: unknown): Pr[] {
 	if (!Array.isArray(raw)) return [];
@@ -102,12 +104,12 @@ export function readDesktopMeta(root = defaultRoot()): Map<string, DesktopMeta> 
 					try {
 						const j = JSON.parse(readFileSync(path, "utf8"));
 						if (typeof j.cliSessionId === "string")
-							rec = { cli: j.cliSessionId, local: String(j.sessionId ?? ""), title: String(j.title ?? ""), archived: j.isArchived === true, effort: typeof j.effort === "string" ? j.effort : "", at: Number(j.lastActivityAt) || 0, prs: readPrs(j.prs), branches: readBranches(j.writtenBranches) };
+							rec = { cli: j.cliSessionId, local: String(j.sessionId ?? ""), title: String(j.title ?? ""), archived: j.isArchived === true, effort: typeof j.effort === "string" ? j.effort : "", at: Number(j.lastActivityAt) || 0, prs: readPrs(j.prs), branches: readBranches(j.writtenBranches), cwd: typeof j.cwd === "string" ? j.cwd : "" };
 					} catch {}
 					hit = { mtime, rec };
 					cache.set(path, hit);
 				}
-				if (hit.rec) out.set(hit.rec.cli, { title: hit.rec.title, pinned: starred.has(hit.rec.local), archived: hit.rec.archived, effort: hit.rec.effort, at: hit.rec.at, prs: hit.rec.prs, branches: hit.rec.branches });
+				if (hit.rec) out.set(hit.rec.cli, { title: hit.rec.title, pinned: starred.has(hit.rec.local), archived: hit.rec.archived, effort: hit.rec.effort, at: hit.rec.at, prs: hit.rec.prs, branches: hit.rec.branches, cwd: hit.rec.cwd });
 			}
 	return out;
 }
