@@ -17,6 +17,8 @@ export type Pod = {
 	/** Why it was fired, shown on its tombstone. */
 	reason?: string;
 	evictedAt?: number;
+	/** The order it is working on: a different order gets a fresh chat. */
+	lastOrder?: string;
 };
 
 export type Container = {
@@ -159,6 +161,29 @@ export function strike(session: string, order: string, reason: string): { contai
 			return { container: c.id, pod: { ...p }, fired };
 		}
 		return undefined;
+	});
+}
+
+/**
+ * Gives a pod a fresh chat for a new order: the pod (its strikes, its count of served orders) stays, its session
+ * changes. Long chats mixed orders up ("Order #19 is stuck" in a reply to #21).
+ */
+export function freshChat(oldSession: string, newSession: string, order: string) {
+	return store.update((all) => {
+		for (const c of all) {
+			const p = c.pods.find((x) => x.session === oldSession && x.status !== "evicted");
+			if (!p) continue;
+			Object.assign(p, { session: newSession, status: "starting", started: Date.now(), lastOrder: order });
+			return true;
+		}
+		return false;
+	});
+}
+
+/** Records which order a pod is on. */
+export function podOrder(session: string, order: string) {
+	store.update((all) => {
+		for (const c of all) for (const p of c.pods) if (p.session === session && p.status !== "evicted") p.lastOrder = order;
 	});
 }
 

@@ -492,3 +492,43 @@ describe("requeue routing", () => {
 		expect(matchSkills("tasks not really opening, see the Owner guide links").map((s) => s.name)).not.toContain("terraform-style-guide");
 	});
 });
+
+describe("one chat per order", () => {
+	it("gives a container agent a fresh chat for a new order, and keeps it for the same order", async () => {
+		const sessions: Session[] = [];
+		const { post, sent, started } = setup(sessions);
+		await post("/api/containers", { name: "B", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		const first = started[0].id as string;
+		sessions.push({ ...session(first, "Build"), updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
+		order({ id: "a", n: 1, stage: "build", cwd: "/repo" });
+		const a = (await post("/api/tasks/dispatch", { id: "a" })).body;
+		expect(a).toMatchObject({ assignee: first, fresh: false });
+		// Another round of the same order: same chat.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...a, assignee: "", sentAt: 0, rounds: 1 }]));
+		expect((await post("/api/tasks/dispatch", { id: "a" })).body).toMatchObject({ assignee: first, fresh: false });
+		// A different order: a new chat, started with the order itself, and the pod keeps its place.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ id: "b", n: 2, title: "fix the import path in src/app.ts", cwd: "/repo", priority: "P1", stage: "build", assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
+		const b = (await post("/api/tasks/dispatch", { id: "b" })).body;
+		expect(b.fresh).toBe(true);
+		expect(b.assignee).not.toBe(first);
+		expect(started.at(-1)).toMatchObject({ id: b.assignee });
+		expect(started.at(-1)?.text).toContain("Order #2 (build)");
+		expect(readContainers()[0].pods.find((p) => p.status !== "evicted")).toMatchObject({ session: b.assignee, lastOrder: "b" });
+		expect(sent.filter((x) => x.includes("Order #2"))).toEqual([]);
+	});
+
+	it("reads a spec's folder in any form, and lets you move an order's folder", async () => {
+		const { folderHint, BOARD_ROOT } = await import("../src/kitchen/routes");
+		expect(folderHint("Folder: /a/b.")).toBe("/a/b");
+		expect(folderHint("**Folder**  \n`/Users/x/flisk`")).toBe("/Users/x/flisk");
+		expect(folderHint("Spec step finished, with the build target named as `run-my-agents` rather than flisk.")).toBe(BOARD_ROOT);
+		expect(folderHint("target is `pages`", ["/x/pages"])).toBe("/x/pages");
+		expect(folderHint("no folder here")).toBeUndefined();
+		const { post } = setup([]);
+		order({ stage: "build", cwd: "/repo" });
+		expect((await post("/api/tasks/move", { id: "t", cwd: tmpdir() })).body.cwd).toBe(tmpdir());
+		expect((await post("/api/tasks/move", { id: "t", cwd: "/no/such/folder" })).status).toBe(400);
+	});
+});

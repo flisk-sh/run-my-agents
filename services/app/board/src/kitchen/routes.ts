@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 // The kitchen's HTTP API, mounted on the board's app: orders, the scoreboard, skill sets and agent containers.
 // Everything the board owns (reading sessions, sending a message, starting an agent) comes in through KitchenCtx,
 // so this module never reaches into the board's internals and can be tested on its own.
@@ -6,7 +7,7 @@ import { resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
-import { clearLessons, lessonsKeyOf, podName, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
+import { clearLessons, freshChat, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
@@ -66,6 +67,19 @@ const isDir = (p: string) => {
 		return false;
 	}
 };
+
+/**
+ * The folder a spec names, in whatever form the agent wrote it: "Folder: /a/b", "**Folder** `/a/b`", or
+ * "build target … `run-my-agents`" naming a known folder.
+ */
+export function folderHint(text: string, folders: string[] = []): string | undefined {
+	const abs = /\bFolder\b[*_\s:]*`?(\/[^\s`*]+)/i.exec(text)?.[1];
+	if (abs) return abs.replace(/[.,;)]+$/, "");
+	const named = /\b(?:build target|target|folder|repo)\b[^\n`]{0,40}`([\w.-]+)`/i.exec(text)?.[1];
+	if (!named) return undefined;
+	if (/^run[- ]my[- ]agents$/i.test(named)) return BOARD_ROOT;
+	return folders.find((f) => f.split("/").filter(Boolean).pop() === named);
+}
 
 /** Where the Run My Agents board's own code lives, for orders about the board itself. */
 export const BOARD_ROOT = resolvePath(import.meta.dir, "../../../../..");
@@ -234,13 +248,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.post("/api/tasks/move", async (c) => {
 		const no = guard(c);
 		if (no) return no;
-		const b = await body<{ id?: string; stage?: string; approved?: boolean; priority?: string }>(c);
+		const b = await body<{ id?: string; stage?: string; approved?: boolean; priority?: string; cwd?: string }>(c);
+		if (b.cwd !== undefined && !isDir(String(b.cwd))) return c.json({ error: "That folder does not exist." }, 400);
 		if (b.stage && !(STAGES as readonly string[]).includes(b.stage)) return c.json({ error: "Unknown stage." }, 400);
 		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
 		const t = updateTask(String(b.id), {
 			...(b.stage ? { stage: b.stage as Stage, assignee: "", sentAt: 0 } : {}),
 			...(typeof b.approved === "boolean" ? { approved: b.approved, ...(b.approved ? { atPass: false } : {}) } : {}),
 			...(b.priority ? { priority: b.priority as Task["priority"] } : {}),
+			...(b.cwd ? { cwd: resolvePath(String(b.cwd)), assignee: "", sentAt: 0 } : {}),
 		});
 		return t ? c.json(t) : c.json({ error: "That order is gone." }, 404);
 	});
@@ -328,10 +344,23 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
 				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${fresh}\n\nYour job: ${STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step."}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
-		const res = k.send(s, `#${order.n} ${order.stage}: ${order.title}`, text);
-		if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
-		const crew = { ...(order.crew ?? {}), [order.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
-		return { status: 202, body: { ...updateTask(order.id, { assignee: s.id, sentAt: Date.now(), crew, startedAt: order.startedAt ?? Date.now() }), model: policy.model, effort: policy.effort } };
+		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
+		// The same order (another round, the next stage in an all-stage container) keeps its chat.
+		const pod = box?.pods.find((p) => p.session === s.id && p.status !== "evicted");
+		let who = s.id;
+		if (box && pod?.lastOrder && pod.lastOrder !== order.id && s.agent === "claude") {
+			who = randomUUID();
+			k.start({ agent: "claude", cwd: order.cwd || box.cwd, text, model: policy.model, effort: policy.effort, id: who, role: box.role });
+			freshChat(s.id, who, order.id);
+			k.name?.(who, podName(box, who));
+			k.close(s.id);
+		} else {
+			const res = k.send(s, `#${order.n} ${order.stage}: ${order.title}`, text);
+			if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
+			if (box) podOrder(s.id, order.id);
+		}
+		const crew = { ...(order.crew ?? {}), [order.stage]: { id: who, role: s.role, name: box ? podName(box, who) : s.title || s.role } };
+		return { status: 202, body: { ...updateTask(order.id, { assignee: who, sentAt: Date.now(), crew, startedAt: order.startedAt ?? Date.now() }), model: policy.model, effort: policy.effort, fresh: who !== s.id } };
 	}
 
 	/**
@@ -346,7 +375,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const said = handOff(k.read().find((x) => x.id === t?.assignee));
 			if (said) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: said } }) ?? t;
 			// The Spec agent can move an order to the folder its code is in.
-			const moved = t.stage === "spec" ? /^\s*Folder:\s*(\/\S+)/m.exec(said)?.[1] : undefined;
+			const moved = t.stage === "spec" ? folderHint(said) : undefined;
 			if (moved && moved !== t.cwd && isDir(moved)) t = updateTask(t.id, { cwd: moved }) ?? t;
 		}
 		const order = t;
