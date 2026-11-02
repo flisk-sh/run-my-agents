@@ -38,6 +38,10 @@ export type Task = {
 	/** Who cooked each stage, kept after the session closes so served orders can be scored. */
 	crew?: Partial<Record<Stage, { id: string; role: string; name: string }>>;
 	servedAt?: number;
+	/** A finished spec waiting at the pass for your OK. */
+	atPass?: boolean;
+	/** Agents that missed this order; it goes to someone else next. */
+	missedBy?: string[];
 	created: number;
 	updated: number;
 };
@@ -69,7 +73,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;

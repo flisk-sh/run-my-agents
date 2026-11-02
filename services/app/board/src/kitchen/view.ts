@@ -103,7 +103,7 @@ const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lane
 let CR=null,SS=null,NB={name:"",role:"Code",stages:["build"],replicas:2,model:"haiku",strikes:3};
 let SC=null,scBy=(()=>{try{return localStorage.getItem("rma-scby")||"agents"}catch(e){return"agents"}})();
 let ktab=(()=>{try{return localStorage.getItem("rma-ktab")||"chat"}catch(e){return"chat"}})();
-let kpri="P1",KD={stages:[],roles:{},tasks:[]},kauto=(()=>{try{return localStorage.getItem("rma-kauto")==="1"}catch(e){return false}})(),kdrag="",kbusy=false;
+let kpri="P1",KD={stages:[],roles:{},tasks:[]},kauto=true,kdrag="",kbusy=false;
 const STN={inbox:"Inbox",spec:"Spec",build:"Build",test:"Test",review:"Review",done:"Served"};
 function kTabs(){const n=KD.tasks.filter(t=>t.stage!=="done").length;
  $("ktabs").innerHTML=KT.map(([k,l])=>'<button class="ktab'+(ktab===k?" on":"")+'" data-ktab="'+k+'">'+l+(k!=="chat"&&n?"<i>"+n+"</i>":"")+"</button>").join("");
@@ -278,20 +278,12 @@ document.addEventListener("submit",async e=>{if(e.target.id!=="nbox")return;e.pr
  if(r.error)return toast(r.error);NB.name="";toast(r.name+" created: starting "+r.replicas+" agents");await post("api/containers/reconcile",{});kCrewLoad()});
 function kDraw(){kTabs();if(ktab==="chat")return;const v=$("kview");if(ktab==="kitchen"&&$("kcv")){const f=$("kform");if(f&&!f.contains(document.activeElement))f.outerHTML=kAdd();kStart();return}if(v.contains(document.activeElement)&&document.activeElement.id==="ktitle"){const keep=$("ktitle").value;v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():ktab==="crew"?kCrew():kLanes();const i=$("ktitle");i.value=keep;i.focus();return}
  v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():ktab==="crew"?kCrew():kLanes();kStart()}
-async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();if(ktab==="scores")await kScoreLoad();if(ktab==="crew")await kCrewLoad();kDraw();if(kauto)kTick()}catch(e){}}
-/* Remembered per order on this computer: a spec the agent finished, waiting at the pass. */
-function markPass(){let m={};try{m=JSON.parse(localStorage.getItem("rma-kpass")||"{}")}catch(e){}for(const t of KD.tasks)t._atPass=t.stage==="spec"&&!t.approved&&!t.assignee&&!!m[t.id]}
-function setPass(id,on){let m={};try{m=JSON.parse(localStorage.getItem("rma-kpass")||"{}")}catch(e){}if(on)m[id]=1;else delete m[id];try{localStorage.setItem("rma-kpass",JSON.stringify(m))}catch(e){}}
-async function kServe(t,pass){if(t.stage==="spec"&&!t.approved){setPass(t.id,true);await post("api/tasks/move",{id:t.id,stage:"spec"});toast("#"+t.n+" waits at the pass");return kLoad()}
+async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();try{kauto=(await (await fetch("api/kitchen")).json()).auto!==false}catch(_){}if(ktab==="scores")await kScoreLoad();if(ktab==="crew")await kCrewLoad();kDraw()}catch(e){}}
+function markPass(){for(const t of KD.tasks)t._atPass=!!t.atPass}
+function setPass(){}
+async function kServe(t,pass){
  const r=await post("api/tasks/serve",{id:t.id,pass});if(r.error)toast(r.error);else toast(pass===false?(r.stuck?"#"+t.n+" is stuck: look at it":"#"+t.n+" back to build"):"#"+t.n+" → "+STN[r.stage]);kLoad()}
 async function kGo(id,session){const r=await post("api/tasks/dispatch",session?{id,session}:{id});if(r.error)toast(r.error);else toast("#"+r.n+" sent to "+((sess(r.assignee)||{}).role||"an agent"));kLoad()}
-/* Auto-dispatch: while the board is open, finished steps move on and the front order goes to an idle chef. */
-async function kTick(){if(kbusy)return;kbusy=true;try{
- for(const t of KD.tasks){if(!t.assignee||!kReady(t))continue;
-  if(t.stage==="test"||t.stage==="review"){const v=kVerdict(t);if(v!==null){await kServe(t,v);return}}else{await kServe(t);return}}
- const next=KD.tasks.find(t=>t.stage!=="done"&&!t.assignee&&!t.stuck&&!t._atPass&&t.skills.every(k=>k.state==="ok"));
- if(next){const r=await post("api/tasks/dispatch",{id:next.id});if(!r.error){toast("#"+next.n+" dispatched");kLoad()}}
- }finally{kbusy=false}}
 document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
  if(d.ktab){ktab=d.ktab;if(ktab==="scores")kScoreLoad();if(ktab==="crew")kCrewLoad();try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}
  if(d.kgo)return kGo(d.kgo);
@@ -306,7 +298,7 @@ document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.
 document.addEventListener("submit",async e=>{if(e.target.id!=="kform")return;e.preventDefault();const i=$("ktitle"),title=i.value.trim();if(!title)return toast("Describe the order first.");
  const cur=sess(sel);const r=await post("api/tasks",{title,priority:kpri,cwd:cur&&cur.cwd||""});if(r.error)return toast(r.error);i.value="";toast("Order #"+r.n+" is on the belt");kLoad()});
 document.addEventListener("click",e=>{const p=e.target.closest("[data-knewpri]");if(p){kpri=p.dataset.knewpri;kDraw()}});
-document.addEventListener("click",e=>{if(!e.target.closest("[data-kauto]"))return;kauto=!kauto;kDraw();try{localStorage.setItem("rma-kauto",kauto?"1":"0")}catch(_){}toast(kauto?"Auto-dispatch on":"Auto-dispatch off");if(kauto)kTick()});
+document.addEventListener("click",async e=>{if(!e.target.closest("[data-kauto]"))return;const r=await post("api/kitchen",{auto:!kauto});if(r.error)return toast(r.error);kauto=r.auto;toast(kauto?"Auto-dispatch on: orders move by themselves":"Auto-dispatch off");kDraw();kLoad()});
 document.addEventListener("dragstart",e=>{const c=e.target.closest&&e.target.closest("[data-kid]");if(c){kdrag=c.dataset.kid;e.dataTransfer.setData("text/plain",kdrag)}});
 document.addEventListener("dragend",()=>{kdrag="";document.querySelectorAll(".lane.over").forEach(x=>x.classList.remove("over"))});
 document.addEventListener("dragover",e=>{const l=e.target.closest&&(e.target.closest("[data-klane]")||e.target.closest("#side [data-sel]"));if(l&&kdrag){e.preventDefault();if(l.dataset.klane)l.classList.add("over")}});

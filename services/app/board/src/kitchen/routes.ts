@@ -6,6 +6,7 @@ import type { Session } from "../sessions";
 import { createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { scoreboard } from "./scores";
+import { JsonStore } from "./store";
 import { haikuFit, lessonsSkill, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
 export type KitchenCtx = {
@@ -30,10 +31,15 @@ const lastSaid = (s: Session | undefined) => {
 	return String(m?.text ?? "").slice(-400);
 };
 
+const SETTINGS = new JsonStore<{ auto: boolean }>("kitchen.json");
+const settings = () => SETTINGS.read()[0] ?? { auto: true };
+const saveSettings = (v: { auto: boolean }) => SETTINGS.write([v]);
+
 export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const guard = (c: Context) => (k.sameOrigin(c) ? undefined : c.json({ error: "Send JSON from the board." }, 403));
 	const tick = () => {
 		missed();
+		auto();
 		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close });
 	};
 	if (k.every) setInterval(tick, k.every).unref?.();
@@ -50,7 +56,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (quiet < home.container.missMinutes * 60_000) continue;
 			const r = strike(t.assignee, `#${t.n} ${t.stage}`, `Missed: no progress on "${t.title}" for ${home.container.missMinutes} min.`);
 			if (r?.fired) k.close(t.assignee);
-			updateTask(t.id, { assignee: "", sentAt: 0 });
+			updateTask(t.id, { assignee: "", sentAt: 0, missedBy: [...(t.missedBy ?? []), t.assignee] });
 		}
 	}
 
@@ -62,7 +68,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	function pick(order: Task): { session?: Session; why: string } {
 		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
 		const all = k.read();
-		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
+		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
 		const boxes = readContainers().filter((x) => x.stages.includes(order.stage));
 		const pod = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
 		const stage = order.stage === "inbox" ? "spec" : order.stage;
@@ -87,7 +93,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			tasks: beltOrder(readTasks()).map((t) => ({
 				...t,
 				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
-				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t).why,
+				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? "Waiting at the pass for your approval." : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t).why,
 			})),
 		}),
 	);
@@ -114,7 +120,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
 		const t = updateTask(String(b.id), {
 			...(b.stage ? { stage: b.stage as Stage, assignee: "", sentAt: 0 } : {}),
-			...(typeof b.approved === "boolean" ? { approved: b.approved } : {}),
+			...(typeof b.approved === "boolean" ? { approved: b.approved, ...(b.approved ? { atPass: false } : {}) } : {}),
 			...(b.priority ? { priority: b.priority as Task["priority"] } : {}),
 		});
 		return t ? c.json(t) : c.json({ error: "That order is gone." }, 404);
@@ -135,26 +141,25 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		return c.json({ installing: t.skills.filter((n) => skillState(n) !== "ok") }, 202);
 	});
 
+	type Out = { status: number; body: Record<string, unknown> };
 	/**
 	 * Hands an order to an agent: the session you pick, else a free pod of a container that cooks this stage, else
-	 * the first idle session whose type fits. The step runs on the model policy (container's own model if it set one).
+	 * an idle agent (see pick). The step runs on the model policy (the container's own model if it set one).
 	 */
-	app.post("/api/tasks/dispatch", async (c) => {
-		const no = guard(c);
-		if (no) return no;
-		const b = await body<{ id?: string; session?: string }>(c);
-		let t = readTasks().find((x) => x.id === b.id);
-		if (!t) return c.json({ error: "That order is gone." }, 404);
-		if (t.stage === "done") return c.json({ error: "That order is already served." }, 400);
+	function dispatch(id: string, session?: string): Out {
+		let t = readTasks().find((x) => x.id === id);
+		if (!t) return { status: 404, body: { error: "That order is gone." } };
+		if (t.stage === "done") return { status: 400, body: { error: "That order is already served." } };
+		if (t.atPass) return { status: 409, body: { error: `#${t.n} waits at the pass for your approval.` } };
 		if (t.stage === "inbox") t = updateTask(t.id, { stage: "spec" }) ?? t;
-		if (t.stuck) return c.json({ error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` }, 409);
+		if (t.stuck) return { status: 409, body: { error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` } };
 		if (t.skills.some((n) => skillState(n) !== "ok")) {
 			stock(t.skills, k.fetch);
-			return c.json({ error: "Its skills are still installing." }, 409);
+			return { status: 409, body: { error: "Its skills are still installing." } };
 		}
 		const order = t;
-		const s = b.session ? k.read().find((x) => x.id === b.session) : pick(order).session;
-		if (!s) return c.json({ error: pick(order).why }, 409);
+		const s = session ? k.read().find((x) => x.id === session) : pick(order).session;
+		if (!s) return { status: 409, body: { error: pick(order).why } };
 		const box = podOf(s.id)?.container;
 		const policy = policyFor(order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, policy);
@@ -162,18 +167,18 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const verdict = order.stage === "test" || order.stage === "review";
 		const text = `Order #${order.n} (${order.stage}): ${order.title}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
 		const res = k.send(s, `#${order.n} ${order.stage}: ${order.title}`, text);
-		if (res.status >= 400) return res;
+		if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
 		const crew = { ...(order.crew ?? {}), [order.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
-		return c.json({ ...updateTask(order.id, { assignee: s.id, sentAt: Date.now(), crew }), model: policy.model, effort: policy.effort }, 202);
-	});
+		return { status: 202, body: { ...updateTask(order.id, { assignee: s.id, sentAt: Date.now(), crew }), model: policy.model, effort: policy.effort } };
+	}
 
-	/** The agent is done. A FAIL in test or review strikes the pod that built it and sends the order back. */
-	app.post("/api/tasks/serve", async (c) => {
-		const no = guard(c);
-		if (no) return no;
-		const { id, pass } = await body<{ id?: string; pass?: boolean }>(c);
+	/**
+	 * The agent is done. A finished spec waits at the pass. A FAIL in test or review strikes the pod that built it
+	 * and sends the order back to build.
+	 */
+	function serve(id: string, pass?: boolean): Out {
 		const t = readTasks().find((x) => x.id === id);
-		if (!t) return c.json({ error: "That order is gone." }, 404);
+		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		if (pass === false && (t.stage === "test" || t.stage === "review")) {
 			const builder = t.crew?.build?.id;
 			const why = lastSaid(k.read().find((x) => x.id === t.assignee)) || `${t.stage} said FAIL`;
@@ -181,11 +186,68 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (hit?.fired && builder) k.close(builder);
 			const back = sendBack(t);
 			if (back.stuck && builder) strike(builder, `#${t.n} ${t.title}`, `Stuck after ${back.rounds} rounds.`);
-			return c.json({ ...updateTask(t.id, { ...back, assignee: "", sentAt: 0 }), fired: !!hit?.fired });
+			return { status: 200, body: { ...updateTask(t.id, { ...back, assignee: "", sentAt: 0 }), fired: !!hit?.fired } };
 		}
+		if (t.stage === "spec" && !t.approved) return { status: 200, body: { ...updateTask(t.id, { atPass: true, assignee: "", sentAt: 0 }) } };
 		const to = nextStage(t);
 		if (to === "done") for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
-		return c.json(updateTask(t.id, { stage: to, assignee: "", sentAt: 0, stuck: false, ...(to === "done" ? { servedAt: Date.now() } : {}) }));
+		return { status: 200, body: { ...updateTask(t.id, { stage: to, assignee: "", sentAt: 0, stuck: false, ...(to === "done" ? { servedAt: Date.now() } : {}) }) } };
+	}
+
+	/** An agent finished its step when it went quiet after the order was sent. */
+	const finished = (t: Task, s: Session | undefined, now: number) => !!s && t.sentAt > 0 && !k.busy(s) && s.updatedAt > t.sentAt + 3_000 && now - s.updatedAt > 8_000;
+	const verdictOf = (s: Session | undefined) => {
+		const said = lastSaid(s);
+		return /\bFAIL\b/.test(said) ? false : /\bPASS\b/.test(said) ? true : undefined;
+	};
+
+	/**
+	 * Auto-dispatch, run by the server loop so orders move with no board page open: finished steps move on (test and
+	 * review by their PASS or FAIL), then every waiting order goes to the next free agent. On by default.
+	 */
+	function auto(now = Date.now()) {
+		if (!settings().auto) return [];
+		const did: string[] = [];
+		const all = k.read();
+		for (const t of readTasks()) {
+			if (!t.assignee) continue;
+			const s = all.find((x) => x.id === t.assignee);
+			if (!finished(t, s, now)) continue;
+			const v = t.stage === "test" || t.stage === "review" ? verdictOf(s) : true;
+			if (v === undefined) continue;
+			serve(t.id, v);
+			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
+		}
+		for (const t of beltOrder(readTasks())) {
+			if (t.assignee || t.stage === "done" || t.stuck || t.atPass) continue;
+			const r = dispatch(t.id);
+			if (r.status === 202) did.push(`#${t.n} sent`);
+		}
+		return did;
+	}
+
+	app.post("/api/tasks/dispatch", async (c) => {
+		const no = guard(c);
+		if (no) return no;
+		const b = await body<{ id?: string; session?: string }>(c);
+		const r = dispatch(String(b.id), b.session);
+		return c.json(r.body, r.status as 200);
+	});
+	app.post("/api/tasks/serve", async (c) => {
+		const no = guard(c);
+		if (no) return no;
+		const { id, pass } = await body<{ id?: string; pass?: boolean }>(c);
+		const r = serve(String(id), pass);
+		return c.json(r.body, r.status as 200);
+	});
+	app.get("/api/kitchen", (c) => c.json(settings()));
+	app.post("/api/kitchen", async (c) => {
+		const no = guard(c);
+		if (no) return no;
+		const { auto: on } = await body<{ auto?: boolean }>(c);
+		if (typeof on !== "boolean") return c.json({ error: "Say on or off." }, 400);
+		saveSettings({ auto: on });
+		return c.json({ auto: on, did: on ? auto() : [] });
 	});
 
 	// ---------- skill sets ----------
@@ -251,5 +313,5 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (no) return no;
 		return c.json({ did: tick() });
 	});
-	return { tick, missed };
+	return { tick, missed, auto };
 }
