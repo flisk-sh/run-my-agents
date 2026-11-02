@@ -789,3 +789,42 @@ describe("dispatch to agents in a worktree", () => {
 		expect(sameRepo("/repo2", "/repo")).toBe(false);
 	});
 });
+
+describe("agent to agent", () => {
+	const agent = (id: string, role: string, reply: string) => ({ ...session(id, role), updatedAt: Date.now() - 20_000, feed: [{ who: "you", text: "Order", at: 1 } as never, { who: "agent", text: reply, at: 2 } as never] });
+
+	it("delivers a 'To Spec:' question to the order's Spec agent and brings its answer back", async () => {
+		const builder = agent("bld", "Build", "I read the spec.\nTo Spec: does 'show the orchestrator' mean a chef on the Kitchen tab?");
+		const spec = agent("spc", "Spec", "Goal: …");
+		const { post, sent } = setup([builder, spec]);
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo", crew: { spec: { id: "spc", role: "Spec", name: "Spec · repo spc0" }, build: { id: "bld", role: "Build", name: "Build · repo bld0" } } });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 Build asked Spec");
+		expect(sent.at(-1)).toContain("Question from the Build agent on order #1: does 'show the orchestrator' mean a chef on the Kitchen tab?");
+		let t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t).toMatchObject({ assignee: "bld", asked: 1, waitingOn: { stage: "spec", session: "spc" } });
+		// Still waiting: the Spec agent has not answered yet, so nothing moves.
+		expect((await post("/api/kitchen", { auto: true })).body.did).not.toContain("#1 build done");
+		// The Spec agent answers; the board brings it back to the builder.
+		spec.feed = [...spec.feed, { who: "you", text: "Question from the Build agent", at: 3 } as never, { who: "agent", text: "Yes: a chef on the bridge, labelled Orchestrator.", at: 4 } as never];
+		spec.updatedAt = Date.now() - 10_000;
+		t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, waitingOn: { ...t.waitingOn, at: Date.now() - 60_000 } }]));
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 Spec answered");
+		expect(sent.at(-1)).toContain("Answer from the Spec agent on order #1");
+		expect(sent.at(-1)).toContain("Yes: a chef on the bridge, labelled Orchestrator.");
+		t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t.waitingOn).toBeUndefined();
+		expect(t.talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
+	});
+
+	it("tells the agent to decide itself when the stage it asks has no agent, and every message says who it can ask", async () => {
+		const builder = agent("bld", "Build", "To Review: what will you check?");
+		const { post, sent } = setup([builder]);
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 Build asked Review: no such agent, told to decide");
+		expect(sent.at(-1)).toContain("There is no Review agent on order #1 to ask");
+		const { ADDRESS, questionsIn } = await import("../src/kitchen/routes");
+		expect(ADDRESS).toContain("To Spec: <question>");
+		expect(questionsIn("**To Spec:** what is X?\nnot a question\nTo build: and Y")).toEqual([{ stage: "spec", question: "what is X?" }, { stage: "build", question: "and Y" }]);
+	});
+});

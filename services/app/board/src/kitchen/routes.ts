@@ -71,7 +71,16 @@ export const MAX_ANSWERS = 2;
 export const KITCHEN_CHAT = /^(?:(?:Spec|Build|Test|Review) · .+ [0-9a-f]{4}|Ship · #\d+|Auto cooks · .+ [0-9a-f]{4}|Kitchen cooks [0-9a-f]{4})$/;
 /** Every kitchen message ends with who reads the reply, so agents stop writing to (and waiting on) a user. */
 export const ADDRESS =
-	"Your reply goes to the kitchen's orchestrator, not to a person. When you stop, it reads your last message and moves the order on. Do not ask questions or wait for an answer; end with one clear result line.";
+	"Your reply goes to the kitchen's orchestrator, not to a person. When you stop, it reads your last message and moves the order on. If you need something from another agent on this order, write a line `To Spec: <question>` (or Build, Test, Review); the orchestrator delivers it and brings the answer back to you. Do not ask the user anything; otherwise end with one clear result line.";
+
+/** "To Spec: …" lines in an agent's reply: questions for another stage's agent on the same order. */
+export function questionsIn(text: string): { stage: "spec" | "build" | "test" | "review"; question: string }[] {
+	return [...text.matchAll(/^\s*[*_]*\s*To (Spec|Build|Test|Review)\s*[*_]*\s*:\s*[*_]*\s*(.+?)\s*[*_]*\s*$/gim)].map((m) => ({ stage: m[1].toLowerCase() as "spec", question: m[2].trim().slice(0, 1000) }));
+}
+/** Questions one step's agent may send to other agents before it has to decide itself. */
+export const MAX_ASKS = 2;
+/** How long an asked agent has to answer before the orchestrator answers instead. */
+export const ASK_TIMEOUT_MS = 10 * 60_000;
 
 /** What the orchestrator says to a kitchen agent that asks while it holds no order. */
 export const STRAY_ANSWER =
@@ -289,7 +298,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * type that fits, else any idle agent (the model policy still applies). Says why when nobody is free.
 	 */
 	function pick(order: Task, podsOnly = false): { session?: Session; why: string } {
-		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
+		const busy = new Set(readTasks().flatMap((x) => [x.id !== order.id ? x.assignee : "", x.waitingOn?.session ?? ""]).filter(Boolean));
 		const all = k.read();
 		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || sameRepo(x.cwd, order.cwd));
 		const key = order.stage === "inbox" ? (order.lane === "fast" ? "build" : "spec") : order.stage;
@@ -625,7 +634,41 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
+			// Agent to agent: bring back the answer to a question this order's agent asked another stage's agent.
+			if (t.waitingOn) {
+				const w = t.waitingOn;
+				const target = all.find((x) => x.id === w.session);
+				const ready = target && !k.busy(target) && target.updatedAt > w.at + 1_000 && now - target.updatedAt > 3_000;
+				const late = now - w.at > ASK_TIMEOUT_MS;
+				if (!ready && !late) continue;
+				const from = STAGE_TYPE[w.stage];
+				const answer = ready ? handOff(target) : "";
+				const text = answer
+					? `Answer from the ${from} agent on order #${t.n} (to your question: ${w.question}):\n${answer}\n\nContinue your step.`
+					: `The ${from} agent did not answer in time. This is the kitchen's orchestrator: decide yourself from the spec you were given, and continue your step.`;
+				if (s) k.send(s, `#${t.n}: ${from} answered`, text);
+				updateTask(t.id, { waitingOn: undefined, sentAt: Date.now(), talk: [...(t.talk ?? []), { at: Date.now(), from: answer ? from : "Orchestrator", to: STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage, text: (answer || "no answer in time").slice(0, 300) }].slice(-10) });
+				did.push(`#${t.n} ${answer ? `${from} answered` : `${from} did not answer`}`);
+				continue;
+			}
 			if (!finished(t, s, now)) continue;
+			// Agent to agent: a "To Spec: …" line goes to the agent that did that stage for this order.
+			const asks = s && !t.shipping ? questionsIn(handOff(s)).filter((q) => q.stage !== t.stage) : [];
+			if (asks.length && (t.asked ?? 0) < MAX_ASKS) {
+				const q = asks[0];
+				const asker = STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage;
+				const target = t.crew?.[q.stage] ? all.find((x) => x.id === t.crew?.[q.stage]?.id) : undefined;
+				const talk = [...(t.talk ?? []), { at: Date.now(), from: asker, to: STAGE_TYPE[q.stage], text: q.question.slice(0, 300) }].slice(-10);
+				if (target && target.agent === "claude" && k.send(target, `#${t.n}: question from ${asker}`, `Question from the ${asker} agent on order #${t.n}: ${q.question}\n\nAnswer it in a few lines from what you know about this order. Your reply goes back to the ${asker} agent through the kitchen's orchestrator; do not change any files.`).status < 400) {
+					updateTask(t.id, { asked: (t.asked ?? 0) + 1, waitingOn: { stage: q.stage, session: target.id, question: q.question, at: Date.now() }, talk });
+					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.stage]}`);
+				} else if (s) {
+					k.send(s, `#${t.n}: no ${STAGE_TYPE[q.stage]} agent`, `There is no ${STAGE_TYPE[q.stage]} agent on order #${t.n} to ask. This is the kitchen's orchestrator: decide yourself from the spec you were given, and continue your step.`);
+					updateTask(t.id, { asked: (t.asked ?? 0) + 1, sentAt: Date.now(), talk });
+					did.push(`#${t.n} ${asker} asked ${STAGE_TYPE[q.stage]}: no such agent, told to decide`);
+				}
+				continue;
+			}
 			// A build that left nothing in its worktree is not ready for Test: ask once more to make the change, then
 			// fail it, so Test is never handed an empty branch.
 			if (t.stage === "build" && !t.shipping && t.worktree && isDir(t.worktree) && !worktreeChanged(t.worktree, t.base)) {
@@ -720,7 +763,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const strayAnswered = new Set<string>();
 	function answerStrays(all: Session[], now: number) {
 		const did: string[] = [];
-		const held = new Set(readTasks().filter((t) => t.assignee).map((t) => t.assignee));
+		const held = new Set(readTasks().flatMap((t) => [t.assignee, t.waitingOn?.session ?? ""]).filter(Boolean));
 		const pods = new Set(readContainers().flatMap((c) => c.pods.filter((p) => p.status !== "evicted").map((p) => p.session)));
 		for (const s of all) {
 			if (held.has(s.id) || strayAnswered.has(s.id) || s.hidden || k.busy(s)) continue;
@@ -742,7 +785,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 */
 	function tidy(all: Session[], now: number) {
 		const did: string[] = [];
-		const held = new Set(readTasks().filter((t) => t.assignee).map((t) => t.assignee));
+		const held = new Set(readTasks().flatMap((t) => [t.assignee, t.waitingOn?.session ?? ""]).filter(Boolean));
 		const pods = new Set(readContainers().flatMap((c) => c.pods.filter((p) => p.status !== "evicted").map((p) => p.session)));
 		for (const s of all) {
 			if (s.hidden || held.has(s.id) || pods.has(s.id) || k.busy(s)) continue;

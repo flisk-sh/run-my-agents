@@ -64,6 +64,12 @@ export type Task = {
 	failures?: string[];
 	/** How many times the orchestrator answered a question from this step's agent (reset each step). */
 	answered?: number;
+	/** A question this order's current agent asked another stage's agent, waiting for its answer. */
+	waitingOn?: { stage: Stage; session: string; question: string; at: number };
+	/** Questions this step's agent asked other agents (reset each step). */
+	asked?: number;
+	/** Who asked whom on this order, newest last. */
+	talk?: { at: number; from: string; to: string; text: string }[];
 	/** This order is the follow-up of failed order #retryOf. */
 	retryOf?: number;
 	/** The failed order was followed up as #followUp. */
@@ -110,12 +116,12 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp" | "answered" | "base">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp" | "answered" | "base" | "waitingOn" | "asked" | "talk">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
 	const now = Date.now();
-	if (patch.stage && patch.stage !== t.stage) patch = { ...patch, stageAt: now, answered: 0 };
+	if (patch.stage && patch.stage !== t.stage) patch = { ...patch, stageAt: now, answered: 0, asked: 0 };
 	Object.assign(t, patch, { updated: now });
 	write(all);
 	return t;
