@@ -138,7 +138,7 @@ describe("agent containers", () => {
 
 describe("auto-dispatch on the server", () => {
 	it("is on by default, sends waiting orders, moves finished steps, and holds a spec at the pass", async () => {
-		const agent = { ...session("a", "Code"), updatedAt: Date.now() - 60_000 };
+		const agent = { ...session("auto-cook", "Code"), updatedAt: Date.now() - 60_000 };
 		const { app, post, sent } = setup([agent]);
 		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: true });
 		order({ stage: "inbox", approved: false });
