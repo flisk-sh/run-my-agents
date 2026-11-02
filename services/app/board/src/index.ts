@@ -460,6 +460,13 @@ export function createApp(
 	// A message from here starts a second copy of the session. If the Claude app is working in it right now, the
 	// two would run on the same conversation at once, so wait for it to settle.
 	const appBusy = (s: Session) => s.viaApp === true && !s.awaiting && Date.now() - s.updatedAt < 20_000;
+	// After a board restart the in-memory `sending` set is wiped. A session that was mid-turn still appears not busy.
+	// If its last update was recent and its last feed item is from the agent, it's likely still running.
+	const likelyMidTurn = (s: Session) => {
+		if (Date.now() - s.updatedAt > 30_000) return false; // older than 30 seconds is unlikely to be mid-turn
+		const last = s.feed[s.feed.length - 1];
+		return last?.who === "agent" && (last?.tools?.length ?? 0) > 0; // agent's last message had tool calls
+	};
 	let kick: (() => void) | undefined;
 	const sendNow = (s: Session, item: Queued) => {
 		if (appBusy(s)) return new Response(JSON.stringify({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }), { status: 409, headers: { "content-type": "application/json" } });
@@ -810,7 +817,7 @@ export function createApp(
 			queues.set(s.id, [...(queues.get(s.id) ?? []), item]);
 			return new Response(JSON.stringify({ queued: true, qid: item.qid }), { status: 202, headers: { "content-type": "application/json" } });
 		},
-		busy: (s) => sending.has(s.id) || appBusy(s),
+		busy: (s) => sending.has(s.id) || appBusy(s) || likelyMidTurn(s),
 		start: (n) => {
 			setRole(n.id, n.role);
 			sending.add(n.id);
