@@ -89,6 +89,16 @@ export function patchContainer(id: string, patch: Partial<Pick<Container, "repli
 	});
 }
 
+export function clearLessons(id: string) {
+	return store.update((all) => {
+		const c = all.find((x) => x.id === id);
+		if (!c) return undefined;
+		c.lessons = [];
+		writeLessons(c.slug, c.name, []);
+		return c;
+	});
+}
+
 export const removeContainer = (id: string) => store.update((all) => {
 	const i = all.findIndex((x) => x.id === id);
 	if (i >= 0) all.splice(i, 1);

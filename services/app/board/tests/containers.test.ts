@@ -181,21 +181,34 @@ describe("auto-dispatch on the server", () => {
 });
 
 describe("autopilot", () => {
-	it("creates a container for a folder with waiting orders, scales up when busy, and back down when idle", async () => {
+	it("makes one container per stage for a folder, scales it with the stage's orders, and back down when idle", async () => {
 		const { post, started } = setup([]);
-		order({ stage: "inbox", approved: false, cwd: "/work/app" });
-		const r = (await post("/api/kitchen", { auto: true })).body.did;
-		expect(r).toContain("created Auto cooks · app");
-		expect(readContainers()[0]).toMatchObject({ cwd: "/work/app", replicas: 1, stages: ["spec", "build", "test", "review"] });
+		order({ stage: "inbox", approved: false, cwd: "/work/app", title: "add search filters to the sessions list with saved views" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("created Spec · app");
+		expect(readContainers()[0]).toMatchObject({ name: "Spec · app", role: "Planner", stages: ["spec"], replicas: 1, model: "" });
+		expect(readContainers()[0].skills).toContain("spec-driven-workflow");
 		await post("/api/containers/reconcile", {});
 		expect(started.length).toBe(1);
-		// Three more orders wait: it scales to the 3-agent cap.
+		// Four orders waiting in build: a Build container appears, then grows to the 3-agent cap.
 		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
-		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1 }))));
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Auto cooks · app: 1 → 3 agents");
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1, stage: "build", approved: true }))));
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("created Build · app");
+		expect(readContainers().find((x) => x.name === "Build · app")).toMatchObject({ role: "Code", stages: ["build"] });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · app: 1 → 3 agents");
 		// All served: back to one.
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1, stage: "done" }))));
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Auto cooks · app: 3 → 1 agents");
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · app: 3 → 1 agents");
+	});
+
+	it("clears a container's lessons", async () => {
+		const { post } = setup([]);
+		const box = (await post("/api/containers", { name: "Cooks", role: "Code", stages: ["build"], replicas: 0, cwd: "/repo" })).body;
+		const { strike } = await import("../src/kitchen/containers");
+		const { patchContainer } = await import("../src/kitchen/containers");
+		patchContainer(box.id, {});
+		expect(strike("nobody", "#1", "x")).toBeUndefined();
+		expect((await post("/api/containers/lessons/clear", { id: box.id })).body).toEqual({ cleared: true, name: "Cooks" });
+		expect(readFileSync(join(skills, "rma-lessons-cooks", "SKILL.md"), "utf8")).toContain("No lessons yet");
 	});
 
 	it("closes a stuck order as failed so it never blocks the belt", async () => {

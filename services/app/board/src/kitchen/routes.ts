@@ -3,7 +3,7 @@
 // so this module never reaches into the board's internals and can be tested on its own.
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
-import { createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
+import { clearLessons, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
@@ -47,6 +47,12 @@ const SETTINGS = new JsonStore<{ auto: boolean }>("kitchen.json");
 const settings = () => SETTINGS.read()[0] ?? { auto: true };
 /** The most agents the autoscaler runs per folder. */
 export const MAX_AGENTS = 3;
+/** The stages that have their own agent containers, and who staffs each. */
+const WORK_STAGES = ["spec", "build", "test", "review"] as const;
+const STAGE_NAME: Record<(typeof WORK_STAGES)[number], string> = { spec: "Spec", build: "Build", test: "Test", review: "Review" };
+const STAGE_ROLE: Record<(typeof WORK_STAGES)[number], string> = { spec: "Planner", build: "Code", test: "Bug", review: "Planner" };
+/** The stage that has to staff an order next: an inbox task goes to spec, or straight to build on the fast lane. */
+const staffStage = (t: Task) => (t.stage === "inbox" ? (t.lane === "fast" ? "build" : "spec") : t.stage);
 /** The assignee of a question the front desk is answering. */
 export const FRONT_DESK = "front-desk";
 const saveSettings = (v: { auto: boolean }) => SETTINGS.write([v]);
@@ -86,7 +92,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const all = k.read();
 		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
 		const key = order.stage === "inbox" ? (order.lane === "fast" ? "build" : "spec") : order.stage;
-		const boxes = readContainers().filter((x) => order.kind === "question" || x.stages.includes(key));
+		// Stage containers first (fewest stages), so a build goes to the Build agents before an all-stage container.
+		const boxes = readContainers()
+			.filter((x) => order.kind === "question" || x.stages.includes(key))
+			.sort((a, b) => a.stages.length - b.stages.length);
 		const pod = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
 		const stage = order.stage === "inbox" ? (order.lane === "fast" ? "build" : "spec") : order.stage;
 		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
@@ -329,33 +338,37 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	}
 
 	/**
-	 * The autoscaler, like a Kubernetes HorizontalPodAutoscaler for agents. Per folder with waiting orders: no
-	 * container that cooks them means one is created; every agent busy means one more, up to MAX_AGENTS; no orders
-	 * left means back down to one. Containers you made by hand are scaled too, but never deleted.
+	 * The autoscaler, like a Kubernetes HorizontalPodAutoscaler, with one container per stage per folder: Spec
+	 * (Planner), Build (Code), Test (Bug) and Review (Planner), each with its stage's skill set and its own lessons.
+	 * A stage container is made the first time an order needs that stage, grows while every agent in it is busy (up
+	 * to MAX_AGENTS) and shrinks back to its floor when the stage has no orders. Containers you made yourself are
+	 * used and scaled the same way, never deleted.
 	 */
 	function autoscale() {
 		const did: string[] = [];
-		const tasks = readTasks();
-		const open = tasks.filter((t) => t.stage !== "done" && !t.stuck);
+		const open = readTasks().filter((t) => t.stage !== "done" && !t.stuck && !t.atPass && t.assignee !== FRONT_DESK);
 		const folders = new Set([...open.map((t) => t.cwd), ...readContainers().map((x) => x.cwd)]);
 		for (const cwd of folders) {
 			if (!cwd) continue;
-			const here = open.filter((t) => t.cwd === cwd);
-			const waiting = here.filter((t) => !t.assignee && !t.atPass).length;
-			const working = here.filter((t) => t.assignee).length;
-			let box = readContainers().find((x) => x.cwd === cwd && x.stages.length >= 4) ?? readContainers().find((x) => x.cwd === cwd);
-			if (!box) {
-				if (!waiting) continue;
-				box = createContainer({ floor: 1, name: `Auto cooks · ${cwd.split("/").filter(Boolean).pop() ?? "folder"}`, role: "Code", stages: ["spec", "build", "test", "review"], replicas: 1, cwd, model: "", effort: "" });
-				stock(["spec", "build", "test", "review"].flatMap((st) => STAGE_SKILLS[st as Stage]), k.fetch);
-				did.push(`created ${box.name}`);
-				continue;
-			}
-			const floor = box.floor ?? box.replicas;
-			const want = Math.max(floor, 1, Math.min(MAX_AGENTS, working + waiting));
-			if (want !== box.replicas && (want > box.replicas || !here.length)) {
-				patchContainer(box.id, { replicas: want });
-				did.push(`${box.name}: ${box.replicas} → ${want} agents`);
+			const folder = cwd.split("/").filter(Boolean).pop() ?? "folder";
+			for (const stage of WORK_STAGES) {
+				const here = open.filter((t) => t.cwd === cwd && staffStage(t) === stage);
+				const waiting = here.filter((t) => !t.assignee).length;
+				const working = here.filter((t) => t.assignee).length;
+				let box = readContainers().find((x) => x.cwd === cwd && x.stages.length === 1 && x.stages[0] === stage);
+				if (!box) {
+					if (!waiting) continue;
+					box = createContainer({ floor: 1, name: `${STAGE_NAME[stage]} · ${folder}`, role: STAGE_ROLE[stage], stages: [stage], replicas: 1, cwd, model: "", effort: "", skills: STAGE_SKILLS[stage] });
+					stock(STAGE_SKILLS[stage], k.fetch);
+					did.push(`created ${box.name}`);
+					continue;
+				}
+				const floor = box.floor ?? 1;
+				const want = Math.max(floor, Math.min(MAX_AGENTS, working + waiting));
+				if (want !== box.replicas && (want > box.replicas || !here.length)) {
+					patchContainer(box.id, { replicas: want });
+					did.push(`${box.name}: ${box.replicas} → ${want} agents`);
+				}
 			}
 		}
 		return did;
@@ -442,6 +455,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		while (r && !r.fired) r = strike(home.pod.session, "fired by hand", String(reason || "Fired by hand."));
 		k.close(home.pod.session);
 		return c.json({ fired: true, did: tick() });
+	});
+	/** Clears a container's lessons, for when they came from orders that were never real work. */
+	app.post("/api/containers/lessons/clear", async (c) => {
+		const no = guard(c);
+		if (no) return no;
+		const { id } = await body<{ id?: string }>(c);
+		const box = clearLessons(String(id));
+		return box ? c.json({ cleared: true, name: box.name }) : c.json({ error: "That container is gone." }, 404);
 	});
 	app.post("/api/containers/reconcile", (c) => {
 		const no = guard(c);
