@@ -116,6 +116,12 @@ describe("full SDLC, end to end", () => {
 		expect(execFileSync("git", ["-C", wt, "log", "-1", "--format=%b"], { encoding: "utf8" })).toContain("Signed-off-by");
 		expect(readFileSync(join(r, "math.ts"), "utf8")).toContain("i < b");
 		expect(readFileSync(join(wt, "math.ts"), "utf8")).toContain("i <= b");
+		// Spec works in the order's worktree too, so nothing it writes lands in the shared checkout, and it puts the
+		// spec in its reply, where the next agents read it.
+		const specChat = k.sessions.find((s) => s.feed.some((m) => String((m as { text?: string }).text).startsWith("Order #1 (spec)")));
+		expect(specChat?.cwd).toBe(wt);
+		expect(String((specChat?.feed.find((m) => String((m as { text?: string }).text).startsWith("Order #1 (spec)")) as { text?: string }).text)).toContain("do not write it to a file");
+		expect(execFileSync("git", ["-C", r, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
 		// Times are recorded.
 		expect(t.startedAt).toBeGreaterThan(0);
 		expect(t.servedAt).toBeGreaterThanOrEqual(t.startedAt);

@@ -282,7 +282,7 @@ export function whereOf(title: string, cwd: string, folders: string[]): string {
  * change against the spec, and never FAIL an order for being vague, since nobody is there to answer questions.
  */
 export const STAGE_BRIEF = {
-	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change, named relative to the repo root (src/x.ts), never by an absolute path. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code.",
+	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change, named relative to the repo root (src/x.ts), never by an absolute path. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code. Put the whole spec in your reply and do not write it to a file: the next agents only get your reply (a SPEC_ORDER_25.md in the shared checkout reached nobody).",
 	build: "Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. Edit files only by paths inside this worktree; never use the absolute path of the repo it came from. End with the files you changed and how to check the change. If the order needs no file change, never invent one (a version bump, a changelog line, a notes file): reply with one line starting with FAIL that says why.",
 	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
 	review: "The change is in this order's worktree (branch kitchen/order-{n}). Read only its diff (git diff against the branch it started from) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
@@ -602,8 +602,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const policy = policyFor(order.kind === "question" ? "build" : order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, { ...policy, mode: KITCHEN_MODE });
 		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(lessonsKeyOf(box))] : [])]);
-		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it.
-		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
+		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it, Spec too, so
+		// nothing a stage writes lands in the shared checkout.
+		const wt = order.kind === "task" && ["spec", "build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
 		// Kept from the first build round: a retry after a leak must still see the leak.
 		if (wt && order.stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
@@ -637,7 +638,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const stage = order.stage;
 		const sid = `order-${order.n}-${stage}`;
 		const who = `flisk:${sid}`;
-		const wt = ["build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
+		const wt = ["spec", "build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
 		if (wt && stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
 		const policy = policyFor(stage);

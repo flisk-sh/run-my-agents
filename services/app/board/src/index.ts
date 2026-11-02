@@ -802,7 +802,14 @@ export function createApp(
 	// The kitchen: orders, scores, skill sets and agent containers. See src/kitchen/.
 	const kitchen = mountKitchen(app, {
 		read,
-		send: (s, text, body) => sendNow(s, { qid: randomUUID(), text, body, dirs: [] }),
+		// A kitchen message to a busy chat waits in its queue, like yours: sending it at once stopped the reply that chat
+		// was running (an agent asking your own chat a question cut off your turn).
+		send: (s, text, body) => {
+			const item = { qid: randomUUID(), text, body, dirs: [] };
+			if (!sending.has(s.id) && !appBusy(s)) return sendNow(s, item);
+			queues.set(s.id, [...(queues.get(s.id) ?? []), item]);
+			return new Response(JSON.stringify({ queued: true, qid: item.qid }), { status: 202, headers: { "content-type": "application/json" } });
+		},
 		busy: (s) => sending.has(s.id) || appBusy(s),
 		start: (n) => {
 			setRole(n.id, n.role);

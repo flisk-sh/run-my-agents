@@ -876,6 +876,26 @@ describe("agent to agent", () => {
 		expect(questionsIn("**To Test:**\n1. run bun test")).toEqual([]);
 	});
 
+	it("queues a question for a chat that is busy instead of stopping the reply it is running", async () => {
+		// Your own chat cooked the review step earlier and is busy with your next message when Build asks it something.
+		const builder = agent("bld", "Build", "To Review: will you check the README too?");
+		const mine = { ...session("mine", "Review"), updatedAt: Date.now() - 20_000 };
+		const sessions = [builder, mine];
+		const sent: string[] = [];
+		const app = createApp(() => sessions, async (_, text) => {
+			sent.push(text);
+			await new Promise(() => {});
+		});
+		const post = async (path: string, body: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+		await post("/api/send", { id: "mine", text: "my own work" });
+		order({ kind: "task", stage: "build", assignee: "bld", sentAt: Date.now() - 60_000, cwd: "/repo", crew: { review: { id: "mine", role: "Review", name: "mine" } } });
+		expect((await post("/api/kitchen", { auto: true })).did).toContain("#1 Build asked Review");
+		// The question waits in the chat's queue; the reply it is running was not replaced.
+		expect(sent).toEqual(["my own work"]);
+		const queue = (await (await app.request("/api/sessions")).json()).sessions.find((x: { id: string }) => x.id === "mine").queue;
+		expect(queue.map((x: { text: string }) => x.text)).toEqual(["#1: question from Build"]);
+	});
+
 	it("keeps what a step's agent said before the orchestrator answered it, so the next stage gets the whole hand-off", async () => {
 		const spec = agent("spc", "Spec", "## Spec\nGoal: add mean().\nChecks: mean([]) is 0.\n\nShall I proceed with this spec?");
 		const { post } = setup([spec]);
