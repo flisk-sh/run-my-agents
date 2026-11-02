@@ -305,11 +305,15 @@ const MODELS = ["opus", "sonnet", "haiku"];
 /** Starts a new headless session in a folder; the prompt goes on stdin (a temp file for Grok). Its transcript is read like any other. */
 /**
  * The kitchen's front desk: one short Claude call on Haiku at low effort that answers a question. It runs with no
- * session saved and no tools allowed, and gives up after 90 seconds.
+ * session saved, no tools, no project settings and gives up after 90 seconds (about 6 s for a simple question).
  */
+const FRONT_DESK_PROMPT = "You are the front desk of a team of coding agents. Answer the user's question in one or two short sentences. If it needs code changes, say it should be sent as a task.";
+
 export function askHaiku(question: string, cwd: string, run = spawn): Promise<string> {
 	return new Promise((resolveAsk, reject) => {
-		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", "--tools", ""], { cwd: cwd || homedir(), stdio: ["pipe", "pipe", "ignore"] });
+		// A clean, light start: no project folder, settings, MCP servers or skills, and its own short system prompt,
+		// so it answers in seconds as the front desk instead of as whatever agent the folder describes.
+		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", "--tools", "", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] });
 		let out = "";
 		const timer = setTimeout(() => child.kill("SIGTERM"), 90_000);
 		child.stdout?.on("data", (d) => {
@@ -324,7 +328,7 @@ export function askHaiku(question: string, cwd: string, run = spawn): Promise<st
 			if (code === 0 && out.trim()) resolveAsk(out.trim().slice(0, 4000));
 			else reject(new Error(`front desk exited with ${code}`));
 		});
-		child.stdin?.end(`Answer this question from a user in one short reply, no code changes:\n\n${question}`);
+		child.stdin?.end(cwd ? `${question}\n\n(Asked about the project in ${cwd}.)` : question);
 	});
 }
 
