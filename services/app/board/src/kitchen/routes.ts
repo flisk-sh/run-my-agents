@@ -654,7 +654,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
 			if (box) podOrder(s.id, order.id);
 		}
-		const crew = { ...(order.crew ?? {}), [order.stage]: { id: who, role: s.role, name: box ? podName(box, who) : s.title || s.role } };
+		// Store the pod's stable id in crew, not the session id (which gets recycled on freshChat).
+		const podId = pod?.id ?? who; // Fallback to session id for non-container agents or if pod not found.
+		const crew = { ...(order.crew ?? {}), [order.stage]: { id: podId, role: s.role, name: box ? podName(box, who) : s.title || s.role } };
 		return { status: 202, body: { ...updateTask(order.id, { assignee: who, sentAt: Date.now(), crew, startedAt: order.startedAt ?? Date.now() }), model: policy.model, effort: policy.effort, fresh: who !== s.id } };
 	}
 

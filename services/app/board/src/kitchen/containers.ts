@@ -24,6 +24,7 @@ export const KITCHEN_TOOLS = [
 export const KITCHEN_CHAT = /^(?:(?:Spec|Build|Test|Review) · .+ [0-9a-f]{4}|Ship · #\d+|Auto cooks · .+ [0-9a-f]{4}|Kitchen cooks [0-9a-f]{4})$/;
 
 export type Pod = {
+	id: string; // Stable id, never changes even when session is recycled. Used for strikes and serving.
 	session: string;
 	status: "starting" | "ready" | "evicted";
 	strikes: number;
@@ -188,14 +189,25 @@ export const podOf = (session: string) => {
 	return undefined;
 };
 
+/** The container and pod by the pod's stable id. Works after freshChat recycled the session. */
+export const podById = (podId: string) => {
+	for (const c of readContainers()) {
+		const p = c.pods.find((x) => x.id === podId && x.status !== "evicted");
+		if (p) return { container: c, pod: p };
+	}
+	return undefined;
+};
+
 /**
  * Gives a pod a strike for a failed or missed order. At maxStrikes it is fired: the reason becomes a lesson in the
  * container's skill, and the next reconcile replaces it. Returns the pod's new state.
+ * Can pass either sessionId or podId: podId works even after freshChat recycles the session.
  */
-export function strike(session: string, order: string, reason: string): { container: string; pod: Pod; fired: boolean; gained: string[] } | undefined {
+export function strike(idOrSession: string, order: string, reason: string): { container: string; pod: Pod; fired: boolean; gained: string[] } | undefined {
 	return store.update((all) => {
 		for (const c of all) {
-			const p = c.pods.find((x) => x.session === session && x.status !== "evicted");
+			// Try to find by pod's stable id first, then by session (for backward compat).
+			const p = c.pods.find((x) => (x.id === idOrSession || x.session === idOrSession) && x.status !== "evicted");
 			if (!p) continue;
 			p.strikes += 1;
 			// A lesson is a mistake to avoid. Refusals ("too vague", "resubmit", "will not reopen") taught agents to
@@ -253,9 +265,9 @@ export function podOrder(session: string, order: string) {
 	});
 }
 
-export function served(session: string) {
+export function served(idOrSession: string) {
 	store.update((all) => {
-		for (const c of all) for (const p of c.pods) if (p.session === session && p.status !== "evicted") p.served += 1;
+		for (const c of all) for (const p of c.pods) if ((p.id === idOrSession || p.session === idOrSession) && p.status !== "evicted") p.served += 1;
 	});
 }
 
@@ -316,11 +328,12 @@ export function reconcile(ctx: ReconcileCtx) {
 			// Every container's lessons skill exists before its agents start, so none of them is told to read a missing one.
 			if (!skillInstalled(lessonsSkill(lessonsKeyOf(c)))) writeShared(all, lessonsKeyOf(c), c.lessonsKey ? c.role : c.name);
 			for (let i = live(c).length; i < c.replicas; i++) {
-				const id = randomUUID();
-				c.pods.push({ session: id, status: "starting", strikes: 0, served: 0, started: now });
-				ctx.name?.(id, podName(c, id));
-				ctx.start({ agent: "claude", cwd: c.cwd, text: bootPrompt(c), model: c.model || "haiku", effort: c.effort || "low", id, role: c.role, mode: KITCHEN_MODE });
-				did.push(`${c.name}: started ${id.slice(0, 8)}`);
+				const session = randomUUID();
+				const podId = randomUUID(); // Stable id for strikes and serving, doesn't change when session is recycled.
+				c.pods.push({ id: podId, session, status: "starting", strikes: 0, served: 0, started: now });
+				ctx.name?.(session, podName(c, session));
+				ctx.start({ agent: "claude", cwd: c.cwd, text: bootPrompt(c), model: c.model || "haiku", effort: c.effort || "low", id: session, role: c.role, mode: KITCHEN_MODE });
+				did.push(`${c.name}: started ${session.slice(0, 8)}`);
 			}
 			// Keep the last 20 tombstones.
 			const dead = c.pods.filter((p) => p.status === "evicted");
