@@ -642,11 +642,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const text = orderText(order, use, wt, box ? lessonsFor(lessonsKeyOf(box)) : []);
 		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
 		if (box && order.skills.length) injectSkills(box.id, order.skills);
-		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
-		// The same order (another round, the next stage in an all-stage container) keeps its chat.
+		// Every step starts a fresh chat on a container agent that already ran one: its only input is this order's
+		// record (the brief above), never a resumed transcript. Another round or the next stage of the same order is a
+		// new chat too; what the earlier step learned travels in notes and failures, not in chat history.
 		const pod = box?.pods.find((p) => p.session === s.id && p.status !== "evicted");
 		let who = s.id;
-		if (box && s.agent === "claude" && ((pod?.lastOrder && pod.lastOrder !== order.id) || (wt && s.cwd !== wt))) {
+		if (box && s.agent === "claude" && (pod?.lastOrder || (wt && s.cwd !== wt))) {
 			who = randomUUID();
 			k.start({ agent: "claude", cwd: wt ?? (order.cwd || box.cwd), text, model: policy.model, effort: policy.effort, id: who, role: box.role, mode: KITCHEN_MODE });
 			freshChat(s.id, who, order.id);
@@ -664,12 +665,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	}
 
 	/**
-	 * Flisk path: the order's step is one turn on the Flisk kitchen agent (session "order-<n>-<stage>"), whose reply
+	 * Flisk path: the order's step is one turn on the Flisk kitchen agent (session "order-<n>-<stage>[-r<round>]"), whose reply
 	 * comes back as the HTTP response. No pods, no waiting for an agent to go quiet, nobody left unanswered.
 	 */
 	function fliskDispatch(order: Task): Out {
 		const stage = order.stage;
-		const sid = `order-${order.n}-${stage}`;
+		// One session per step: a new round or a requeue is a fresh session that starts from the record, not a resume.
+		const sid = `order-${order.n}-${stage}${order.rounds ? `-r${order.rounds}` : ""}${order.requeued ? `-q${order.requeued}` : ""}`;
 		const who = `flisk:${sid}`;
 		const wt = ["spec", "build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });

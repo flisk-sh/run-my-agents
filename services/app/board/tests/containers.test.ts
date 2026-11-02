@@ -225,7 +225,12 @@ describe("auto-dispatch on the server", () => {
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 spec done"]);
 		// Autopilot: the next pass approves it at the pass and sends it on to build, no button needed.
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 approved", "#1 sent"]);
-		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "build", approved: true, assignee: cook.id });
+		// Build starts in a fresh chat of the same pod: its input is the spec record, not the Spec chat's transcript.
+		const built = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(built).toMatchObject({ stage: "build", approved: true });
+		expect(built.assignee).not.toBe(cook.id);
+		expect(started.at(-1)).toMatchObject({ id: built.assignee });
+		expect(started.at(-1)?.text).toContain("Order #1 (build)");
 		expect((await post("/api/kitchen", { auto: false })).body).toEqual({ auto: false, did: [] });
 		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: false, idleMinutes: 10 });
 	});
@@ -478,7 +483,8 @@ describe("stage hand-off", () => {
 		await post("/api/tasks/serve", { id: "t" });
 		await post("/api/tasks/move", { id: "t", approved: true, stage: "test" });
 		await post("/api/tasks/dispatch", { id: "t" });
-		const msg = sent.at(-1) as string;
+		// The next stage is a fresh chat: the spec reaches it in its first message.
+		const msg = started.at(-1)?.text as string;
 		expect(msg).toContain("From the Spec agent:\nGoal: retry uploads 3 times.");
 		expect(msg).toContain("Never FAIL because the order is vague");
 	});
@@ -578,7 +584,16 @@ describe("requeue routing", () => {
 });
 
 describe("one chat per order", () => {
-	it("gives a container agent a fresh chat for a new order, and keeps it for the same order", async () => {
+	it("runs another round of a step on the Flisk agent as a new session, not a resume of the last round", async () => {
+		const seen: string[] = [];
+		const app = createApp(() => [], async () => {}, { agent: async (session) => (seen.push(session), "Changed it.") });
+		order({ id: "a", n: 7, stage: "build", cwd: "", kind: "task", rounds: 2, failures: ["test: FAIL: missed the end"] });
+		await app.request("/api/tasks/dispatch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "a" }) });
+		await Bun.sleep(10);
+		expect(seen[0]).toBe("order-7-build-r2");
+	});
+
+	it("gives a container agent a fresh chat for every step after its first, the same order's next round too", async () => {
 		const sessions: Session[] = [];
 		const { post, sent, started } = setup(sessions);
 		await post("/api/containers", { name: "B", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
@@ -589,9 +604,15 @@ describe("one chat per order", () => {
 		order({ id: "a", n: 1, stage: "build", cwd: "/repo" });
 		const a = (await post("/api/tasks/dispatch", { id: "a" })).body;
 		expect(a).toMatchObject({ assignee: first, fresh: false });
-		// Another round of the same order: same chat.
-		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...a, assignee: "", sentAt: 0, rounds: 1 }]));
-		expect((await post("/api/tasks/dispatch", { id: "a" })).body).toMatchObject({ assignee: first, fresh: false });
+		// Another round of the same order: a fresh chat whose input is the order's record, not the last round's transcript.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...a, assignee: "", sentAt: 0, rounds: 1, failures: ["test: FAIL: range(1,3) missed 3"] }]));
+		const again = (await post("/api/tasks/dispatch", { id: "a" })).body;
+		expect(again.fresh).toBe(true);
+		expect(again.assignee).not.toBe(first);
+		expect(started.at(-1)?.text).toContain("Order #1 (build)");
+		expect(sent.filter((x) => x.includes("Order #1"))).toHaveLength(1);
+		sessions.push({ ...session(again.assignee, "Build"), updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
 		// A different order: a new chat, started with the order itself, and the pod keeps its place.
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ id: "b", n: 2, title: "fix the import path in src/app.ts", cwd: "/repo", priority: "P1", stage: "build", assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
 		const b = (await post("/api/tasks/dispatch", { id: "b" })).body;
