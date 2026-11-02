@@ -697,7 +697,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					const cur = readTasks().find((x) => x.id === id);
 					const why = `build: no changes made in the worktree. ${failLine(reply) || reply.split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
 					fliskReplies.set(who, reply);
-					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), why].slice(-6), notes: { ...(cur?.notes ?? {}), [stage]: handOffOf(reply) } });
+					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), why].slice(-6) });
 					return;
 				}
 			}
@@ -709,7 +709,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				if (left.length) {
 					const cur = readTasks().find((x) => x.id === id);
 					fliskReplies.set(who, reply);
-					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), `build: edited the shared checkout ${t1.cwd}, not the worktree: ${left.join(", ")}`.slice(0, 300)], notes: { ...(cur?.notes ?? {}), [stage]: handOffOf(reply) } });
+					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), `build: edited the shared checkout ${t1.cwd}, not the worktree: ${left.join(", ")}`.slice(0, 300)] });
 					return;
 				}
 			}
@@ -745,7 +745,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			return { status: 200, body: { ...updateTask(t.id, { stage: "review", shipping: false, ...(pr ? { pr } : {}), assignee: "", sentAt: 0 }) } };
 		}
 		// Keep what this stage's agent handed on, so the next stages work from it instead of the title alone.
-		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
+		// Only store notes when the step completes (pass !== false); keep failures in failures instead.
+		if (pass !== false && t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
 			const said = replyOf(t?.assignee);
 			// What it said before the orchestrator wrote to it counts too: a Spec that ended "Shall I proceed?" handed
 			// Build only its answer to the orchestrator ("Spec is final.").

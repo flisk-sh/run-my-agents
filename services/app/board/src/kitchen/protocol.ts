@@ -22,7 +22,7 @@ export type StageRecord = {
 
 const BLOCK = /```kitchen[^\S\n]*\n([\s\S]*?)\n?```/g;
 
-/** The last well-formed `kitchen` block in a reply, or undefined when there is none. */
+/** The last well-formed `kitchen` block in a reply, or undefined when there is none. Ignores blocks with none of ask, verdict, or handoff. */
 export function recordIn(text: string): StageRecord | undefined {
 	for (const m of [...String(text ?? "").matchAll(BLOCK)].reverse()) {
 		let raw: unknown;
@@ -38,10 +38,11 @@ export function recordIn(text: string): StageRecord | undefined {
 		const to = typeof a?.to === "string" ? a.to.toLowerCase() : "";
 		if (a && ASK_ORDER.includes(to as AskStage) && typeof a.question === "string" && a.question.trim()) r.ask = { to: to as AskStage, question: a.question.trim().slice(0, 1000) };
 		const v = typeof o.verdict === "string" ? o.verdict.toUpperCase() : typeof o.pass === "boolean" ? (o.pass ? "PASS" : "FAIL") : "";
-		if (v === "PASS" || v === "FAIL") r.verdict = v;
+		if ((v === "PASS" || v === "FAIL") && !r.ask) r.verdict = v;
 		if (typeof o.evidence === "string" && o.evidence.trim()) r.evidence = o.evidence.trim().slice(0, 2000);
 		if (typeof o.handoff === "string" && o.handoff.trim()) r.handoff = o.handoff.trim();
-		return r;
+		// Ignore blocks that have none of ask, verdict, or handoff
+		if (r.ask || r.verdict || r.handoff) return r;
 	}
 	return undefined;
 }
