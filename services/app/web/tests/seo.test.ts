@@ -82,7 +82,7 @@ describe("files for crawlers", () => {
 		expect(robots).toContain("Sitemap: https://tool.test/sitemap.xml");
 	});
 
-	it("sitemap.xml lists the home page and about", async () => {
+	it("sitemap.xml lists the home page, about and the game", async () => {
 		const res = await app.request("/sitemap.xml");
 		expect(res.headers.get("content-type")).toContain("application/xml");
 		const xml = await res.text();
@@ -90,7 +90,7 @@ describe("files for crawlers", () => {
 			"<loc>https://tool.test/</loc><lastmod>2026-10-28</lastmod>",
 		);
 		expect(xml).toContain("<loc>https://tool.test/about</loc>");
-		expect(xml.match(/<url>/g)).toHaveLength(2);
+		expect(xml.match(/<url>/g)).toHaveLength(3);
 	});
 
 	it("llms.txt, the manifest and security.txt", async () => {

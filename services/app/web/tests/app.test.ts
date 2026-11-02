@@ -147,3 +147,19 @@ describe("live board demo", () => {
 		expect(await home.text()).toContain('src="/demo/"');
 	});
 });
+
+describe("Kitchen Rush game", () => {
+	it("serves the game with a script-only policy and links it from the nav", async () => {
+		const app = createApp();
+		const res = await app.request("/play");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-security-policy")).toContain(
+			"script-src 'unsafe-inline'",
+		);
+		const html = await res.text();
+		expect(html).toContain("KITCHEN RUSH");
+		expect(html).toContain('<canvas id="g"');
+		expect(await (await app.request("/")).text()).toContain('/play">Play</a>');
+		expect(await (await app.request("/sitemap.xml")).text()).toContain("/play");
+	});
+});

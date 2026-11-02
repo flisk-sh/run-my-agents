@@ -1,0 +1,99 @@
+// Kitchen Rush at /play: a small survivors-like in one page. You are the head chef, bugs, flaky tests and merge
+// conflicts pour into the kitchen, and your pans fly at the nearest one by themselves. Tickets level you up, and
+// three of the upgrades hire the board's cooks (Spec, Build, Review) to fight beside you. Hold out for five
+// minutes and the order ships. Plain canvas, no libraries, so the page needs only an inline script.
+import { SITE } from "./site";
+
+const SCRIPT = `
+const cv=document.getElementById("g"),x=cv.getContext("2d");
+let W=0,H=0;function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;x.imageSmoothingEnabled=false}addEventListener("resize",fit);fit();
+const WIN=300,keys={};let joy=null;
+addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=1;if(e.key===" "||e.key==="Enter")tap()});
+addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=0});
+cv.addEventListener("pointerdown",e=>{if(st!=="play"){tap(e);return}joy={x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY}});
+addEventListener("pointermove",e=>{if(joy){joy.x=e.clientX;joy.y=e.clientY}});
+addEventListener("pointerup",()=>{joy=null});
+const COOKS=[{n:"Spec cook",c:"#38bdf8",k:"spec",d:"Orbits you and slices what it touches"},{n:"Build cook",c:"#f59e0b",k:"build",d:"Throws hot pans of its own"},{n:"Review cook",c:"#a78bfa",k:"review",d:"Rejects every bug near it, often"}];
+const UPS=[{n:"Faster pans",d:"Throw 25% faster",f:p=>p.rate*=.75},{n:"Heavier pans",d:"+1 damage",f:p=>p.dmg++},{n:"Extra pan",d:"+1 pan per throw",f:p=>p.multi++},{n:"Running shoes",d:"Move 15% faster",f:p=>p.spd*=1.15},{n:"Coffee",d:"Heal and +20 max health",f:p=>{p.max+=20;p.hp=p.max}},{n:"Big magnet",d:"Pick tickets from further",f:p=>p.mag*=1.4}];
+let st="title",P,E,B,T,F,cooks,t,lvl,xp,need,kills,choice,last,spawnT,boss,shake;
+function reset(){P={x:0,y:0,hp:100,max:100,spd:170,rate:.7,cd:0,dmg:1,multi:1,mag:70,hurt:0,face:1};E=[];B=[];T=[];F=[];cooks=[];t=0;lvl=1;xp=0;need=5;kills=0;choice=null;spawnT=0;boss=0;shake=0}
+function tap(e){if(st==="title"||st==="dead"||st==="won"){reset();st="play";last=performance.now();return}
+ if(st==="up"&&e){const i=pick(e.clientX,e.clientY);if(i>=0)choose(i)}}
+addEventListener("keydown",e=>{if(st==="up"&&"123".includes(e.key))choose(+e.key-1)});
+const rnd=(a,b)=>a+Math.random()*(b-a);
+function spawn(){const a=rnd(0,7),r=Math.max(W,H)/2+60,m=t/60;
+ const kind=Math.random()<.12+m*.04?"conflict":Math.random()<.35?"flaky":"bug";
+ const s={bug:{hp:2+m,sp:rnd(55,75)+m*6,r:9,c:"#ef4444",xp:1},flaky:{hp:3+m*1.5,sp:rnd(80,105)+m*6,r:8,c:"#facc15",xp:2},conflict:{hp:12+m*4,sp:40+m*4,r:16,c:"#fb7185",xp:5}}[kind];
+ E.push({x:P.x+Math.cos(a)*r,y:P.y+Math.sin(a)*r,k:kind,hp:s.hp,sp:s.sp,r:s.r,c:s.c,xp:s.xp,fl:0,w:rnd(0,6)})}
+function spawnBoss(){const a=rnd(0,7);E.push({x:P.x+Math.cos(a)*500,y:P.y+Math.sin(a)*500,k:"ci",hp:80+boss*60,sp:55,r:30,c:"#dc2626",xp:30,fl:0,w:0});boss++;F.push({x:P.x,y:P.y-60,s:"CI went red!",l:2,c:"#f87171"})}
+function near(x0,y0,max){let b=null,bd=max*max;for(const e of E){const d=(e.x-x0)**2+(e.y-y0)**2;if(d<bd){bd=d;b=e}}return b}
+function throwFrom(o,n,dmg){const e=near(o.x,o.y,420);if(!e)return;for(let i=0;i<n;i++){const a=Math.atan2(e.y-o.y,e.x-o.x)+(i-(n-1)/2)*.22;B.push({x:o.x,y:o.y,vx:Math.cos(a)*380,vy:Math.sin(a)*380,l:1.2,d:dmg,s:0})}}
+function hit(e,d){e.hp-=d;e.fl=.1;F.push({x:e.x,y:e.y-e.r,s:String(d),l:.5,c:"#fff"});if(e.hp<=0){kills++;T.push({x:e.x,y:e.y,v:e.xp});if(e.k==="ci")F.push({x:e.x,y:e.y-40,s:"Fixed CI!",l:2,c:"#4ade80"})}}
+function offer(){const pool=[...UPS];const free=COOKS.filter(c=>!cooks.some(k=>k.k===c.k));if(free.length&&Math.random()<.75)pool.unshift({...free[Math.floor(Math.random()*free.length)],cook:1});
+ const ch=[];if(pool[0].cook)ch.push(pool.shift());while(ch.length<3){ch.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0])}return ch}
+function choose(i){const c=choice[i];if(!c)return;if(c.cook)cooks.push({k:c.k,c:c.c,n:c.n,a:0,cd:0,x:P.x,y:P.y});else c.f(P);choice=null;st="play";last=performance.now()}
+function step(dt){t+=dt;let mx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0),my=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);
+ if(joy){const dx=joy.x-joy.x0,dy=joy.y-joy.y0,l=Math.hypot(dx,dy);if(l>8){mx=dx/l;my=dy/l}}
+ const l=Math.hypot(mx,my);if(l){P.x+=mx/l*P.spd*dt;P.y+=my/l*P.spd*dt;if(mx)P.face=Math.sign(mx)}
+ spawnT-=dt;const rate=Math.max(.12,1.1-t/90);while(spawnT<=0){spawn();spawnT+=rate}
+ if(t>=60*(boss+1)&&boss<4)spawnBoss();
+ P.cd-=dt;if(P.cd<=0){throwFrom(P,P.multi,P.dmg);P.cd=P.rate}
+ for(const k of cooks){if(k.k==="spec"){k.a+=dt*3;k.x=P.x+Math.cos(k.a)*70;k.y=P.y+Math.sin(k.a)*70;k.cd-=dt;if(k.cd<=0){for(const e of E)if(Math.hypot(e.x-k.x,e.y-k.y)<e.r+14)hit(e,2+Math.floor(lvl/4));k.cd=.25}}
+  else{const tx=P.x+(k.k==="build"?-40:40),ty=P.y+30;k.x+=(tx-k.x)*dt*4;k.y+=(ty-k.y)*dt*4;k.cd-=dt;
+   if(k.k==="build"&&k.cd<=0){throwFrom(k,2,P.dmg);k.cd=.9}
+   if(k.k==="review"&&k.cd<=0){let any=0;for(const e of E)if(Math.hypot(e.x-k.x,e.y-k.y)<110){hit(e,3);any=1}if(any)F.push({x:k.x,y:k.y-26,s:"Changes requested",l:.8,c:"#c4b5fd"});k.cd=1.6}}}
+ for(const b of B){b.x+=b.vx*dt;b.y+=b.vy*dt;b.l-=dt;b.s+=dt*14;for(const e of E)if(e.hp>0&&Math.hypot(e.x-b.x,e.y-b.y)<e.r+6){hit(e,b.d);b.l=0;break}}
+ B=B.filter(b=>b.l>0);
+ for(const e of E){const dx=P.x-e.x,dy=P.y-e.y,d=Math.hypot(dx,dy)||1;let sp=e.sp;if(e.k==="flaky"){e.w+=dt*6;sp*=.7+Math.abs(Math.sin(e.w))*.8}
+  e.x+=dx/d*sp*dt;e.y+=dy/d*sp*dt;e.fl-=dt;if(d<e.r+12&&P.hurt<=0){P.hp-=e.k==="ci"?20:e.k==="conflict"?12:7;P.hurt=.5;shake=.2}}
+ E=E.filter(e=>e.hp>0);P.hurt-=dt;shake-=dt;
+ for(const k of T){const d=Math.hypot(P.x-k.x,P.y-k.y);if(d<P.mag){k.x+=(P.x-k.x)*dt*8;k.y+=(P.y-k.y)*dt*8}if(d<14){xp+=k.v;k.v=0}}
+ T=T.filter(k=>k.v>0);for(const f of F){f.l-=dt;f.y-=dt*30}F=F.filter(f=>f.l>0);
+ if(xp>=need){xp-=need;lvl++;need=Math.floor(need*1.35+3);choice=offer();st="up"}
+ if(P.hp<=0){st="dead"}if(t>=WIN){st="won"}}
+function tile(){const s=48,ox=((-P.x%s)+s)%s,oy=((-P.y%s)+s)%s;x.fillStyle="#15151c";x.fillRect(0,0,W,H);x.fillStyle="#1b1b24";
+ for(let i=-1;i<W/s+1;i++)for(let j=-1;j<H/s+1;j++){const gx=Math.floor((P.x-W/2)/s)+i,gy=Math.floor((P.y-H/2)/s)+j;if((gx+gy)&1)x.fillRect(Math.floor(ox+i*s-W/2%s),Math.floor(oy+j*s-H/2%s),s,s)}}
+function px(cx,cy,c,w,h){x.fillStyle=c;x.fillRect(Math.round(cx-w/2),Math.round(cy-h/2),w,h)}
+function chef(cx,cy,c,hat,face){px(cx,cy+6,c,18,16);px(cx,cy-8,"#f5d0a9",16,14);px(cx-3*face,cy-9,"#111",2,3);px(cx+3*face,cy-9,"#111",2,3);if(hat){px(cx,cy-20,"#fafafa",18,10);px(cx,cy-15,"#e5e5e5",20,3)}}
+function draw(){const sx=shake>0?rnd(-4,4):0,sy=shake>0?rnd(-4,4):0;x.save();x.translate(sx,sy);tile();const ox=W/2-P.x,oy=H/2-P.y;
+ for(const k of T){px(k.x+ox,k.y+oy,"#4ade80",8,10);px(k.x+ox,k.y+oy-2,"#166534",6,1)}
+ for(const e of E){const ex=e.x+ox,ey=e.y+oy,c=e.fl>0?"#fff":e.c;
+  if(e.k==="bug"){px(ex,ey,c,16,12);px(ex-9,ey-3,c,4,2);px(ex+9,ey-3,c,4,2);px(ex-9,ey+3,c,4,2);px(ex+9,ey+3,c,4,2);px(ex-3,ey-3,"#111",3,3);px(ex+3,ey-3,"#111",3,3)}
+  else if(e.k==="flaky"){px(ex,ey,c,14,14);px(ex,ey,"#111",4,8);px(ex,ey+5,"#111",4,2)}
+  else if(e.k==="conflict"){px(ex,ey,c,30,26);x.fillStyle="#111";x.font="bold 10px monospace";x.textAlign="center";x.fillText("<<<",ex,ey-2);x.fillText(">>>",ex,ey+9)}
+  else{px(ex,ey,c,58,50);px(ex,ey-8,"#111",36,10);x.fillStyle="#fecaca";x.font="bold 14px monospace";x.textAlign="center";x.fillText("CI",ex,ey+16);px(ex,ey-30,"#7f1d1d",58*Math.max(0,e.hp)/(80+(boss-1)*60),4)}}
+ for(const b of B){x.save();x.translate(b.x+ox,b.y+oy);x.rotate(b.s);px(0,0,"#9ca3af",12,12);px(9,0,"#6b7280",8,3);x.restore()}
+ for(const k of cooks){if(k.k==="review"){x.strokeStyle="rgba(167,139,250,.18)";x.beginPath();x.arc(k.x+ox,k.y+oy,110,0,7);x.stroke()}chef(k.x+ox,k.y+oy,k.c,1,1)}
+ if(P.hurt<=0||Math.floor(t*20)%2)chef(W/2,H/2,"#22c55e",1,P.face);
+ for(const f of F){x.globalAlpha=Math.min(1,f.l*2);x.fillStyle=f.c;x.font="bold 13px monospace";x.textAlign="center";x.fillText(f.s,f.x+ox,f.y+oy);x.globalAlpha=1}
+ x.restore();hud()}
+function bar(y,v,c,label){px(W/2,y,"#000a",Math.min(W-32,420)+4,14);const w=Math.min(W-32,420);x.fillStyle=c;x.fillRect(W/2-w/2,y-5,w*Math.max(0,Math.min(1,v)),10);x.fillStyle="#fff";x.font="bold 11px monospace";x.textAlign="center";x.fillText(label,W/2,y+4)}
+function hud(){const left=Math.max(0,WIN-t),mm=Math.floor(left/60),ss=String(Math.floor(left%60)).padStart(2,"0");
+ bar(16,xp/need,"#4ade80","Level "+lvl+"  ·  tickets "+xp+"/"+need);bar(34,P.hp/P.max,"#ef4444","Health "+Math.ceil(Math.max(0,P.hp)));
+ x.fillStyle="#fff";x.font="bold 22px monospace";x.textAlign="center";x.fillText(mm+":"+ss,W/2,68);x.font="12px monospace";x.fillStyle="#aaa";x.fillText("bugs fixed "+kills+"  ·  cooks "+cooks.length+"/3",W/2,86);
+ if(joy){x.strokeStyle="#fff4";x.beginPath();x.arc(joy.x0,joy.y0,40,0,7);x.stroke();px(joy.x,joy.y,"#fff6",16,16)}}
+let boxes=[];function pick(mx,my){return boxes.findIndex(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h)}
+function panel(title,lines,cta){x.fillStyle="#000b";x.fillRect(0,0,W,H);x.textAlign="center";x.fillStyle="#22c55e";x.font="bold "+Math.min(48,W/10)+"px monospace";x.fillText(title,W/2,H/2-70);
+ x.fillStyle="#ddd";x.font="15px monospace";lines.forEach((l,i)=>x.fillText(l,W/2,H/2-20+i*24));x.fillStyle="#fff";x.font="bold 16px monospace";if(Math.floor(performance.now()/500)%2)x.fillText(cta,W/2,H/2+lines.length*24+20)}
+function upScreen(){x.fillStyle="#000c";x.fillRect(0,0,W,H);x.textAlign="center";x.fillStyle="#4ade80";x.font="bold 26px monospace";x.fillText("Level "+lvl+": pick one",W/2,H/2-150);
+ const w=Math.min(340,W-32),h=78;boxes=choice.map((c,i)=>({x:W/2-w/2,y:H/2-110+i*(h+12),w,h}));
+ choice.forEach((c,i)=>{const b=boxes[i];x.fillStyle=c.cook?"#1e293b":"#1f1f29";x.fillRect(b.x,b.y,w,h);x.strokeStyle=c.cook?c.c:"#444";x.lineWidth=2;x.strokeRect(b.x,b.y,w,h);
+  if(c.cook)chef(b.x+30,b.y+h/2+4,c.c,1,1);x.textAlign="left";x.fillStyle="#fff";x.font="bold 15px monospace";x.fillText((i+1)+". "+(c.cook?"Hire "+c.n:c.n),b.x+56,b.y+32);x.fillStyle="#aaa";x.font="12px monospace";x.fillText(c.d,b.x+56,b.y+54)})}
+function loop(now){const dt=Math.min(.05,(now-(last||now))/1000);last=now;
+ if(st==="play")step(dt);if(st==="title"){reset();tile()}else draw();
+ if(st==="title")panel("KITCHEN RUSH",["Bugs are pouring into the kitchen.","Your pans fly by themselves. Move with WASD,","arrows, or drag on a phone. Hire up to 3 cooks.","Hold out 5:00 and the order ships."],"Tap or press Enter");
+ if(st==="up")upScreen();
+ if(st==="dead")panel("ORDER FAILED",["You lasted "+Math.floor(t/60)+":"+String(Math.floor(t%60)).padStart(2,"0")+" at level "+lvl+".","Bugs fixed: "+kills+"  ·  cooks hired: "+cooks.length],"Tap to cook again");
+ if(st==="won")panel("ORDER SHIPPED",["Five minutes, level "+lvl+", "+kills+" bugs fixed.","Your real cooks can do this too:","run-my-agents.flisk.si"],"Tap to play again");
+ requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+`;
+
+export const GAME_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Kitchen Rush · ${SITE.name}</title>
+<meta name="description" content="A free browser game from ${SITE.name}: hold out five minutes against bugs, flaky tests and red CI with up to three agent cooks.">
+<meta name="theme-color" content="#0b0b0f">
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0b0f;touch-action:none;user-select:none;-webkit-user-select:none}canvas{display:block}</style>
+</head><body><canvas id="g" aria-label="Kitchen Rush game"></canvas><script>${SCRIPT}</script></body></html>`;
