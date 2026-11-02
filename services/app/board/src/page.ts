@@ -416,13 +416,12 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 .pnote{margin:0 10px 8px;font-size:11.5px;color:var(--muted)}
 .mlist{display:flex;flex-direction:column;gap:3px;padding:0 6px 8px}.mopt{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:12px;cursor:pointer;transition:background .15s}.mopt:hover{background:rgba(255,255,255,.06)}.mopt i{width:8px;height:8px;border-radius:50%;background:var(--mc)}.mopt.on{background:color-mix(in srgb,var(--mc) 16%,transparent);color:var(--text);font-weight:600}
 
-/* Keyboard focus is always visible; motion stops for people who ask for less. */
+/* Keyboard focus is always visible. */
 :focus-visible{outline:2px solid #6ee7a0;outline-offset:2px;border-radius:8px}
 .it:focus-visible{outline-offset:-2px}
 .keys{position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(4,4,8,.6);backdrop-filter:blur(6px);animation:fadein .2s both}@keyframes fadein{from{opacity:0}}
 .kbox{width:min(420px,92vw);padding:18px 18px 14px;border-radius:18px;background:linear-gradient(160deg,#1d1d28,#11111a);box-shadow:inset 0 0 0 1px var(--line),0 30px 80px rgba(0,0,0,.7);animation:gpop .3s cubic-bezier(.2,1.25,.4,1) both}
 .kbox h3{margin:0 0 10px;font-size:15px}.kbox div{display:flex;align-items:center;gap:12px;padding:5px 0;font-size:13px;color:var(--muted)}.kbox kbd{min-width:92px;font:600 11px var(--mono);color:var(--text);background:rgba(255,255,255,.07);border-radius:6px;padding:3px 7px;text-align:center}.kbox p{margin:10px 0 0;font-size:11.5px;color:var(--muted)}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 #tip{position:fixed;z-index:9999;max-width:240px;padding:6px 9px;border-radius:8px;background:#0b0b10;color:var(--text);font:500 11px/1.35 var(--sans,system-ui);box-shadow:inset 0 0 0 1px var(--line),0 8px 24px rgba(0,0,0,.6);pointer-events:none;opacity:0;transform:translateY(3px);transition:opacity .12s,transform .12s}#tip.on{opacity:1;transform:none}#tip b{font-family:var(--mono);color:#6ee7a0}
 .gp .gpct{display:block;font:700 9px var(--mono);color:var(--muted);margin-top:1px}.gp .gpct.hot{color:#fb923c}.gp .gpct.over{color:#f43f5e}
 .gp .mdot{cursor:pointer;transition:r .15s}.gp .mdot:hover{r:7}.gp .led{cursor:pointer}.gp .led:hover{filter:brightness(1.35)}
@@ -449,6 +448,19 @@ body.plain .compose .glow,body.plain .compose .sh,body.plain .compose .line,body
 body.plain .gcap,body.plain .grp,body.plain .gby,body.plain .ml,body.plain .cb,body.plain .tl2{text-transform:none;letter-spacing:0;font-family:var(--body)}
 body.plain .gcap{font-size:11px;font-weight:500}body.plain .gcap::first-letter{text-transform:uppercase}
 .dsw{display:flex;gap:2px;margin:6px 4px 0;padding:2px;border-radius:999px;background:rgba(255,255,255,.04);font:600 10px var(--body)}.dsw b{flex:1;text-align:center;padding:3px 0;border-radius:999px;color:var(--muted);cursor:pointer}.dsw b.on{background:#2a2a36;color:var(--text)}
+
+/* Cursors say what a click will do: text you can select shows the text cursor, things that act show a hand,
+   copy chips show copy, rows you can drag show grab, and buttons that are busy show not-allowed. */
+.msg,.bub{cursor:default}
+.msg .rich,.msg .rich *,.msg p,.orec,.oask,.qt{cursor:text}
+.msg .rich a,.msg .rich a *,.cpb,.chev,.msg .rich.long::after{cursor:pointer}
+[role="button"],[data-act],[data-opt],[data-pick],[data-gby],[data-qnow],[data-qdrop],[data-col],[data-pop],[data-prs],[data-mpick],[data-face],[data-setmode],[data-effort],[data-skill],.obtn,.tool,.btn,.send,.qnow,.qx,.mopt,.ml,.gby b,.grp{cursor:pointer}
+[data-ctext]{cursor:copy}
+.it[draggable="true"]{cursor:pointer}.it[draggable="true"]:active,body.dnd,body.dnd *{cursor:grabbing}
+button:disabled,.obtn.done,.gc.off,.gc.off *{cursor:not-allowed}
+.who,.who *,.msg time,.gcap,.prh,.pnote,.hstat{cursor:default}
+.who .chev,.who [data-col]{cursor:pointer}
+textarea,input[type="text"],input:not([type]),.rnm{cursor:text}
 </style></head><body><div id="tip" role="tooltip"></div>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>

@@ -87,7 +87,6 @@ h1 span{background:linear-gradient(90deg,var(--accent),#6ee7a0,#38bdf8,var(--acc
 @supports (animation-timeline:view()){section{animation:rise linear both;animation-timeline:view();animation-range:entry 0% entry 40%}}
 .steps>*,.limits li{transition:transform .25s,box-shadow .25s}.steps>*:hover{transform:translateY(-4px)}
 .copy,button{transition:transform .15s,filter .2s}.copy:hover,button:hover{filter:brightness(1.15)}.copy:active,button:active{transform:scale(.95)}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 
 .mac{margin:30px auto 0;max-width:1100px;border-radius:14px;overflow:hidden;background:#0b0b10;box-shadow:0 0 0 1px rgba(255,255,255,.1),0 40px 90px -30px rgba(34,197,94,.35),0 30px 60px -30px rgba(0,0,0,.8);animation:rise .9s .5s cubic-bezier(.2,.8,.2,1) both}
 .mbar{display:flex;align-items:center;gap:7px;padding:10px 14px;background:#16161d;border-bottom:1px solid rgba(255,255,255,.06)}.mbar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.mbar i:nth-child(2){background:#febc2e}.mbar i:nth-child(3){background:#28c840}.mbar span{flex:1;text-align:center;margin-right:50px;font:500 12px var(--body);color:rgba(236,236,241,.55)}
