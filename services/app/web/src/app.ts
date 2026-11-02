@@ -137,7 +137,7 @@ export function createApp(options: AppOptions = {}) {
 	// The live board demo: the real board page, answering its own API from made-up sessions (see scripts/demo.ts).
 	// It runs JavaScript, so it gets its own policy, and only this site may frame it.
 	const demoCsp =
-		"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+		"default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 	app.get("/demo", (c) => c.redirect("/demo/", 301));
 	app.get("/demo/", (c) => {
 		c.header("content-security-policy", demoCsp);
