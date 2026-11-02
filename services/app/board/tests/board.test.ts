@@ -209,6 +209,17 @@ describe("send", () => {
 		expect(checksOf([{ conclusion: "FAILURE" }, { status: "IN_PROGRESS" }])).toBe("fail");
 	});
 
+	it("names tools the way a person would", async () => {
+		const { toolLabel } = await import("../src/sessions");
+		expect(toolLabel("mcp__Claude_Browser__browser_batch")).toBe("Browser actions");
+		expect(toolLabel("mcp__Claude_Browser__computer", { action: "screenshot" })).toBe("Browser screenshot");
+		expect(toolLabel("mcp__claude-in-chrome__navigate")).toBe("Chrome open page");
+		expect(toolLabel("mcp__ccd_turn__wrap_up")).toBe("Wrap-up");
+		expect(toolLabel("mcp__toolradar__search_tools")).toBe("Toolradar search tools");
+		expect(toolLabel("Grep")).toBe("Search");
+		expect(toolLabel("Bash")).toBe("Bash");
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

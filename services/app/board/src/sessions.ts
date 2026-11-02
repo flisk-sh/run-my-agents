@@ -108,6 +108,38 @@ export function guessRole(title: string, files: string[]): string {
 	return "Code";
 }
 
+/** Short names for the agent's own tools; the rest keep their name. */
+const TOOL_NAMES: Record<string, string> = {
+	Grep: "Search", Glob: "Find files", WebFetch: "Fetch page", WebSearch: "Web search", Agent: "Subagent", Task: "Subagent",
+	TodoWrite: "Plan", AskUserQuestion: "Question", ToolSearch: "Load tools", NotebookEdit: "Edit notebook", exec_command: "Shell",
+};
+/** MCP servers by a short, readable name; an empty name means the tool's own label says enough. */
+const SERVERS: Record<string, string> = { Claude_Browser: "Browser", "claude-in-chrome": "Chrome", ccd_turn: "", ccd_session: "", ccd_view: "", visualize: "" };
+/** Readable labels for MCP tools, keyed by the tool's own name. */
+const MCP_NAMES: Record<string, string> = {
+	browser_batch: "actions", computer: "", navigate: "open page", javascript_tool: "run script", read_page: "read page", get_page_text: "read page",
+	find: "find", form_input: "fill form", preview_start: "start", resize_window: "resize", read_console_messages: "console", read_network_requests: "network",
+	tabs_context_mcp: "tabs", tabs_create_mcp: "new tab", file_upload: "upload", wrap_up: "Wrap-up", update_plan: "Plan", mark_chapter: "Chapter",
+	start_session: "New session", show_widget: "Widget", read_me: "Widget guide",
+};
+
+/**
+ * A tool call as a person would say it: `mcp__Claude_Browser__browser_batch` becomes "Browser actions",
+ * a browser `computer` call says what it did ("Browser screenshot"), and other MCP tools lose their prefix.
+ */
+export function toolLabel(name: string, input?: Record<string, unknown>): string {
+	const parts = name.split("__");
+	if (parts[0] !== "mcp" || parts.length < 3) return TOOL_NAMES[name] ?? name;
+	const server = parts[1];
+	const tool = parts.slice(2).join("__");
+	const human = (t: string) => t.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+	const short = server in SERVERS ? SERVERS[server] : human(server.replace(/^(claude|mcp)[-_]?/i, "")).replace(/^\w/, (ch) => ch.toUpperCase());
+	let what = MCP_NAMES[tool] ?? human(tool);
+	if (tool === "computer") what = human(String(input?.action ?? "action")).replace(/left click/, "click");
+	if (!short) return what.replace(/^\w/, (ch) => ch.toUpperCase());
+	return what ? `${short} ${what}` : short;
+}
+
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
@@ -208,7 +240,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 					optToolId = "";
 				}
 				const file = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
-				s.doing = file ? `${c.name} ${basename(file)}` : c.name.replace(/^mcp__[^_]+__/, "");
+				s.doing = file ? `${toolLabel(c.name, c.input)} ${basename(file)}` : toolLabel(c.name, c.input);
 				if (file && EDIT_TOOLS.has(c.name)) s.edits.push({ file, at });
 				if (c.name === "Bash") {
 					for (const m of String(c.input?.command ?? "").matchAll(/\bcd\s+("[^"]+"|'[^']+'|[~/][^\s;&|)]*)/g)) {
@@ -262,7 +294,7 @@ export function parseCodexSession(lines: string[], updatedAt: number): Session |
 			}
 		}
 		if (e.type === "response_item" && (p.type === "custom_tool_call" || p.type === "function_call")) {
-			s.doing = String(p.name ?? "tool");
+			s.doing = toolLabel(String(p.name ?? "tool"));
 			const last = s.feed[s.feed.length - 1];
 			if (last?.who === "agent" && last.tools.length < 6) last.tools.push(s.doing);
 		}
