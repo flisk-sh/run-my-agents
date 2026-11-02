@@ -34,6 +34,26 @@ export function skillsFor(role: string, n = 8): CatalogSkill[] {
 		.slice(0, n);
 }
 
+const STOP = new Set("the and for with from that this into your have what when where which about make need want please some more them they then than just also only very like does should would could write fix add page change update create build".split(" "));
+/**
+ * Catalog skills that fit an order's own words: a word in the skill's name counts 3, in its description 1. Only
+ * words of four letters or more count, and a skill needs 3 points, so a passing mention never pulls one in.
+ */
+export function matchSkills(title: string, n = 3): CatalogSkill[] {
+	const words = [...new Set(title.toLowerCase().match(/[a-z][a-z0-9+#.-]{3,}/g) ?? [])].filter((w) => !STOP.has(w));
+	if (!words.length) return [];
+	return SKILLS.map((s) => {
+		const name = s.name.toLowerCase();
+		const what = s.what.toLowerCase();
+		const score = words.reduce((a, w) => a + (name.includes(w) ? 3 : 0) + (new RegExp(`\\b${w.replace(/[.+#]/g, "\\$&")}`).test(what) ? 1 : 0), 0);
+		return { s, score };
+	})
+		.filter((x) => x.score >= 3)
+		.sort((a, b) => b.score - a.score || Number(b.s.source.startsWith("flisk-sh/")) - Number(a.s.source.startsWith("flisk-sh/")))
+		.slice(0, n)
+		.map((x) => x.s);
+}
+
 /** The process skill sets: what an agent loads for each stage of an order. */
 export const STAGE_SKILLS: Record<Stage, string[]> = {
 	inbox: [],

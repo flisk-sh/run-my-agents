@@ -62,12 +62,12 @@ describe("orders", () => {
 		const planner = session("p", "Planner", "plan things");
 		const coder = session("c", "Code", "code things");
 		const { post } = app([planner, coder], sent);
-		const t = (await post("/api/tasks", { title: "add search filters" })).body;
+		const t = (await post("/api/tasks", { title: "add search filters to the sessions list with saved views" })).body;
 		await Bun.sleep(5);
 		const d = await post("/api/tasks/dispatch", { id: t.id, session: "p" });
 		expect(d.status).toBe(202);
 		expect(d.body).toMatchObject({ stage: "spec", assignee: "p" });
-		expect(sent[0]).toContain("Order #1 (spec): add search filters");
+		expect(sent[0]).toContain("Order #1 (spec): add search filters to the sessions list with saved views");
 		// The spec waits at the pass until approved.
 		expect((await post("/api/tasks/serve", { id: t.id })).body.stage).toBe("spec");
 		await post("/api/tasks/move", { id: t.id, approved: true, stage: "build" });

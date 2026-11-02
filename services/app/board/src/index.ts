@@ -307,15 +307,15 @@ const MODELS = ["opus", "sonnet", "haiku"];
  * The kitchen's front desk: one short Claude call on Haiku at low effort that answers a question. It runs with no
  * session saved, no tools, no project settings and gives up after 90 seconds (about 6 s for a simple question).
  */
-const FRONT_DESK_PROMPT = "You are the front desk of a team of coding agents. Answer the user's question in one or two short sentences. If it needs code changes, say it should be sent as a task.";
+const FRONT_DESK_PROMPT = "You are the front desk of a team of coding agents. Answer the user's question in one or two short sentences. When you have web search, use it for anything that needs live information and name the source. If it needs code changes, say it should be sent as a task.";
 
-export function askHaiku(question: string, cwd: string, run = spawn): Promise<string> {
+export function askHaiku(question: string, cwd: string, run = spawn, web = false): Promise<string> {
 	return new Promise((resolveAsk, reject) => {
 		// A clean, light start: no project folder, settings, MCP servers or skills, and its own short system prompt,
 		// so it answers in seconds as the front desk instead of as whatever agent the folder describes.
-		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", "--tools", "", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] });
+		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] });
 		let out = "";
-		const timer = setTimeout(() => child.kill("SIGTERM"), 90_000);
+		const timer = setTimeout(() => child.kill("SIGTERM"), web ? 120_000 : 90_000);
 		child.stdout?.on("data", (d) => {
 			out += String(d);
 		});
@@ -352,7 +352,7 @@ const BUILD = Bun.hash(PAGE).toString(36);
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { fetch?: typeof fetch; ask?: (q: string, cwd: string) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
+	deps: { fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -368,6 +368,7 @@ export function createApp(
 	// A message from here starts a second copy of the session. If the Claude app is working in it right now, the
 	// two would run on the same conversation at once, so wait for it to settle.
 	const appBusy = (s: Session) => s.viaApp === true && !s.awaiting && Date.now() - s.updatedAt < 20_000;
+	let kick: (() => void) | undefined;
 	const sendNow = (s: Session, item: Queued) => {
 		if (appBusy(s)) return new Response(JSON.stringify({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }), { status: 409, headers: { "content-type": "application/json" } });
 		running.get(s.id)?.kill("SIGINT");
@@ -386,6 +387,8 @@ export function createApp(
 				sending.delete(s.id);
 				running.delete(s.id);
 				drain(s.id);
+				// The kitchen moves the order on as soon as the agent's quiet window has passed, not on the next tick.
+				if (kick) setTimeout(kick, 3_200).unref?.();
 			});
 		return new Response(JSON.stringify({ sent: true }), { status: 202, headers: { "content-type": "application/json" } });
 	};
@@ -692,7 +695,7 @@ export function createApp(
 		return c.json({ started: true, id }, 202);
 	});
 	// The kitchen: orders, scores, skill sets and agent containers. See src/kitchen/.
-	mountKitchen(app, {
+	const kitchen = mountKitchen(app, {
 		read,
 		send: (s, text, body) => sendNow(s, { qid: randomUUID(), text, body, dirs: [] }),
 		busy: (s) => sending.has(s.id) || appBusy(s),
@@ -706,13 +709,14 @@ export function createApp(
 		tune: (id, t) => setTune(id, t),
 		close: (id) => setHidden(id, true),
 		name: (id, label) => setName(id, label),
-		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd) => askHaiku(q, cwd) : undefined),
+		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd, o) => askHaiku(q, cwd, spawn, !!o?.web) : undefined),
 		guessRole: (title) => guessRole(title, []),
 		sameOrigin,
 		fetch: deps.fetch,
 		promptLimit: PROMPT_LIMIT,
 		every: deps.kitchenEvery ?? 0,
 	});
+	if (deps.kitchenEvery) kick = () => kitchen.tick();
 	app.get("/", (c) => c.html(PAGE));
 	return app;
 }

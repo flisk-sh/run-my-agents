@@ -74,7 +74,7 @@ describe("agent containers", () => {
 		const sessions: Session[] = [];
 		const { post, started } = setup(sessions);
 		const box = (await make(post)).body;
-		expect(box).toMatchObject({ slug: "builders", model: "haiku", effort: "low" });
+		expect(box).toMatchObject({ slug: "builders", model: "", effort: "" });
 		await post("/api/containers/reconcile", {});
 		expect(started).toHaveLength(2);
 		expect(started[0].text).toContain("/rma-lessons-builders");
@@ -292,5 +292,60 @@ describe("Zachman intake triage", () => {
 		expect(r).toMatchObject({ kind: "question", stage: "done", answer: "4", failed: false, stuck: false, rounds: 0, requeued: 1 });
 		order({ title: "fix the login redirect", stage: "build" });
 		expect((await post("/api/tasks/requeue", { id: "t" })).status).toBe(400);
+	});
+});
+
+describe("fast lane", () => {
+	it("sends small tasks build → test → served and keeps big ones in the full kitchen", async () => {
+		const { laneOf } = await import("../src/kitchen/triage");
+		for (const f of ["fix the typo in the README", "bump hono to 4.6", "rename the Crew tab", "fix login redirect"]) expect(laneOf(f)).toBe("fast");
+		for (const b of ["refactor the store into modules", "add search filters to the sessions list with saved views", "migrate the database schema"]) expect(laneOf(b)).toBe("full");
+		const { nextStage } = await import("../src/kitchen/pipeline");
+		const base = { id: "a", n: 1, title: "x", cwd: "", priority: "P1" as const, assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 };
+		expect(nextStage({ ...base, stage: "test", lane: "fast" })).toBe("done");
+		expect(nextStage({ ...base, stage: "test" })).toBe("review");
+	});
+
+	it("dispatches a fast-lane task straight to build on haiku, with no spec", async () => {
+		const sessions: Session[] = [];
+		const { post, sent, started } = setup(sessions);
+		const t = (await post("/api/tasks", { title: "fix the typo in the README", cwd: "/repo" })).body;
+		expect(t).toMatchObject({ kind: "task", lane: "fast" });
+		expect(t.zachman.how).toContain("fast lane: build → test");
+		await post("/api/containers", { name: "Cooks", role: "Code", stages: ["spec", "build", "test", "review"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		sessions.push({ ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
+		await Bun.sleep(30);
+		const r = (await post("/api/tasks/dispatch", { id: t.id })).body;
+		expect(r).toMatchObject({ stage: "build", approved: true, model: "haiku", effort: "low" });
+		expect(sent.at(-1)).toContain("Order #1 (build)");
+	});
+});
+
+describe("skills and tools that fit the order", () => {
+	it("matches catalog skills to an order's own words", async () => {
+		const { matchSkills } = await import("../src/kitchen/skills");
+		expect(matchSkills("Write playwright e2e tests for the login page").map((s) => s.name)).toContain("playwright-expert");
+		expect(matchSkills("add stripe checkout to the shop").map((s) => s.name)[0]).toContain("stripe");
+		expect(matchSkills("whats the weather in Australia")).toEqual([]);
+		const { post } = setup([]);
+		const t = (await post("/api/tasks", { title: "add stripe checkout to the shop with a saved card flow", cwd: "/repo" })).body;
+		expect(t.skills.some((n: string) => n.includes("stripe"))).toBe(true);
+		expect(t.skills.length).toBeLessThanOrEqual(4);
+	});
+
+	it("gives the front desk web search for questions that need live information", async () => {
+		const { needsWeb } = await import("../src/kitchen/triage");
+		expect(needsWeb("whats the weather in Australia?")).toBe(true);
+		expect(needsWeb("what is the latest bun version?")).toBe(true);
+		expect(needsWeb("how are you")).toBe(false);
+		const asked: { q: string; web?: boolean }[] = [];
+		const app = createApp(() => [], async () => {}, { ask: async (q, _c, o) => (asked.push({ q, web: o?.web }), "Sunny, 24°C.") });
+		const post = (b: object) => app.request("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+		await post({ title: "whats the weather in Australia?", cwd: "/repo" });
+		await post({ title: "how are you", cwd: "/repo" });
+		await Bun.sleep(5);
+		expect(asked).toEqual([{ q: "whats the weather in Australia?", web: true }, { q: "how are you", web: false }]);
 	});
 });

@@ -2,7 +2,7 @@
 // time. Kept in tasks.json next to the board's other prefs.
 import { randomUUID } from "node:crypto";
 import { JsonStore } from "./store";
-import type { Kind, Zachman } from "./triage";
+import type { Kind, Lane, Zachman } from "./triage";
 
 export const STAGES = ["inbox", "spec", "build", "test", "review", "done"] as const;
 export type Stage = (typeof STAGES)[number];
@@ -51,6 +51,8 @@ export type Task = {
 	stageAt?: number;
 	/** Intake triage: a question is answered in one step; a task goes through the kitchen. */
 	kind?: Kind;
+	/** Fast lane: build → test → served, no spec, pass or review. */
+	lane?: Lane;
 	zachman?: Zachman;
 	/** The reply that answered a question. */
 	answer?: string;
@@ -64,7 +66,7 @@ const store = new JsonStore<Task>("tasks.json");
 export const readTasks = () => store.read();
 const write = (all: Task[]) => store.write(all);
 
-export function addTask(t: { title: string; cwd?: string; priority?: string; skills?: string[]; route?: string; kind?: Kind; zachman?: Zachman }): Task {
+export function addTask(t: { title: string; cwd?: string; priority?: string; skills?: string[]; route?: string; kind?: Kind; lane?: Lane; zachman?: Zachman }): Task {
 	const all = readTasks();
 	const task: Task = {
 		id: randomUUID(),
@@ -79,6 +81,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 		skills: t.skills ?? [],
 		route: t.route ?? "Code",
 		...(t.kind ? { kind: t.kind } : {}),
+		...(t.lane ? { lane: t.lane } : {}),
 		...(t.zachman ? { zachman: t.zachman } : {}),
 		rounds: 0,
 		stuck: false,
@@ -89,7 +92,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
@@ -109,6 +112,7 @@ export function removeTask(id: string): boolean {
 
 /** The next stage, or the same one when the pass is waiting for your OK. */
 export function nextStage(t: Task): Stage {
+	if (t.lane === "fast" && t.stage === "test") return "done";
 	if (t.stage === "spec" && !t.approved) return "spec";
 	return STAGES[Math.min(STAGES.indexOf(t.stage) + 1, STAGES.length - 1)];
 }

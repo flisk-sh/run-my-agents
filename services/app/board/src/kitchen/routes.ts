@@ -7,8 +7,8 @@ import { createContainer, type Container, patchContainer, podOf, readContainers,
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
-import { kindOf, quickMath, zachman, zachmanLines } from "./triage";
-import { haikuFit, lessonsSkill, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
+import { kindOf, laneOf, needsWeb, quickMath, zachman, zachmanLines } from "./triage";
+import { haikuFit, lessonsSkill, matchSkills, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
 export type KitchenCtx = {
 	read: () => Session[];
@@ -19,7 +19,7 @@ export type KitchenCtx = {
 	tune: (id: string, t: { model?: string; effort?: string }) => void;
 	close: (id: string) => void;
 	/** The front desk: one short model call that answers a question, with no tools and no session. */
-	ask?: (question: string, cwd: string) => Promise<string>;
+	ask?: (question: string, cwd: string, opts?: { web?: boolean }) => Promise<string>;
 	/** Names a session on the board (container agents get their container's name). */
 	name?: (id: string, label: string) => void;
 	guessRole: (title: string) => string;
@@ -35,6 +35,13 @@ const lastSaid = (s: Session | undefined) => {
 	const m = s?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
 	return String(m?.text ?? "").slice(-400);
 };
+
+/**
+ * The ingredients of a task: catalog skills that fit its own words first, then the top skills of the agent type
+ * it is routed to, then the planner's first skill. Four at most; all are installed before an agent gets it.
+ */
+const orderSkills = (title: string, route: string) =>
+	[...new Set([...matchSkills(title, 3).map((s) => s.name), ...skillsFor(route, 2).map((s) => s.name), STAGE_SKILLS.spec[0]])].slice(0, 4);
 
 const SETTINGS = new JsonStore<{ auto: boolean }>("kitchen.json");
 const settings = () => SETTINGS.read()[0] ?? { auto: true };
@@ -78,10 +85,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
 		const all = k.read();
 		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
-		const key = order.stage === "inbox" ? "spec" : order.stage;
+		const key = order.stage === "inbox" ? (order.lane === "fast" ? "build" : "spec") : order.stage;
 		const boxes = readContainers().filter((x) => order.kind === "question" || x.stages.includes(key));
 		const pod = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
-		const stage = order.stage === "inbox" ? "spec" : order.stage;
+		const stage = order.stage === "inbox" ? (order.lane === "fast" ? "build" : "spec") : order.stage;
 		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
 		if (podsOnly) {
 			if (pod) return { session: pod, why: "" };
@@ -112,7 +119,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		}
 		if (!k.ask) return;
 		updateTask(t.id, { assignee: FRONT_DESK, sentAt: now, startedAt: now });
-		k.ask(t.title, t.cwd)
+		k.ask(t.title, t.cwd, { web: needsWeb(t.title) })
 			.then((answer) => updateTask(t.id, { stage: "done", answer: answer.trim() || "(no answer)", servedAt: Date.now(), assignee: "", sentAt: 0 }))
 			.catch(() => updateTask(t.id, { assignee: "", sentAt: 0 }));
 	}
@@ -145,9 +152,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const route = k.guessRole(title);
 		// Zachman triage: a question needs no skills and skips the kitchen; a task gets its ingredients and a card.
 		const kind = kindOf(title);
-		const skills = kind === "question" ? [] : [...new Set([...STAGE_SKILLS.spec.slice(0, 1), ...skillsFor(route, 2).map((s) => s.name)])];
-		const card = zachman({ title, cwd: b.cwd ?? "", priority: b.priority ?? "P1", route, skills, kind });
-		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route, kind, zachman: card });
+		const skills = kind === "question" ? [] : orderSkills(title, route);
+		const lane = kind === "task" ? laneOf(title) : undefined;
+		const card = zachman({ title, cwd: b.cwd ?? "", priority: b.priority ?? "P1", route, skills, kind, lane });
+		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route, kind, lane, zachman: card });
 		frontDesk(t);
 		stock(skills, k.fetch);
 		return c.json(t, 201);
@@ -178,12 +186,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.stage !== "done" && !t.stuck) return c.json({ error: `#${t.n} is still in the kitchen.` }, 400);
 		const route = k.guessRole(t.title);
 		const kind = kindOf(t.title);
-		const skills = kind === "question" ? [] : [...new Set([...STAGE_SKILLS.spec.slice(0, 1), ...skillsFor(route, 2).map((s) => s.name)])];
+		const skills = kind === "question" ? [] : orderSkills(t.title, route);
 		stock(skills, k.fetch);
 		updateTask(t.id, {
 			stage: "inbox", assignee: "", sentAt: 0, approved: false, atPass: false, stuck: false, failed: false, rounds: 0,
 			missedBy: [], answer: undefined, servedAt: undefined, startedAt: undefined, crew: {}, route, kind, skills,
-			zachman: zachman({ title: t.title, cwd: t.cwd, priority: t.priority, route, skills, kind }),
+			lane: kind === "task" ? laneOf(t.title) : undefined,
+			zachman: zachman({ title: t.title, cwd: t.cwd, priority: t.priority, route, skills, kind, lane: kind === "task" ? laneOf(t.title) : undefined }),
 			requeued: (t.requeued ?? 0) + 1,
 		});
 		const back = readTasks().find((x) => x.id === t.id);
@@ -216,7 +225,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		if (t.stage === "done") return { status: 400, body: { error: "That order is already served." } };
 		if (t.atPass) return { status: 409, body: { error: `#${t.n} waits at the pass for your approval.` } };
-		if (t.stage === "inbox" && t.kind !== "question") t = updateTask(t.id, { stage: "spec" }) ?? t;
+		if (t.stage === "inbox" && t.kind !== "question") t = updateTask(t.id, t.lane === "fast" ? { stage: "build", approved: true } : { stage: "spec" }) ?? t;
 		if (t.stuck) return { status: 409, body: { error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` } };
 		// Never hand the same step to two agents: the first one still has it.
 		if (t.assignee && t.assignee !== session) return { status: 409, body: { error: `#${t.n} is already with ${k.read().find((x) => x.id === t.assignee)?.role ?? "an agent"}.` } };
@@ -398,7 +407,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!b.cwd) return c.json({ error: "Pick the folder its agents work in." }, 400);
 		if (b.model && !["haiku", "sonnet", "opus"].includes(b.model)) return c.json({ error: "Pick haiku, sonnet or opus." }, 400);
 		const skills = (b.skills ?? []).filter((n) => SKILLS.some((s) => s.name === n));
-		const box = createContainer({ ...b, name, role: b.role || STAGE_ROLES[stages[0]][0], stages, cwd: b.cwd, skills, model: b.model ?? policyFor(stages[0]).model, effort: b.effort ?? policyFor(stages[0]).effort });
+		const box = createContainer({ ...b, name, role: b.role || STAGE_ROLES[stages[0]][0], stages, cwd: b.cwd, skills, model: b.model ?? "", effort: b.effort ?? "" });
 		stock([...skills, ...stages.flatMap((s) => STAGE_SKILLS[s])], k.fetch);
 		return c.json(view(box), 201);
 	});

@@ -4,6 +4,7 @@
 // and the same order is always sorted the same way.
 
 export type Kind = "question" | "task";
+export type Lane = "fast" | "full";
 export type Zachman = { what: string; how: string; where: string; who: string; when: string; why: string };
 
 /** Words that ask for work on code or files. An order with one is a task even when it ends with "?". */
@@ -32,14 +33,14 @@ function reason(title: string): string {
 const PRIORITY_WHEN: Record<string, string> = { P0: "Now, before anything else", P1: "Next in line", P2: "When the belt is free" };
 
 /** Fills the Zachman card for an order from its words and where it runs. */
-export function zachman(o: { title: string; cwd: string; priority: string; route: string; skills: string[]; kind: Kind }): Zachman {
+export function zachman(o: { title: string; cwd: string; priority: string; route: string; skills: string[]; kind: Kind; lane?: Lane }): Zachman {
 	const folder = o.cwd ? o.cwd.split("/").filter(Boolean).pop() ?? o.cwd : "any folder";
 	const what = o.title.replace(/\b(?:so that|so|because|in order to)\b.+$/i, "").trim() || o.title;
 	if (o.kind === "question")
 		return { what: "An answer", how: "One short reply, no code", where: folder, who: "Front desk (any idle agent)", when: PRIORITY_WHEN[o.priority] ?? "Next in line", why: reason(o.title) || "You asked" };
 	return {
 		what,
-		how: `spec → build → test → review${o.skills.length ? `, with /${o.skills.slice(0, 3).join(", /")}` : ""}`,
+		how: `${o.lane === "fast" ? "fast lane: build → test" : "spec → build → test → review"}${o.skills.length ? `, with /${o.skills.slice(0, 3).join(", /")}` : ""}`,
 		where: folder,
 		who: `${o.route} agent (orchestrator plans on Opus, workers build on Haiku)`,
 		when: PRIORITY_WHEN[o.priority] ?? "Next in line",
@@ -74,3 +75,22 @@ export function quickMath(title: string): string | undefined {
 		return undefined;
 	}
 }
+
+/** Small, clear changes that need no plan and no separate review. */
+const SMALL = /\b(typo|rename|bump|spelling|comment|wording|lint|format|copy ?edit|update the (?:readme|docs?|version)|fix the (?:link|import|path))\b/i;
+const BIG = /\b(refactor|migrate|architecture|redesign|rewrite|new (?:service|feature|page|app)|integrate|auth|database|schema)\b/i;
+
+/**
+ * The fast lane: a short, clear task skips the spec step (and the pass) and the separate review, so it goes
+ * build → test → served. Anything big or long keeps the full kitchen.
+ */
+export function laneOf(title: string): Lane {
+	const words = title.trim().split(/\s+/).length;
+	if (BIG.test(title)) return "full";
+	if (SMALL.test(title) && words <= 14) return "fast";
+	return words <= 6 ? "fast" : "full";
+}
+
+/** Questions that need live information, so the front desk gets web search for them. */
+const LIVE = /\b(weather|forecast|temperature|news|today|tonight|tomorrow|yesterday|latest|current(?:ly)?|right now|this (?:week|month|year)|price|cost|stock|exchange rate|score|who won|release(?:d)? date|open now|traffic|time in)\b/i;
+export const needsWeb = (title: string) => LIVE.test(title);
