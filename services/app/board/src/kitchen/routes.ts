@@ -7,7 +7,7 @@ import { createContainer, type Container, patchContainer, podOf, readContainers,
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
-import { kindOf, zachman, zachmanLines } from "./triage";
+import { kindOf, quickMath, zachman, zachmanLines } from "./triage";
 import { haikuFit, lessonsSkill, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
 export type KitchenCtx = {
@@ -18,6 +18,8 @@ export type KitchenCtx = {
 	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string }) => void;
 	tune: (id: string, t: { model?: string; effort?: string }) => void;
 	close: (id: string) => void;
+	/** The front desk: one short model call that answers a question, with no tools and no session. */
+	ask?: (question: string, cwd: string) => Promise<string>;
 	/** Names a session on the board (container agents get their container's name). */
 	name?: (id: string, label: string) => void;
 	guessRole: (title: string) => string;
@@ -38,6 +40,8 @@ const SETTINGS = new JsonStore<{ auto: boolean }>("kitchen.json");
 const settings = () => SETTINGS.read()[0] ?? { auto: true };
 /** The most agents the autoscaler runs per folder. */
 export const MAX_AGENTS = 3;
+/** The assignee of a question the front desk is answering. */
+export const FRONT_DESK = "front-desk";
 const saveSettings = (v: { auto: boolean }) => SETTINGS.write([v]);
 
 export function mountKitchen(app: Hono, k: KitchenCtx) {
@@ -94,6 +98,25 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		return { why };
 	}
 
+	/**
+	 * The front desk answers a question without the kitchen: arithmetic at once, anything else with one short
+	 * Haiku call. If the call fails, the question goes on the belt for a container agent as before.
+	 */
+	function frontDesk(t: Task) {
+		if (t.kind !== "question") return;
+		const now = Date.now();
+		const math = quickMath(t.title);
+		if (math !== undefined) {
+			updateTask(t.id, { stage: "done", answer: math, startedAt: now, servedAt: now, assignee: "", sentAt: 0 });
+			return;
+		}
+		if (!k.ask) return;
+		updateTask(t.id, { assignee: FRONT_DESK, sentAt: now, startedAt: now });
+		k.ask(t.title, t.cwd)
+			.then((answer) => updateTask(t.id, { stage: "done", answer: answer.trim() || "(no answer)", servedAt: Date.now(), assignee: "", sentAt: 0 }))
+			.catch(() => updateTask(t.id, { assignee: "", sentAt: 0 }));
+	}
+
 	// ---------- orders ----------
 	app.get("/api/scores", (c) => {
 		const strikes: Record<string, number> = {};
@@ -125,6 +148,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const skills = kind === "question" ? [] : [...new Set([...STAGE_SKILLS.spec.slice(0, 1), ...skillsFor(route, 2).map((s) => s.name)])];
 		const card = zachman({ title, cwd: b.cwd ?? "", priority: b.priority ?? "P1", route, skills, kind });
 		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route, kind, zachman: card });
+		frontDesk(t);
 		stock(skills, k.fetch);
 		return c.json(t, 201);
 	});
@@ -140,6 +164,31 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			...(b.priority ? { priority: b.priority as Task["priority"] } : {}),
 		});
 		return t ? c.json(t) : c.json({ error: "That order is gone." }, 404);
+	});
+	/**
+	 * Requeue: a served or failed order goes back to the inbox as new, sorted again by triage, with its fails,
+	 * answer and agents cleared. Lead time keeps counting from when you first ordered it.
+	 */
+	app.post("/api/tasks/requeue", async (c) => {
+		const no = guard(c);
+		if (no) return no;
+		const { id } = await body<{ id?: string }>(c);
+		const t = readTasks().find((x) => x.id === id);
+		if (!t) return c.json({ error: "That order is gone." }, 404);
+		if (t.stage !== "done" && !t.stuck) return c.json({ error: `#${t.n} is still in the kitchen.` }, 400);
+		const route = k.guessRole(t.title);
+		const kind = kindOf(t.title);
+		const skills = kind === "question" ? [] : [...new Set([...STAGE_SKILLS.spec.slice(0, 1), ...skillsFor(route, 2).map((s) => s.name)])];
+		stock(skills, k.fetch);
+		updateTask(t.id, {
+			stage: "inbox", assignee: "", sentAt: 0, approved: false, atPass: false, stuck: false, failed: false, rounds: 0,
+			missedBy: [], answer: undefined, servedAt: undefined, startedAt: undefined, crew: {}, route, kind, skills,
+			zachman: zachman({ title: t.title, cwd: t.cwd, priority: t.priority, route, skills, kind }),
+			requeued: (t.requeued ?? 0) + 1,
+		});
+		const back = readTasks().find((x) => x.id === t.id);
+		if (back) frontDesk(back);
+		return c.json(readTasks().find((x) => x.id === t.id));
 	});
 	app.post("/api/tasks/drop", async (c) => {
 		const no = guard(c);
@@ -224,7 +273,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	}
 
 	/** An agent finished its step when it went quiet after the order was sent. */
-	const finished = (t: Task, s: Session | undefined, now: number) => !!s && t.sentAt > 0 && !k.busy(s) && s.updatedAt > t.sentAt + 3_000 && now - s.updatedAt > 8_000;
+	const finished = (t: Task, s: Session | undefined, now: number) => !!s && t.sentAt > 0 && !k.busy(s) && s.updatedAt > t.sentAt + 1_000 && now - s.updatedAt > 3_000;
 	const verdictOf = (s: Session | undefined) => {
 		const said = lastSaid(s);
 		return /\bFAIL\b/.test(said) ? false : /\bPASS\b/.test(said) ? true : undefined;

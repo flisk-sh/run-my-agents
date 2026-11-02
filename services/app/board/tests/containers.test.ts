@@ -251,26 +251,46 @@ describe("Zachman intake triage", () => {
 		expect(z.how).toContain("spec → build → test → review");
 	});
 
-	it("answers a question in one step on haiku and serves it with the answer", async () => {
-		const sessions: Session[] = [];
-		const { post, sent, started } = setup(sessions);
+	it("answers arithmetic at once, with no agent", async () => {
+		const { quickMath } = await import("../src/kitchen/triage");
+		expect(["2+2 =?", "2 + 2 = ?", "(3+4)*2", "10/4", "2^10", "7 x 6?"].map(quickMath)).toEqual(["4", "4", "14", "2.5", "1024", "42"]);
+		for (const no of ["how are you", "2", "rm -rf /", "1+alert(1)", "Math.max(1,2)"]) expect(quickMath(no)).toBeUndefined();
+		const { post, sent } = setup([]);
 		const q = (await post("/api/tasks", { title: "2+2 =?", cwd: "/repo" })).body;
-		expect(q).toMatchObject({ kind: "question", skills: [], stage: "inbox" });
-		// Autopilot makes a container for the folder; its agent answers.
-		await post("/api/kitchen", { auto: true });
-		await post("/api/containers/reconcile", {});
-		const cook = { ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 };
-		sessions.push(cook);
-		await post("/api/containers/reconcile", {});
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 sent");
-		expect(sent.at(-1)).toContain("Question #1 from the board: 2+2 =?");
+		expect(q).toMatchObject({ kind: "question", skills: [] });
 		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
-		expect(t).toMatchObject({ stage: "inbox", assignee: cook.id });
-		// It replies and goes quiet: served with its answer, no spec, build, test or review.
-		cook.feed = [...cook.feed, { who: "agent", text: "4", at: Date.now() - 20_000 } as never];
-		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, sentAt: Date.now() - 60_000 }]));
-		cook.updatedAt = Date.now() - 20_000;
-		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 inbox done");
-		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "done", answer: "4" });
+		expect(t).toMatchObject({ stage: "done", answer: "4" });
+		expect(t.servedAt - t.created).toBeLessThan(1000);
+		expect(sent).toEqual([]);
+	});
+
+	it("sends other questions to the front desk, and to the belt if it fails", async () => {
+		const asked: string[] = [];
+		let fail = false;
+		const app = createApp(() => [], async () => {}, {
+			ask: async (q) => {
+				asked.push(q);
+				if (fail) throw new Error("down");
+				return "Doing well, thanks.";
+			},
+		});
+		const post = async (path: string, b: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+		await post("/api/tasks", { title: "how are you", cwd: "/repo" });
+		await Bun.sleep(5);
+		expect(asked).toEqual(["how are you"]);
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "done", answer: "Doing well, thanks." });
+		fail = true;
+		await post("/api/tasks", { title: "are you stuck?", cwd: "/repo" });
+		await Bun.sleep(5);
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[1]).toMatchObject({ stage: "inbox", assignee: "" });
+	});
+
+	it("requeues a failed order as new, sorted again by triage", async () => {
+		const { post } = setup([]);
+		order({ title: "2+2 =?", stage: "done", failed: true, stuck: true, rounds: 3, answer: "nope", crew: { build: { id: "x", role: "Code", name: "x" } } });
+		const r = (await post("/api/tasks/requeue", { id: "t" })).body;
+		expect(r).toMatchObject({ kind: "question", stage: "done", answer: "4", failed: false, stuck: false, rounds: 0, requeued: 1 });
+		order({ title: "fix the login redirect", stage: "build" });
+		expect((await post("/api/tasks/requeue", { id: "t" })).status).toBe(400);
 	});
 });

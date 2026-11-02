@@ -303,6 +303,31 @@ export interface NewSession {
 const MODELS = ["opus", "sonnet", "haiku"];
 
 /** Starts a new headless session in a folder; the prompt goes on stdin (a temp file for Grok). Its transcript is read like any other. */
+/**
+ * The kitchen's front desk: one short Claude call on Haiku at low effort that answers a question. It runs with no
+ * session saved and no tools allowed, and gives up after 90 seconds.
+ */
+export function askHaiku(question: string, cwd: string, run = spawn): Promise<string> {
+	return new Promise((resolveAsk, reject) => {
+		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", "--tools", ""], { cwd: cwd || homedir(), stdio: ["pipe", "pipe", "ignore"] });
+		let out = "";
+		const timer = setTimeout(() => child.kill("SIGTERM"), 90_000);
+		child.stdout?.on("data", (d) => {
+			out += String(d);
+		});
+		child.on("error", (e) => {
+			clearTimeout(timer);
+			reject(e);
+		});
+		child.on("close", (code) => {
+			clearTimeout(timer);
+			if (code === 0 && out.trim()) resolveAsk(out.trim().slice(0, 4000));
+			else reject(new Error(`front desk exited with ${code}`));
+		});
+		child.stdin?.end(`Answer this question from a user in one short reply, no code changes:\n\n${question}`);
+	});
+}
+
 export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 	if (n.agent === "grok") return runGrok(["--cwd", n.cwd, "--session-id", n.id as string, "--output-format", "json", "--permission-mode", "acceptEdits"], n.text, n.cwd, run);
 	const [cmd, args] =
@@ -323,7 +348,7 @@ const BUILD = Bun.hash(PAGE).toString(36);
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { fetch?: typeof fetch; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
+	deps: { fetch?: typeof fetch; ask?: (q: string, cwd: string) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -677,6 +702,7 @@ export function createApp(
 		tune: (id, t) => setTune(id, t),
 		close: (id) => setHidden(id, true),
 		name: (id, label) => setName(id, label),
+		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd) => askHaiku(q, cwd) : undefined),
 		guessRole: (title) => guessRole(title, []),
 		sameOrigin,
 		fetch: deps.fetch,
@@ -689,6 +715,6 @@ export function createApp(
 
 if (import.meta.main) {
 	const port = Number(process.env.PORT || 4100);
-	Bun.serve({ port, hostname: "127.0.0.1", fetch: createApp(undefined, undefined, { kitchenEvery: 15_000 }).fetch });
+	Bun.serve({ port, hostname: "127.0.0.1", fetch: createApp(undefined, undefined, { kitchenEvery: 3_000 }).fetch });
 	console.log(`Run My Agents board on http://localhost:${port}`);
 }

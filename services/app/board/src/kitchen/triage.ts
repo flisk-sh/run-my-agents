@@ -50,3 +50,27 @@ export function zachman(o: { title: string; cwd: string; priority: string; route
 /** The card as a few lines for an agent's instructions. */
 export const zachmanLines = (z: Zachman) =>
 	`Zachman card:\n- What: ${z.what}\n- How: ${z.how}\n- Where: ${z.where}\n- Who: ${z.who}\n- When: ${z.when}\n- Why: ${z.why}`;
+
+/**
+ * Answers plain arithmetic on the spot ("2+2 =?" is 4), so it never waits for an agent. Only digits, operators,
+ * dots and brackets reach the evaluator, so nothing else can run.
+ */
+export function quickMath(title: string): string | undefined {
+	const expr = title
+		.trim()
+		.replace(/\s*=\s*\??\s*$/, "")
+		.replace(/\?+\s*$/, "")
+		.replace(/[x×]/gi, "*")
+		.replace(/÷/g, "/")
+		.replace(/\^/g, "**")
+		.replace(/,/g, ".")
+		.trim();
+	if (!expr || !/^[\d\s+\-*/().%]+$/.test(expr) || !/\d/.test(expr) || !/[+\-*/%]/.test(expr)) return undefined;
+	try {
+		const v = Function(`"use strict"; return (${expr});`)() as unknown;
+		if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+		return String(Number.isInteger(v) ? v : Number(v.toPrecision(12)));
+	} catch {
+		return undefined;
+	}
+}
