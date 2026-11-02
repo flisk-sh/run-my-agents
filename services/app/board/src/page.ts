@@ -371,6 +371,19 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 
 .prc{display:inline-flex;align-items:center;gap:3px;font:600 10px var(--mono);border-radius:var(--r-chip);padding:1px 6px;cursor:pointer;color:#6ee7a0;background:rgba(34,197,94,.14)}.prc svg{width:10px;height:10px}.prc em{font-style:normal;opacity:.7}.prc.draft{color:#a1a1aa;background:rgba(161,161,170,.14)}.prc.merged{color:#c4b5fd;background:rgba(167,139,250,.16)}.prc.closed{color:#fca5a5;background:rgba(248,113,113,.14)}
 .ck{width:6px;height:6px;border-radius:50%;display:inline-block;margin-left:2px}.ck.pass{background:#22c55e}.ck.fail{background:#ef4444}.ck.pending{background:#f59e0b;animation:thp2 1.4s ease-in-out infinite}@keyframes thp2{50%{opacity:.35}}
+
+/* Model picker: readable, centred, each model in its own colour. */
+.mpop{width:272px;padding:10px 10px 12px}
+.mpop .mls{gap:6px;margin-top:6px}
+.mpop .ml{flex:1;font:600 10.5px var(--mono);letter-spacing:.05em;padding:8px 0;text-align:center;border-radius:10px;color:var(--c);background:color-mix(in srgb,var(--c) 9%,#14141c);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 18%,transparent);animation:none}
+.mpop .ml:hover{background:color-mix(in srgb,var(--c) 18%,#14141c);transform:translateY(-2px)}
+.mpop .ml.on{color:#06060a;background:var(--c);box-shadow:0 0 0 1px var(--c),0 6px 18px -6px var(--c)}
+.mpop .mnote{margin-top:9px;font-size:11px;line-height:1.45}
+/* Effort bars keep their colours: faint when off, lit when on. AUTO only shows as a reset once a level is set. */
+.gp .led{background:color-mix(in srgb,var(--c) 24%,#1f1f29)}
+.gp.live .led.on{background:var(--c);box-shadow:0 0 10px -2px var(--c)}
+.gp .autob{display:none}
+.gp .gc:has(.led.on) .autob{display:inline-block}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
