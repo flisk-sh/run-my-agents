@@ -82,7 +82,7 @@ describe("orders", () => {
 		expect((await post("/api/tasks/dispatch", { id: "t" })).body).toMatchObject({ assignee: "c", model: "opus", effort: "medium" });
 		writeFileSync(join(process.env.RUN_MY_AGENTS_DIR as string, "tasks.json"), JSON.stringify([{ id: "t", n: 1, title: "x", cwd: "", priority: "P1", stage: "inbox", assignee: "", sentAt: 0, approved: false, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }, { id: "u", n: 2, title: "y", cwd: "", priority: "P1", stage: "build", assignee: "c", sentAt: 1, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
 		const list = await (await a.request("/api/tasks")).json();
-		expect(list.tasks.find((t: { id: string }) => t.id === "t").why).toContain("Every agent is busy");
+		expect(list.tasks.find((t: { id: string }) => t.id === "t").why).toContain("No agent container cooks spec");
 		expect((await app([]).a.request("/api/tasks")).status).toBe(200);
 		writeFileSync(join(process.env.RUN_MY_AGENTS_DIR as string, "tasks.json"), JSON.stringify([{ id: "t", n: 1, title: "x", cwd: "", priority: "P1", stage: "build", assignee: "", sentAt: 0, approved: true, skills: ["not-in-catalog"], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
 		expect((await post("/api/tasks/dispatch", { id: "t" })).status).toBe(409);

@@ -65,7 +65,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * Who should cook an order's next step: a free pod of a container that cooks the stage, else an idle agent of a
 	 * type that fits, else any idle agent (the model policy still applies). Says why when nobody is free.
 	 */
-	function pick(order: Task): { session?: Session; why: string } {
+	function pick(order: Task, podsOnly = false): { session?: Session; why: string } {
 		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
 		const all = k.read();
 		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
@@ -73,6 +73,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const pod = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
 		const stage = order.stage === "inbox" ? "spec" : order.stage;
 		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
+		if (podsOnly) {
+			if (pod) return { session: pod, why: "" };
+			return { why: boxes.length ? "Its container agents are busy. It goes to the first one that finishes." : `No agent container cooks ${order.stage === "inbox" ? "spec" : order.stage}. Add one on the Crew tab, or press Dispatch to use one of your chats.` };
+		}
 		const session = pod ?? fits.map((r) => all.find((x) => x.role === r && free(x))).find(Boolean) ?? all.find(free);
 		if (session) return { session, why: "" };
 		const open = all.filter((x) => !x.hidden);
@@ -93,7 +97,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			tasks: beltOrder(readTasks()).map((t) => ({
 				...t,
 				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
-				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? "Waiting at the pass for your approval." : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t).why,
+				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? "Waiting at the pass for your approval." : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t, settings().auto).why,
 			})),
 		}),
 	);
@@ -146,7 +150,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * Hands an order to an agent: the session you pick, else a free pod of a container that cooks this stage, else
 	 * an idle agent (see pick). The step runs on the model policy (the container's own model if it set one).
 	 */
-	function dispatch(id: string, session?: string): Out {
+	function dispatch(id: string, session?: string, podsOnly = false): Out {
 		let t = readTasks().find((x) => x.id === id);
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		if (t.stage === "done") return { status: 400, body: { error: "That order is already served." } };
@@ -158,8 +162,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			return { status: 409, body: { error: "Its skills are still installing." } };
 		}
 		const order = t;
-		const s = session ? k.read().find((x) => x.id === session) : pick(order).session;
-		if (!s) return { status: 409, body: { error: pick(order).why } };
+		const chosen = session ? { session: k.read().find((x) => x.id === session), why: "That agent is gone." } : pick(order, podsOnly);
+		const s = chosen.session;
+		if (!s) return { status: 409, body: { error: chosen.why } };
 		const box = podOf(s.id)?.container;
 		const policy = policyFor(order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, policy);
@@ -203,7 +208,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 
 	/**
 	 * Auto-dispatch, run by the server loop so orders move with no board page open: finished steps move on (test and
-	 * review by their PASS or FAIL), then every waiting order goes to the next free agent. On by default.
+	 * review by their PASS or FAIL), then every waiting order goes to the next free container agent. On by default.
+	 * Your own chats only get orders you dispatch by hand.
 	 */
 	function auto(now = Date.now()) {
 		if (!settings().auto) return [];
@@ -220,7 +226,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		}
 		for (const t of beltOrder(readTasks())) {
 			if (t.assignee || t.stage === "done" || t.stuck || t.atPass) continue;
-			const r = dispatch(t.id);
+			// Auto-dispatch only uses container agents, so orders never land in a chat you are typing in.
+			const r = dispatch(t.id, undefined, true);
 			if (r.status === 202) did.push(`#${t.n} sent`);
 		}
 		return did;

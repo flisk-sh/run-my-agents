@@ -137,22 +137,32 @@ describe("agent containers", () => {
 });
 
 describe("auto-dispatch on the server", () => {
-	it("is on by default, sends waiting orders, moves finished steps, and holds a spec at the pass", async () => {
-		const agent = { ...session("auto-cook", "Code"), updatedAt: Date.now() - 60_000 };
-		const { app, post, sent } = setup([agent]);
+	it("is on by default, sends waiting orders to container agents only, moves finished steps, and holds a spec at the pass", async () => {
+		const chat = { ...session("my-chat", "Planner"), updatedAt: Date.now() - 60_000 };
+		const sessions: Session[] = [chat];
+		const { app, post, sent, started } = setup(sessions);
 		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: true });
 		order({ stage: "inbox", approved: false });
+		// Your own idle chat never gets an order from auto-dispatch.
+		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual([]);
+		expect((await (await app.request("/api/tasks")).json()).tasks[0].why).toContain("No agent container cooks spec");
+		await post("/api/containers", { name: "Cooks", role: "Code", stages: ["spec", "build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		const cook = { ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 };
+		sessions.push(cook);
+		await post("/api/containers/reconcile", {});
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 sent"]);
 		expect(sent[0]).toContain("Order #1 (spec)");
-		// The agent replied and went quiet: the spec is done and waits at the pass, not sent again.
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0].assignee).toBe(cook.id);
+		// The cook replied and went quiet: the spec is done and waits at the pass, not sent again.
 		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, sentAt: Date.now() - 60_000 }]));
-		agent.updatedAt = Date.now() - 20_000;
+		cook.updatedAt = Date.now() - 20_000;
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 spec done"]);
 		const list = await (await app.request("/api/tasks")).json();
 		expect(list.tasks[0]).toMatchObject({ stage: "spec", atPass: true, assignee: "", why: "Waiting at the pass for your approval." });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual([]);
-		// Approving lets it cross to build, and the next pass sends it.
+		// Approving lets it cross to build, and the next pass sends it to the cook again.
 		await post("/api/tasks/move", { id: "t", approved: true, stage: "build" });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual(["#1 sent"]);
 		expect((await post("/api/kitchen", { auto: false })).body).toEqual({ auto: false, did: [] });
