@@ -29,6 +29,13 @@ html{font-family:var(--body)}body{background:#06060a;color:var(--text);font:13px
 .it.sel{background:linear-gradient(90deg,#26263a,#1b1b25);box-shadow:inset 2px 0 0 var(--green)}
 button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:700;font-size:1.08em;color:var(--mint);letter-spacing:.01em}.it .t{min-width:0;flex:1}.nm{display:block;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted);margin:1px 0}.md{font:600 9px var(--mono);letter-spacing:.04em;border-radius:var(--r-chip);padding:1px 5px}
 .meta{flex-wrap:wrap}
+/* Sidebar cards: the session name leads, the badges stay small and quiet. */
+.it .nm{font-size:14.5px;font-weight:700;color:#f4f4f8;letter-spacing:-.005em;margin-bottom:2px}
+.it .meta{gap:4px;font-size:10px}
+.it .ag,.it .md{font-size:8px;padding:0 4px;letter-spacing:.03em}
+.it .prc,.it .ach{font-size:9px;padding:0 4px;gap:2px}
+.it .prc svg{width:8px;height:8px}.it .ach .ring{width:11px;height:11px}.it .ach.need i{width:5px;height:5px}
+.it .rl{font-size:8.5px;padding:0 4px}
 .rl{font:600 10px var(--mono);border-radius:var(--r-chip);padding:1px 6px}.it small{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .av{position:relative;flex:none;animation:bob 3s ease-in-out infinite;filter:drop-shadow(0 4px 4px rgba(0,0,0,.55));transition:transform .2s;cursor:pointer}
 .av:hover{transform:scale(1.15) rotate(6deg)}.av{animation-duration:var(--spin,3s);animation-delay:var(--dl,0s)}
