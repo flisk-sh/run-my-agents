@@ -352,6 +352,12 @@ describe("skills and tools that fit the order", () => {
 		expect(matchSkills("Write playwright e2e tests for the login page").map((s) => s.name)).toContain("playwright-expert");
 		expect(matchSkills("add stripe checkout to the shop").map((s) => s.name)[0]).toContain("stripe");
 		expect(matchSkills("whats the weather in Australia")).toEqual([]);
+		// "tests" alone is no reason for Terraform skills; "terraform" is.
+		expect(matchSkills("add a mean(xs) function to src/math.ts that returns 0 for an empty list, with tests").map((s) => s.name).join()).not.toContain("terraform");
+		expect(matchSkills("fix flaky jest tests").map((s) => s.name).join()).not.toContain("terraform");
+		expect(matchSkills("write terraform tests for the vpc module").map((s) => s.name)).toContain("terraform-test");
+		const names = matchSkills("review the auth code for security").map((s) => s.name);
+		expect(names.length).toBe(new Set(names).size);
 		const { post } = setup([]);
 		const t = (await post("/api/tasks", { title: "add stripe checkout to the shop with a saved card flow", cwd: "/repo" })).body;
 		expect(t.skills.some((n: string) => n.includes("stripe"))).toBe(true);
