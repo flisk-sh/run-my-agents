@@ -185,8 +185,10 @@ describe("full SDLC through the Flisk kitchen agent", () => {
 	it("serves an order with every step as one agent turn: no chats, no waiting, questions answered, PR kept", async () => {
 		const r = repo();
 		const turns: string[] = [];
+		const inputs: Record<string, string> = {};
 		const agent = async (session: string, t: { input: string; cwd?: string }) => {
 			turns.push(`${session}: ${t.input.split("\n")[0].slice(0, 60)}`);
+			inputs[session] ??= t.input;
 			const cwd = t.cwd as string;
 			if (session.includes("-spec-ask-")) return t.input.includes("Goal: range includes its end.") ? "Yes: include b itself." : "Not in the record";
 			if (session.endsWith("-spec")) return "Goal: range includes its end.\nChecks: range(1,3) is [1,2,3].";
@@ -217,6 +219,12 @@ describe("full SDLC through the Flisk kitchen agent", () => {
 		// Each step was one session on the agent; the builder's ask was a fresh turn on the Spec record, not the Spec session.
 		expect(turns.map((x) => x.split(":")[0])).toEqual(["order-1-spec", "order-1-build", "order-1-spec-ask-1", "order-1-build", "order-1-test", "order-1-ship", "order-1-review"]);
 		expect(t.talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
+		// Every message the agent got says, as data, who sent it, what it is, and what reply it wants.
+		const { envelopeIn } = await import("../src/kitchen/protocol");
+		expect(envelopeIn(inputs["order-1-build"])).toMatchObject({ from: "Orchestrator", to: "Build", type: "order", order: 1, expects: "record", context: { worktree: expect.stringContaining("order-1"), round: 0, records: ["spec"] } });
+		expect(envelopeIn(inputs["order-1-spec-ask-1"])).toMatchObject({ from: "Build", to: "Spec", type: "question", expects: "answer", context: { records: ["spec"] } });
+		expect(envelopeIn(inputs["order-1-ship"])).toMatchObject({ to: "Ship", type: "order", stage: "ship", expects: "pr", context: { records: ["build"] } });
+		expect(envelopeIn(inputs["order-1-test"])?.expects).toBe("verdict");
 		expect(t.crew.build).toMatchObject({ id: "flisk:order-1-build", name: "Build · Flisk agent" });
 		expect(readFileSync(join(r, ".kitchen", "order-1", "math.ts"), "utf8")).toContain("i <= b");
 		expect(readFileSync(join(r, "math.ts"), "utf8")).toContain("i < b");

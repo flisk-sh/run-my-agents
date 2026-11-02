@@ -896,6 +896,8 @@ describe("stray agents", () => {
 		expect(sent).toHaveLength(1);
 		expect(sent[0]).toContain("no order is waiting on you");
 		expect(sent[0]).toContain("Do not run any command or edit any file");
+		const { envelopeIn } = await import("../src/kitchen/protocol");
+		expect(envelopeIn(sent[0])).toMatchObject({ from: "Orchestrator", type: "policy", order: null, expects: "none" });
 		await post("/api/kitchen", { auto: true });
 		expect(sent).toHaveLength(1);
 	});

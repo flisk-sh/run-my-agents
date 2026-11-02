@@ -101,19 +101,22 @@ export function askInput(n: number, title: string, asker: string, to: string, re
 }
 
 /** What a kitchen message is, so the agent reading it does not have to guess from the prose. */
-export type MessageType = "order" | "answer" | "policy" | "nudge";
+export type MessageType = "order" | "question" | "answer" | "policy" | "nudge";
 export type Envelope = {
 	/** Who is speaking: "Orchestrator", or a stage's agent ("Spec") when it relays that stage's answer. */
 	from: string;
 	/** The stage agent it is for. */
 	to: string;
 	type: MessageType;
-	order: number;
+	/** The order it is about; null for a message to an agent that holds no order. */
+	order: number | null;
 	stage: string;
 	/** The reply shape the orchestrator reads: a stage record, a verdict record, or nothing. */
-	expects: "record" | "verdict" | "none";
+	expects: "record" | "verdict" | "answer" | "pr" | "none";
 	/** How the content was made, when not by `from` itself (an answer from a fresh turn on a stage's record). */
 	via?: string;
+	/** Where the work is, as data: the worktree, the commit it started from, the round, and which stage records the message carries. */
+	context?: { worktree?: string; base?: string; round?: number; records?: string[] };
 };
 
 /**

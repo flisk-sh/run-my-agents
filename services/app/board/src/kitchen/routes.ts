@@ -607,7 +607,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
 				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
-		return order.kind === "question" ? text : envelope(text, { from: "Orchestrator", to: STAGE_TYPE[order.stage as keyof typeof STAGE_TYPE] ?? order.stage, type: "order", order: order.n, stage: order.stage, expects: verdict ? "verdict" : "record" });
+		const context = { ...(wt ? { worktree: wt } : {}), ...(order.base ? { base: order.base } : {}), round: order.rounds ?? 0, records: (["spec", "build", "test"] as const).filter((st) => st !== order.stage && order.notes?.[st]) };
+		return order.kind === "question" ? text : envelope(text, { from: "Orchestrator", to: STAGE_TYPE[order.stage as keyof typeof STAGE_TYPE] ?? order.stage, type: "order", order: order.n, stage: order.stage, expects: verdict ? "verdict" : "record", context });
 	}
 
 	function dispatch(id: string, session?: string, podsOnly = false): Out {
@@ -692,7 +693,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 */
 	async function askStage(t: Task, to: AskStage, question: string): Promise<string | undefined> {
 		const asker = STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage;
-		const input = askInput(t.n, t.title, asker, STAGE_TYPE[to], t.notes?.[to] ?? "", question);
+		const input = envelope(askInput(t.n, t.title, asker, STAGE_TYPE[to], t.notes?.[to] ?? "", question), { from: asker, to: STAGE_TYPE[to], type: "question", order: t.n, stage: to, expects: "answer", via: "the orchestrator, as a fresh turn on this stage's record", context: { records: [to] } });
 		const call = agent();
 		const out = call ? await call(`order-${t.n}-${to}-ask-${(t.asked ?? 0) + 1}`, { input, cwd: t.worktree ?? t.cwd }) : k.ask ? await k.ask(input, t.cwd) : undefined;
 		return out?.trim() || undefined;
@@ -724,7 +725,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// A build that changed nothing is asked once more, then fails; Test never gets an empty branch.
 			const wt = readTasks().find((x) => x.id === id)?.worktree;
 			if (stage === "build" && wt && isDir(wt) && !worktreeChanged(wt, readTasks().find((x) => x.id === id)?.base)) {
-				reply = await turn(sid, NO_CHANGES);
+				reply = await turn(sid, envelope(NO_CHANGES, { from: "Orchestrator", to: asker, type: "nudge", order: t0.n, stage, expects: "record" }));
 				if (!worktreeChanged(wt, readTasks().find((x) => x.id === id)?.base)) {
 					const cur = readTasks().find((x) => x.id === id);
 					const why = `build: no changes made in the worktree. ${failLine(reply) || reply.split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
@@ -736,7 +737,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// Edits that landed in the shared checkout: asked once to move them, then the step fails (#163).
 			const t1 = readTasks().find((x) => x.id === id);
 			if (stage === "build" && t1?.worktree && leakedInto(t1.cwd, t1.baseDirty).length) {
-				reply = await turn(sid, LEAKED(t1.cwd, t1.worktree, leakedInto(t1.cwd, t1.baseDirty)));
+				reply = await turn(sid, envelope(LEAKED(t1.cwd, t1.worktree, leakedInto(t1.cwd, t1.baseDirty)), { from: "Orchestrator", to: asker, type: "nudge", order: t0.n, stage, expects: "record" }));
 				const left = leakedInto(t1.cwd, t1.baseDirty);
 				if (left.length) {
 					const cur = readTasks().find((x) => x.id === id);
@@ -830,7 +831,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const how = t.pr
 				? `commit any new change with \`git commit -s\` and a short conventional message, and push the branch: pull request ${t.pr} updates by itself. Reply with its URL.`
 				: `commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".`;
-			const shipText = `Ship order #${t.n}: ${t.title}\n\nYou are in this order's worktree: ${t.worktree} (branch ${branch}). In that worktree: ${how}\n\n${ADDRESS}${t.notes?.build ? `\n\nFrom the Build agent:\n${t.notes.build}` : ""}`;
+			const shipText = envelope(`Ship order #${t.n}: ${t.title}\n\nYou are in this order's worktree: ${t.worktree} (branch ${branch}). In that worktree: ${how}\n\n${ADDRESS}${t.notes?.build ? `\n\nFrom the Build agent:\n${t.notes.build}` : ""}`, { from: "Orchestrator", to: "Ship", type: "order", order: t.n, stage: "ship", expects: "pr", context: { worktree: t.worktree, ...(t.base ? { base: t.base } : {}), round: t.rounds ?? 0, records: t.notes?.build ? ["build"] : [] } });
 			const call = agent();
 			if (call) {
 				const who = `flisk:order-${t.n}-ship`;
@@ -1096,7 +1097,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (!pods.has(s.id) && !/^Ship · #\d+/.test(s.title ?? "")) continue;
 			if (now - s.updatedAt < 3_000 || now - s.updatedAt > 24 * 3_600_000) continue;
 			if (!asksBack(handOff(s), { stage: "build" })) continue;
-			if (k.send(s, "orchestrator: no order", STRAY_ANSWER).status < 400) {
+			if (k.send(s, "orchestrator: no order", envelope(STRAY_ANSWER, { from: "Orchestrator", to: s.role, type: "policy", order: null, stage: "none", expects: "none" })).status < 400) {
 				strayAnswered.add(s.id);
 				did.push(`answered stray agent ${(s.title ?? s.id).slice(0, 30)}: no order`);
 			}
