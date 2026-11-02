@@ -7,7 +7,7 @@
 //   session B edits again  ──► allowed (a warning, not a lock)
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
@@ -22,6 +22,34 @@ function ttlMsFromEnv(raw = process.env.RUN_MY_AGENTS_TTL_MINUTES) {
 }
 
 const TTL_MS = ttlMsFromEnv();
+const LOCK = join(DIR, "claims.lock");
+
+/**
+ * Two hooks that read claims.json at the same moment would each write back a copy without the other's claim.
+ * A lock directory (mkdir is atomic) makes the read, change and rename one step. A lock older than 5 seconds is a
+ * crashed hook's and is taken over. After about 2 seconds without the lock we go on without it: this hook never
+ * stops an edit because of its own bookkeeping.
+ */
+function lock() {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const until = Date.now() + 2000;
+  for (;;) {
+    try {
+      mkdirSync(LOCK);
+      let held = true;
+      return () => {
+        if (held) rmSync(LOCK, { recursive: true, force: true });
+        held = false;
+      };
+    } catch {
+      try {
+        if (Date.now() - statSync(LOCK).mtimeMs > 5000) rmSync(LOCK, { recursive: true, force: true });
+      } catch {}
+      if (Date.now() > until) return () => {};
+      Atomics.wait(pause, 0, 0, 10 + Math.floor(Math.random() * 20));
+    }
+  }
+}
 
 function readJson(path, fallback) {
   try {
@@ -59,6 +87,8 @@ function main() {
   const now = Date.now();
 
   mkdirSync(DIR, { recursive: true });
+  const unlock = lock();
+  process.on("exit", unlock);
   const state = readJson(FILE, { claims: {}, warned: {} });
   const claims = {};
   for (const [path, claim] of Object.entries(state.claims || {})) {
@@ -81,6 +111,7 @@ function main() {
   const tmp = `${FILE}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify({ claims, warned }, null, 2));
   renameSync(tmp, FILE);
+  unlock();
 
   if (!block) return;
   const where = other.branch ? ` on branch ${other.branch}` : "";

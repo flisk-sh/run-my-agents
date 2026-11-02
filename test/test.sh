@@ -26,4 +26,14 @@ export RUN_MY_AGENTS_TTL_MINUTES=-5
 out=$(hook ffff6666); echo "$out" | grep -q '"deny"' || fail "ttl=-5 should still warn the second session"
 unset RUN_MY_AGENTS_TTL_MINUTES
 
-echo "PASS: 10 checks"
+# Twenty hooks at the same moment, each on its own file: none may lose its claim to another's write (#4).
+export RUN_MY_AGENTS_DIR=$(mktemp -d)
+for i in $(seq 1 20); do
+  ( printf '{"session_id":"par%05d","cwd":"/tmp","tool_input":{"file_path":"/tmp/par%s.ts"}}' "$i" "$i" | node "$here/hooks/check.mjs" ) &
+done
+wait
+n=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.env.RUN_MY_AGENTS_DIR+"/claims.json","utf8")).claims;console.log(Object.keys(c).length)')
+[ "$n" = 20 ] || fail "20 parallel hooks should leave 20 claims, found $n"
+[ ! -e "$RUN_MY_AGENTS_DIR/claims.lock" ] || fail "the lock should be released"
+
+echo "PASS: 12 checks"
