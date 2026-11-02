@@ -5,6 +5,7 @@
 //   session A edits api.ts ──► claims.json { "/repo/api.ts": { session: A, ... } }
 //   session B edits api.ts ──► sees A's claim ──► edit stopped once, with a note
 //   session B edits again  ──► allowed (a warning, not a lock)
+//   session A edits again later ──► B is warned again before its next edit, naming A
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -168,8 +169,13 @@ function main() {
 
   const other = claims[file];
   const warnKey = other ? `${session}|${file}|${other.session}` : "";
+  // A warning covers the other session's edits up to the moment it was given. If that session edits the file again
+  // afterwards, this session is warned again (naming it), so it never overwrites newer work without being told.
+  // A retry right after a warning still goes through: the other session has not edited since.
   let block = false;
-  if (other && other.session !== session && !warned[warnKey]) {
+  let again = false;
+  if (other && other.session !== session && !(warned[warnKey] >= other.at)) {
+    again = Boolean(warned[warnKey]);
     warned[warnKey] = now;
     block = true;
   }
@@ -183,9 +189,11 @@ function main() {
   debug(block ? "warned" : "claimed", session, file, block ? `held by ${other.session}` : "");
   if (!block) return;
   const where = other.branch ? ` on branch ${other.branch}` : "";
+  const drops = Math.max(1, Math.ceil((other.at + TTL_MS - now) / 60_000));
   const reason =
     `Run My Agents: another Claude session (${other.session.slice(0, 8)}${where}, in ${other.cwd}) ` +
-    `edited ${basename(file)} ${ago(now - other.at)}. ` +
+    `edited ${basename(file)} ${again ? "again since you were warned, " : ""}${ago(now - other.at)}. ` +
+    `Its claim drops in ${drops} min, or when that session ends. ` +
     "Your edit could overwrite its work. Read the file again first, or work on a different file. " +
     "If you are sure, make the edit again and it will go through.";
   process.stdout.write(

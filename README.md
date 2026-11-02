@@ -50,6 +50,7 @@ When a session ends, its claims are dropped, so a finished session never stops a
 - One computer only. Sessions on other machines are not seen.
 - Edits made through Bash (`sed`, `echo > file`) are not seen; only Claude's edit tools are.
 - It matches whole files, not functions or lines.
+- It warns, it never locks: a retry after a warning goes through. If the other session edits the file again after you were warned, you are warned again before your next edit, with its session, branch, age and when its claim drops.
 - It needs `node` on your PATH.
 
 ## Test
