@@ -571,11 +571,14 @@ describe("ship and the skill sidecar", () => {
 	it("ships a task after its last PASS: commits in the order's worktree, opens a PR, and keeps the link", async () => {
 		const sessions: Session[] = [];
 		const { post, started } = setup(sessions);
-		order({ kind: "task", stage: "review", assignee: "rev", sentAt: 1, cwd: "/repo", notes: { build: "Changed src/a.ts in /repo/.git/kitchen/order-1" }, crew: { build: { id: "b", role: "Build", name: "Build · repo b000" } } });
+		// No worktree (built before the board made them): served without shipping, never from the shared checkout.
+		order({ kind: "task", stage: "review", assignee: "rev", sentAt: 1, cwd: "/repo", notes: { build: "x" } });
+		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "done" });
+		order({ kind: "task", worktree: tmpdir(), stage: "review", assignee: "rev", sentAt: 1, cwd: "/repo", notes: { build: "Changed src/a.ts in /repo/.git/kitchen/order-1" }, crew: { build: { id: "b", role: "Build", name: "Build · repo b000" } } });
 		const r = (await post("/api/tasks/serve", { id: "t", pass: true })).body;
 		expect(r).toMatchObject({ stage: "review", shipping: true });
 		const ship = started.at(-1);
-		expect(ship).toMatchObject({ id: r.assignee, mode: "auto", model: "haiku" });
+		expect(ship).toMatchObject({ id: r.assignee, mode: "auto", model: "haiku", cwd: tmpdir() });
 		expect(ship?.text).toContain("git commit -s");
 		expect(ship?.text).toContain("gh pr create");
 		expect(ship?.text).toContain("kitchen/order-1");
