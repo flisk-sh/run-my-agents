@@ -90,6 +90,13 @@ export const STRAY_ANSWER =
 export const NO_CHANGES =
 	"Your build step left no changes in this order's worktree, so there is nothing for Test to check. Make the change now, in this worktree. If it truly cannot be done here, reply with one line starting with FAIL that says exactly why.";
 
+/**
+ * What the orchestrator says to a test or review agent that went quiet with no verdict. Order #29's Test agent ran the
+ * tests in the background and ended its turn ("No response requested."), which counted as FAIL with no reason.
+ */
+export const NO_VERDICT =
+	"You stopped without a verdict, so the kitchen cannot move this order on. Finish your checks now: run each command in the foreground and wait for its result. Then end with one line: PASS, or FAIL: what you ran, what you expected and what you got.";
+
 /** What the orchestrator says to an agent that stopped to ask the user. */
 export const ORCHESTRATOR_ANSWER =
 	"Yes, go ahead. This is the kitchen's orchestrator answering for the user: nobody else will reply. Make the most reasonable choice yourself, do it, and finish this step. Do not ask again.";
@@ -534,7 +541,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 		return text;
 	}
 
@@ -691,7 +698,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (pass === false && (t.stage === "test" || t.stage === "review")) {
 			const builder = t.crew?.build?.id;
 			// The lesson is the agent's FAIL line, not the tail of its reply.
-			const why = failLine(replyOf(t.assignee)) || `FAIL in ${t.stage} (no reason given)`;
+			const said = replyOf(t.assignee);
+			const why = failLine(said) || `FAIL: stopped without a PASS or FAIL line. Last said: ${said.split("\n").filter(Boolean).at(-1)?.slice(0, 200) || "(nothing)"}`;
 			updateTask(t.id, { failures: [...(t.failures ?? []), `${t.stage}: ${why}`].slice(-6) });
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
 			if (hit?.fired && builder) k.close(builder);
@@ -842,7 +850,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					continue;
 				}
 			}
-			// A test or review reply with no PASS or FAIL line counts as FAIL, so the order never waits forever.
+			// A test or review agent that went quiet with no PASS or FAIL is asked once to finish; after that it counts as
+			// FAIL, so the order never waits forever.
+			if (!t.shipping && (t.stage === "test" || t.stage === "review") && verdictOf(s) === undefined && (t.answered ?? 0) < MAX_ANSWERS) {
+				if (s && k.send(s, `#${t.n}: no verdict`, NO_VERDICT).status < 400) {
+					updateTask(t.id, { answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
+					did.push(`#${t.n} ${t.stage} gave no verdict: asked again`);
+					continue;
+				}
+			}
 			const v = t.shipping ? true : t.stage === "test" || t.stage === "review" ? (verdictOf(s) ?? false) : true;
 			serve(t.id, v);
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);

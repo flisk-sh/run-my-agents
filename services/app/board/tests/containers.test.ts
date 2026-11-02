@@ -227,13 +227,19 @@ describe("autopilot", () => {
 });
 
 describe("flow times", () => {
-	it("counts a test reply with no PASS or FAIL as FAIL, so the order never waits forever", async () => {
+	it("asks a test agent that stopped with no PASS or FAIL to finish, then counts it as FAIL with what it last said", async () => {
 		const tester = { ...session("quiet-tester", "Bug"), updatedAt: Date.now() - 20_000 };
-		tester.feed = [...tester.feed, { who: "agent", text: "I need a concrete deliverable.", at: Date.now() - 20_000 } as never];
+		// Order #29: the agent ran the tests in the background and ended its turn before they finished.
+		tester.feed = [...tester.feed, { who: "agent", text: "Let me run the tests.\n\nNo response requested.", at: Date.now() - 20_000 } as never];
 		const { post } = setup([tester]);
 		order({ stage: "test", assignee: tester.id, sentAt: Date.now() - 60_000 });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 test gave no verdict: asked again");
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "test", answered: 1 });
+		order({ stage: "test", assignee: tester.id, sentAt: Date.now() - 60_000, answered: 2 });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 test FAIL");
-		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "build", rounds: 1 });
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t).toMatchObject({ stage: "build", rounds: 1 });
+		expect(t.failures.at(-1)).toBe("test: FAIL: stopped without a PASS or FAIL line. Last said: No response requested.");
 	});
 
 	it("stamps when an order is first picked up and when it enters each stage", async () => {
