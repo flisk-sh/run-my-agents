@@ -541,7 +541,10 @@ body.plain .pp .pbtn.dng{color:#cf222e}body.plain .pp .pbtn.dng.arm{background:#
 .ci small{display:block;color:var(--muted);font:500 11px var(--body);margin-bottom:3px}.ci code{display:block;font:11.5px/1.45 var(--mono);color:#d8e4dd;white-space:pre-wrap;word-break:break-all}
 .apop:has(.clist){width:min(460px,92vw)}
 
-.apop:has(.bowl){width:min(360px,94vw)}.bowl{height:190px;margin:-2px -2px 6px;border-radius:12px 12px 0 0;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1d1d28,#0e0e14);cursor:pointer}.bowl:empty::after{content:"Setting up the lane\2026";display:grid;place-items:center;height:100%;font:500 11px var(--mono);color:var(--muted)}
+.apop:has(.bowl){width:min(380px,94vw)}.bowl{position:relative;height:210px;margin:-2px -2px 6px;border-radius:12px 12px 0 0;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1d1d28,#0e0e14);cursor:pointer}.bowl:empty::after{content:"Setting up the lane\2026";display:grid;place-items:center;height:100%;font:500 11px var(--mono);color:var(--muted)}
+
+.bowl .bball{position:absolute;left:0;top:0;width:64px;height:64px;transform-origin:32px 40px;pointer-events:none;will-change:transform}.bowl .bball .av{cursor:default}.bowl .bball .dot{display:none}
+.bowl .bres{position:absolute;left:50%;top:12px;transform:translate(-50%,-6px);padding:4px 12px;border-radius:999px;font:600 12px var(--body);color:#fff;background:rgba(12,12,18,.7);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);opacity:0;transition:opacity .3s,transform .3s;pointer-events:none}.bowl .bres.on{opacity:1;transform:translate(-50%,0)}.bowl .bres.strike{color:#04120a;background:#6ee7a0;animation:glowp 1.6s ease-in-out infinite}
 </style></head><body><div id="tip" role="tooltip"></div>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
@@ -852,31 +855,54 @@ function popHtml(kind,s,chip){const ago2=t=>ago(Date.now()-t);
 let THREEP=null;const BOWL={};
 function three(){return THREEP||(THREEP=new Promise((ok,no)=>{if(window.THREE)return ok(window.THREE);const sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";sc.onload=()=>ok(window.THREE);sc.onerror=()=>{THREEP=null;no()};document.head.appendChild(sc)}))}
 function mascotTex(f,T){const c=document.createElement("canvas");c.width=c.height=512;const t=new T.CanvasTexture(c);const defs=(document.querySelector("svg defs")||{}).innerHTML||"";const img=new Image();img.onload=()=>{c.getContext("2d").drawImage(img,0,0,512,512);t.needsUpdate=true};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="'+vb(f)+'"><defs>'+defs+"</defs>"+SH[f.shape](f.color)+EY[f.eyes]+(XT[f.extra]||"")+"</svg>");return t}
-async function bowl(el,s0){const T=await three();if(!el.isConnected)return;const cur=()=>S.find(x=>x.id===s0.id)||s0;const w=el.clientWidth||340,h=190;
- const R=new T.WebGLRenderer({antialias:true,alpha:true});R.setSize(w,h);R.setPixelRatio(Math.min(2,devicePixelRatio));el.appendChild(R.domElement);
- const SC=new T.Scene();SC.fog=new T.Fog(0x0e0e14,12,30);const C=new T.PerspectiveCamera(42,w/h,.1,80);
- SC.add(new T.HemisphereLight(0xffffff,0x332211,.6));const sp=new T.SpotLight(0xfff2dd,1.3,40,.5,.5);sp.position.set(0,9,-14);sp.target.position.set(0,0,-18);SC.add(sp,sp.target);
- const wc=document.createElement("canvas");wc.width=128;wc.height=512;const x=wc.getContext("2d");for(let i=0;i<8;i++){x.fillStyle="hsl("+(30+i%3*3)+",45%,"+(50+(i*37%9))+"%)";x.fillRect(i*16,0,16,512);x.fillStyle="rgba(0,0,0,.1)";x.fillRect(i*16,0,1,512)}
- const lane=new T.Mesh(new T.PlaneGeometry(3,40),new T.MeshStandardMaterial({map:new T.CanvasTexture(wc),roughness:.25,metalness:.1}));lane.rotation.x=-Math.PI/2;lane.position.z=-12;SC.add(lane);
- const gm=new T.MeshStandardMaterial({color:0x1b1b22});[-1.85,1.85].forEach(gx=>{const g=new T.Mesh(new T.CylinderGeometry(.35,.35,40,12,1,true,0,Math.PI),gm);g.rotation.x=Math.PI/2;g.rotation.z=gx<0?Math.PI/2:-Math.PI/2;g.position.set(gx,0,-12);SC.add(g)});
- const pg=new T.LatheGeometry([[0,0],[.2,.02],[.27,.25],[.26,.55],[.17,.85],[.11,1.05],[.13,1.25],[.12,1.4],[.06,1.5],[0,1.52]].map(a=>new T.Vector2(a[0],a[1])),20),pm=new T.MeshStandardMaterial({color:0xf6f4ef,roughness:.3}),sm=new T.MeshStandardMaterial({color:0xd63a3a});
+async function bowl(el,s0){const T=await three();if(!el.isConnected)return;const cur=()=>S.find(x=>x.id===s0.id)||s0;const w=el.clientWidth||360,h=210;
+ const R=new T.WebGLRenderer({antialias:true,alpha:true});R.setSize(w,h);R.setPixelRatio(Math.min(2,devicePixelRatio));R.shadowMap.enabled=true;R.shadowMap.type=T.PCFSoftShadowMap;el.appendChild(R.domElement);
+ /* The ball is the board's own animated mascot (same element as the sidebar: blink, bob, wiggle), laid over the 3D scene. */
+ const ov=document.createElement("div");ov.className="bball";ov.innerHTML=face(cur(),64);el.appendChild(ov);const res=document.createElement("div");res.className="bres";el.appendChild(res);
+ const SC=new T.Scene();SC.fog=new T.Fog(0x0e0e14,16,34);const C=new T.PerspectiveCamera(38,w/h,.1,80);
+ SC.add(new T.HemisphereLight(0xfff6e8,0x2a1d12,.55));
+ const key=new T.SpotLight(0xfff1dc,1.15,40,.42,.6);key.position.set(0,8,-20);key.target.position.set(0,0,-26);key.castShadow=true;key.shadow.mapSize.set(1024,1024);SC.add(key,key.target);
+ const fill=new T.PointLight(0xffe2c0,.5,18);fill.position.set(0,3,0);SC.add(fill);
+ const wc=document.createElement("canvas");wc.width=256;wc.height=1024;const x=wc.getContext("2d");for(let i=0;i<16;i++){x.fillStyle="hsl("+(28+i%3*4)+",48%,"+(50+(i*37%8))+"%)";x.fillRect(i*16,0,16,1024);x.fillStyle="rgba(0,0,0,.12)";x.fillRect(i*16,0,1,1024)}
+ x.fillStyle="#3a2412";for(let k=-3;k<=3;k++){const ax=128+k*22,ay=640+Math.abs(k)*20;x.beginPath();x.moveTo(ax,ay-14);x.lineTo(ax-6,ay+8);x.lineTo(ax+6,ay+8);x.fill()}
+ const wt=new T.CanvasTexture(wc);wt.anisotropy=8;
+ const lane=new T.Mesh(new T.PlaneGeometry(3,40),new T.MeshStandardMaterial({map:wt,roughness:.12,metalness:.15}));lane.rotation.x=-Math.PI/2;lane.position.z=-12;lane.receiveShadow=true;SC.add(lane);
+ const deck=new T.Mesh(new T.PlaneGeometry(3,4),new T.MeshStandardMaterial({color:0xb08a58,roughness:.35}));deck.rotation.x=-Math.PI/2;deck.position.set(0,.002,-26.6);deck.receiveShadow=true;SC.add(deck);
+ const gm=new T.MeshStandardMaterial({color:0x17171d,roughness:.5});[-1.85,1.85].forEach(gx=>{const g=new T.Mesh(new T.CylinderGeometry(.35,.35,40,16,1,true,0,Math.PI),gm);g.rotation.x=Math.PI/2;g.rotation.z=gx<0?Math.PI/2:-Math.PI/2;g.position.set(gx,0,-12);SC.add(g)});
+ const pit=new T.Mesh(new T.PlaneGeometry(5,3),new T.MeshStandardMaterial({color:0x08080b}));pit.position.set(0,1.2,-29.2);SC.add(pit);
+ const pg=new T.LatheGeometry([[0,0],[.19,.02],[.27,.25],[.26,.55],[.17,.85],[.11,1.05],[.13,1.25],[.12,1.4],[.06,1.5],[0,1.52]].map(a=>new T.Vector2(a[0],a[1])),28),pm=new T.MeshStandardMaterial({color:0xf8f6f0,roughness:.18,metalness:.05}),sm=new T.MeshStandardMaterial({color:0xd63a3a,roughness:.3});
  const SP=[[0,0],[-.32,-.55],[.32,-.55],[-.64,-1.1],[0,-1.1],[.64,-1.1],[-.96,-1.65],[-.32,-1.65],[.32,-1.65],[.96,-1.65]];
- const lab=t=>{const c=document.createElement("canvas");c.width=256;c.height=64;const g=c.getContext("2d");g.fillStyle="rgba(10,10,14,.75)";g.fillRect(0,0,256,64);g.fillStyle="#fff";g.font="500 30px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText(t.length>14?t.slice(0,13)+"…":t,128,34);const m=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(c),transparent:true}));m.scale.set(1.1,.28,1);return m};
- const tex=mascotTex(s0.face,T);let pins=[],ball,shadow,st;
- const setup=()=>{pins.forEach(q=>SC.remove(q.g));if(ball)SC.remove(ball,shadow);pins=[];const plan=(cur().plan||[]).slice(0,10);
-  plan.forEach((t,i)=>{const g=new T.Group();g.add(new T.Mesh(pg,pm));const sb=new T.Mesh(new T.CylinderGeometry(.115,.12,.07,20),sm);sb.position.y=1.12;g.add(sb);const l=lab(t.text);l.position.y=2.05;g.add(l);g.position.set(SP[i][0],0,-26+SP[i][1]);SC.add(g);pins.push({g,l,v:new T.Vector3(),av:new T.Vector3(),hit:false,done:t.status==="completed"})});
-  ball=new T.Sprite(new T.SpriteMaterial({map:tex,transparent:true}));ball.scale.set(1.1,1.1,1);ball.position.set(.35,.55,1.5);shadow=new T.Mesh(new T.CircleGeometry(.42,24),new T.MeshBasicMaterial({color:0,transparent:true,opacity:.35}));shadow.rotation.x=-Math.PI/2;shadow.position.y=.01;SC.add(ball,shadow);
-  st={t:0,hit:-9,roll:true,all:plan.length>0&&plan.every(t=>t.status==="completed")};BOWL[s0.id]=planStat(cur()).done};
+ const lab=t=>{const c=document.createElement("canvas");c.width=320;c.height=72;const g=c.getContext("2d");g.fillStyle="rgba(12,12,18,.82)";g.beginPath();g.roundRect?g.roundRect(0,0,320,72,18):g.rect(0,0,320,72);g.fill();g.fillStyle="#fff";g.font="600 32px -apple-system,system-ui,sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText(t.length>16?t.slice(0,15)+"…":t,160,38);const m=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(c),transparent:true,depthWrite:false}));m.scale.set(1.15,.26,1);return m};
+ let pins=[],shadow,st,bp=new T.Vector3();
+ const setup=()=>{pins.forEach(q=>SC.remove(q.g));if(shadow)SC.remove(shadow);pins=[];const plan=(cur().plan||[]).slice(0,10);
+  plan.forEach((t,i)=>{const g=new T.Group();const m=new T.Mesh(pg,pm);m.castShadow=true;g.add(m);const sb=new T.Mesh(new T.CylinderGeometry(.115,.12,.07,24),sm);sb.position.y=1.12;g.add(sb);const l=lab(t.text);l.position.y=2.0;SC.add(l);g.position.set(SP[i][0],0,-26+SP[i][1]);SC.add(g);
+   pins.push({g,l,home:g.position.clone(),done:t.status==="completed",state:0,ang:0,av:0,axis:new T.Vector3(1,0,0),slide:new T.Vector3(),q0:new T.Quaternion()})});
+  shadow=new T.Mesh(new T.CircleGeometry(.45,32),new T.MeshBasicMaterial({color:0,transparent:true,opacity:.4,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.position.y=.005;SC.add(shadow);
+  const done=plan.filter(t=>t.status==="completed").length;st={t:0,z:2,x:.45,v:0,hit:-9,roll:true,all:plan.length>0&&done===plan.length,done,total:plan.length,end:0};BOWL[s0.id]=planStat(cur()).done;res.className="bres";res.textContent=""};
+ /* A pin tips from its base, away from what hit it, slides a little and lies down; while falling it can knock a finished neighbour. */
+ const knock=(q,fx,fz,power)=>{if(q.state||!q.done)return;const d=new T.Vector3(fx,0,fz);if(d.lengthSq()<1e-4)d.set(0,0,-1);d.normalize();q.axis.set(-d.z,0,d.x);q.state=1;q.av=2.5+power*3;q.slide.copy(d).multiplyScalar(.6+power*.8);q.q0.copy(q.g.quaternion)};
  setup();el.addEventListener("click",e=>{e.stopPropagation();setup()});
- const clock=new T.Clock();C.position.set(0,1.6,5);
- (function tick(){if(!el.isConnected){R.dispose();return}const dt=Math.min(.033,clock.getDelta());st.t+=dt;
+ const clock=new T.Clock(),qx=new T.Quaternion(),cam=new T.Vector3(0,1.5,5.5),look=new T.Vector3(0,.4,-4);C.position.copy(cam);
+ /* Physics runs in fixed 1/120 s steps on real elapsed time, so a slow or throttled window shows the same roll and never
+    lets the ball pass through a pin. */
+ const step=dt=>{st.t+=dt;
   if(planStat(cur()).done>(BOWL[s0.id]||0))setup();
-  const cz=st.roll?Math.max(-20,ball.position.z+5):-20;C.position.lerp(new T.Vector3(0,1.6,cz),.08);C.lookAt(0,.4,cz-9);
-  if(st.roll){ball.position.z-=14*dt;ball.position.x=.35-Math.sin(Math.min(1,(1.5-ball.position.z)/27)*Math.PI*.5)*.35;ball.material.rotation-=14*dt/.55;ball.position.y=.55+Math.abs(Math.sin(st.t*9))*.08;const sq=1+Math.max(0,.25-(st.t-st.hit))*1.2;ball.scale.set(1.1*sq,1.1/sq,1);shadow.position.set(ball.position.x,.01,ball.position.z);
-   pins.forEach(q=>{if(q.hit||!q.done)return;const d=Math.hypot(q.g.position.x-ball.position.x,q.g.position.z-ball.position.z);if(d<.8||(st.all&&ball.position.z<q.g.position.z+.6)){q.hit=true;st.hit=st.t;q.v.set((q.g.position.x-ball.position.x)*3+(Math.random()-.5)*2,2+Math.random()*2,-4-Math.random()*4);q.av.set(-6-Math.random()*6,0,(Math.random()-.5)*8)}});
-   if(ball.position.z<-27.5)st.roll=false}
-  pins.forEach(q=>{if(!q.hit)return;q.v.y-=9.8*dt;q.g.position.addScaledVector(q.v,dt);if(q.g.position.y<0){q.g.position.y=0;q.v.y*=-.3;q.v.x*=.7;q.v.z*=.7}q.g.rotation.x+=q.av.x*dt;q.g.rotation.z+=q.av.z*dt;q.av.multiplyScalar(.985);q.l.material.opacity=Math.max(.25,q.l.material.opacity-dt)});
-  R.render(SC,C);requestAnimationFrame(tick)})()}
+  if(st.roll){st.v=Math.min(13,st.v+30*dt);st.z-=st.v*dt;const k=Math.min(1,(2-st.z)/28);st.x=.45-Math.pow(k,2.2)*.45;
+   pins.forEach(q=>{if(q.state||!q.done)return;const dx=q.g.position.x-st.x,dz=q.g.position.z-st.z;const dist=Math.hypot(dx,dz);if(dist<.72||(st.all&&st.z<q.g.position.z+.3)){knock(q,dx*.6,-1,1);st.hit=st.t;st.v*=.93}});
+   if(st.z<-28.6){st.roll=false;st.end=st.t}}
+  bp.set(st.x,.42,st.z);shadow.position.set(st.x,.005,st.z);shadow.visible=st.z>-28.4;
+  pins.forEach(q=>{if(q.state!==1)return;q.ang=Math.min(Math.PI/2,q.ang+q.av*dt);q.av+=7*dt;qx.setFromAxisAngle(q.axis,q.ang);q.g.quaternion.copy(qx).multiply(q.q0);q.g.position.addScaledVector(q.slide,dt);q.slide.multiplyScalar(.92);
+   const tip=new T.Vector3(0,1.4,0).applyQuaternion(q.g.quaternion).add(q.g.position);pins.forEach(o=>{if(o!==q&&!o.state&&o.done&&Math.hypot(o.g.position.x-tip.x,o.g.position.z-tip.z)<.32)knock(o,o.g.position.x-q.g.position.x,o.g.position.z-q.g.position.z,.6)});
+   if(q.ang>=Math.PI/2-1e-3){q.state=2;q.l.material.opacity=.35}});
+  pins.forEach(q=>{q.l.position.set(q.g.position.x,q.state?.55:2.0,q.g.position.z)});
+  if(!st.roll&&st.end&&!res.textContent){const down=pins.filter(q=>q.state).length;res.textContent=st.all?"Strike! Plan done":down+" of "+st.total+" done";res.className="bres on"+(st.all?" strike":"")}
+  const follow=st.roll?Math.max(-21,st.z+5.2):-20;cam.set(0,st.roll?1.35:2.6,follow);C.position.lerp(cam,1-Math.pow(st.roll?.0006:.04,dt));look.set(0,st.roll?.35:.55,st.roll?Math.max(-27,st.z-8):-26.6);C.lookAt(look);
+ };
+ (function tick(){if(!el.isConnected){R.dispose();return}let left=Math.min(.5,clock.getDelta());while(left>1e-6){const d=Math.min(1/120,left);step(d);left-=d}
+  R.render(SC,C);
+  const pp=bp.clone().project(C),sx=(pp.x+1)/2*w,sy=(1-pp.y)/2*h,dist=C.position.distanceTo(bp),size=Math.max(10,Math.min(90,70*4.2/dist)),sq=1+Math.max(0,.18-(st.t-st.hit))*1.4;
+  ov.style.opacity=st.z<-28.4?"0":"1";ov.style.transform="translate("+(sx-size/2)+"px,"+(sy-size*.62)+"px) scale("+(size/64)+") scale("+sq+","+(1/sq)+") rotate("+(-(2-st.z)*38)+"deg)";
+  requestAnimationFrame(tick)})()}
 let apEl=null,apT=0;
 function showAct(chip){hideAct();const s=S.find(x=>x.id===chip.dataset.sid);if(!s)return;const html=popHtml(chip.dataset.pop,s,chip);if(!html)return;const p=document.createElement("div");p.className="prpop apop";p._chip=chip;p.innerHTML=html;p.addEventListener("mouseenter",()=>clearTimeout(apT));
  // A bowling lane takes a couple of seconds to roll; losing the hover for a moment used to close it before any
