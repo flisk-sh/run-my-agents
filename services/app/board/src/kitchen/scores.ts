@@ -96,3 +96,32 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
 	for (const r of by.values()) r.rating = Math.max(0, Math.min(100, 50 + 10 * r.served + 3 * r.steps - 8 * r.fails - 15 * r.stuck - 10 * r.strikes));
 	return [...by.values()].sort((a, b) => b.rating - a.rating || b.steps - a.steps || a.label.localeCompare(b.label));
 }
+
+// ---------- flow: lead time and cycle time ----------
+/**
+ * Lead time runs from ordering to served, cycle time from the first agent picking it up to served. Medians and the
+ * 85th percentile are over served orders (failed ones are counted apart); WIP is everything still open.
+ */
+export function flow(tasks: Task[], now = Date.now()) {
+	const done = tasks.filter((t) => t.stage === "done" && !t.failed && t.servedAt);
+	const pct = (xs: number[], p: number) => {
+		if (!xs.length) return 0;
+		const s = [...xs].sort((a, b) => a - b);
+		return s[Math.min(s.length - 1, Math.ceil((p / 100) * s.length) - 1)];
+	};
+	const lead = done.map((t) => (t.servedAt as number) - t.created);
+	const cycle = done.filter((t) => t.startedAt).map((t) => (t.servedAt as number) - (t.startedAt as number));
+	return {
+		served: done.length,
+		failed: tasks.filter((t) => t.failed).length,
+		wip: tasks.filter((t) => t.stage !== "done").length,
+		leadMedian: pct(lead, 50),
+		leadP85: pct(lead, 85),
+		/** Served orders that have a pick-up time (older orders were served before it was recorded). */
+		cycleCount: cycle.length,
+		cycleMedian: pct(cycle, 50),
+		cycleP85: pct(cycle, 85),
+		/** Orders served in the last 24 hours. */
+		throughput24h: done.filter((t) => now - (t.servedAt as number) < 86_400_000).length,
+	};
+}

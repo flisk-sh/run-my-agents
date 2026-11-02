@@ -205,3 +205,33 @@ describe("autopilot", () => {
 		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "done", failed: true });
 	});
 });
+
+describe("flow times", () => {
+	it("counts a test reply with no PASS or FAIL as FAIL, so the order never waits forever", async () => {
+		const tester = { ...session("quiet-tester", "Bug"), updatedAt: Date.now() - 20_000 };
+		tester.feed = [...tester.feed, { who: "agent", text: "I need a concrete deliverable.", at: Date.now() - 20_000 } as never];
+		const { post } = setup([tester]);
+		order({ stage: "test", assignee: tester.id, sentAt: Date.now() - 60_000 });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 test FAIL");
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "build", rounds: 1 });
+	});
+
+	it("stamps when an order is first picked up and when it enters each stage", async () => {
+		const { post } = setup([{ ...session("timer", "Code"), updatedAt: Date.now() - 60_000 }]);
+		order({ stage: "build" });
+		const before = Date.now();
+		const r = (await post("/api/tasks/dispatch", { id: "t", session: "timer" })).body;
+		expect(r.startedAt).toBeGreaterThanOrEqual(before);
+		const moved = (await post("/api/tasks/move", { id: "t", stage: "test" })).body;
+		expect(moved.stageAt).toBeGreaterThanOrEqual(before);
+		expect(moved.startedAt).toBe(r.startedAt);
+	});
+
+	it("reports median and p85 lead and cycle time over served orders", async () => {
+		const { flow } = await import("../src/kitchen/scores");
+		const now = 10_000_000;
+		const t = (n: number, lead: number, cycle: number, extra = {}) => ({ id: `t${n}`, n, title: "x", cwd: "", priority: "P1" as const, stage: "done" as const, assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: now - lead, startedAt: now - cycle, servedAt: now, updated: now, ...extra });
+		const f = flow([t(1, 60_000, 30_000), t(2, 120_000, 60_000), t(3, 600_000, 300_000), t(4, 1, 1, { failed: true }), { ...t(5, 1, 1), stage: "build" as const }], now);
+		expect(f).toMatchObject({ served: 3, failed: 1, wip: 1, leadMedian: 120_000, leadP85: 600_000, cycleMedian: 60_000, throughput24h: 3 });
+	});
+});

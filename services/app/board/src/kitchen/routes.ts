@@ -5,7 +5,7 @@ import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
-import { ratings, scoreboard } from "./scores";
+import { flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
 import { haikuFit, lessonsSkill, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
@@ -96,7 +96,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.get("/api/scores", (c) => {
 		const strikes: Record<string, number> = {};
 		for (const box of readContainers()) for (const p of box.pods) strikes[p.session] = (strikes[p.session] ?? 0) + p.strikes;
-		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes) });
+		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes), flow: flow(readTasks()) });
 	});
 	app.get("/api/tasks", (c) =>
 		c.json({
@@ -184,7 +184,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const res = k.send(s, `#${order.n} ${order.stage}: ${order.title}`, text);
 		if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
 		const crew = { ...(order.crew ?? {}), [order.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
-		return { status: 202, body: { ...updateTask(order.id, { assignee: s.id, sentAt: Date.now(), crew }), model: policy.model, effort: policy.effort } };
+		return { status: 202, body: { ...updateTask(order.id, { assignee: s.id, sentAt: Date.now(), crew, startedAt: order.startedAt ?? Date.now() }), model: policy.model, effort: policy.effort } };
 	}
 
 	/**
@@ -242,8 +242,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
 			if (!finished(t, s, now)) continue;
-			const v = t.stage === "test" || t.stage === "review" ? verdictOf(s) : true;
-			if (v === undefined) continue;
+			// A test or review reply with no PASS or FAIL line counts as FAIL, so the order never waits forever.
+			const v = t.stage === "test" || t.stage === "review" ? (verdictOf(s) ?? false) : true;
 			serve(t.id, v);
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
 		}

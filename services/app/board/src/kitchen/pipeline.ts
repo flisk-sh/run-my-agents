@@ -44,6 +44,10 @@ export type Task = {
 	missedBy?: string[];
 	/** Closed by autopilot after too many FAILs: counts as a gutter, never as shipped work. */
 	failed?: boolean;
+	/** First handed to an agent: cycle time runs from here. */
+	startedAt?: number;
+	/** Entered its current stage. */
+	stageAt?: number;
 	created: number;
 	updated: number;
 };
@@ -75,11 +79,13 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
-	Object.assign(t, patch, { updated: Date.now() });
+	const now = Date.now();
+	if (patch.stage && patch.stage !== t.stage) patch = { ...patch, stageAt: now };
+	Object.assign(t, patch, { updated: now });
 	write(all);
 	return t;
 }
