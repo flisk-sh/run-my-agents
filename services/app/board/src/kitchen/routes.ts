@@ -183,6 +183,13 @@ export function worktreeChanged(wt: string, base?: string): boolean {
 	}
 }
 
+/**
+ * An agent works in a repo when its chat is in the repo folder or in one of the repo's order worktrees
+ * (<repo>/.git/kitchen/order-<n>): agents start each order's chat inside its worktree, so after their first order
+ * their folder is a worktree, and a plain equality check called every one of them busy elsewhere.
+ */
+export const sameRepo = (agentCwd: string | undefined, repo: string) => !!agentCwd && (agentCwd === repo || agentCwd.startsWith(`${repo}/.git/kitchen/`));
+
 /** Where the Run My Agents board's own code lives, for orders about the board itself. */
 export const BOARD_ROOT = resolvePath(import.meta.dir, "../../../../..");
 /** Orders about the board (its kitchen, agents, orders, tabs) belong in the board's repo, whatever chat was selected. */
@@ -284,7 +291,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	function pick(order: Task, podsOnly = false): { session?: Session; why: string } {
 		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
 		const all = k.read();
-		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
+		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || sameRepo(x.cwd, order.cwd));
 		const key = order.stage === "inbox" ? (order.lane === "fast" ? "build" : "spec") : order.stage;
 		// Stage containers first (fewest stages), so a build goes to the Build agents before an all-stage container.
 		const boxes = readContainers()

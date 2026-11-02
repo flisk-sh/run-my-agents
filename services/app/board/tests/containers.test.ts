@@ -773,3 +773,19 @@ describe("tidy and address", () => {
 		expect(sent.at(-1)).toContain("Your reply goes to the kitchen's orchestrator, not to a person.");
 	});
 });
+
+describe("dispatch to agents in a worktree", () => {
+	it("still sends a new order to a free agent whose last chat was in another order's worktree", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		sessions.push({ ...session(started[0].id as string, "Build"), cwd: "/repo/.git/kitchen/order-23", updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
+		order({ n: 24, stage: "build", cwd: "/repo", kind: "task" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#24 sent");
+		const { sameRepo } = await import("../src/kitchen/routes");
+		expect(sameRepo("/repo/.git/kitchen/order-3", "/repo")).toBe(true);
+		expect(sameRepo("/repo2", "/repo")).toBe(false);
+	});
+});
