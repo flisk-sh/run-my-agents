@@ -51,13 +51,26 @@ function step(dt){t+=dt;let mx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrow
  T=T.filter(k=>k.v>0);for(const f of F){f.l-=dt;f.y-=dt*30}F=F.filter(f=>f.l>0);
  if(xp>=need){xp-=need;lvl++;need=Math.floor(need*1.35+3);choice=offer();st="up"}
  if(P.hp<=0){st="dead"}if(t>=WIN){st="won"}}
-function tile(){const s=48,ox=((-P.x%s)+s)%s,oy=((-P.y%s)+s)%s;x.fillStyle="#15151c";x.fillRect(0,0,W,H);x.fillStyle="#1b1b24";
- for(let i=-1;i<W/s+1;i++)for(let j=-1;j<H/s+1;j++){const gx=Math.floor((P.x-W/2)/s)+i,gy=Math.floor((P.y-H/2)/s)+j;if((gx+gy)&1)x.fillRect(Math.floor(ox+i*s-W/2%s),Math.floor(oy+j*s-H/2%s),s,s)}}
+function tile(){const s=40;x.fillStyle="#3b2f2a";x.fillRect(0,0,W,H);const gx0=Math.floor((P.x-W/2)/s)-1,gy0=Math.floor((P.y-H/2)/s)-1;
+ for(let i=0;i<W/s+3;i++)for(let j=0;j<H/s+3;j++){const gx=gx0+i,gy=gy0+j,X=Math.round(gx*s-P.x+W/2),Y=Math.round(gy*s-P.y+H/2);
+  x.fillStyle=(gx+gy)&1?"#e8dcc4":"#c9b99a";x.fillRect(X+1,Y+1,s-2,s-2)}
+ const C=240,cx0=Math.floor((P.x-W/2)/C)-1,cy0=Math.floor((P.y-H/2)/C)-1;
+ for(let i=0;i<W/C+3;i++)for(let j=0;j<H/C+3;j++){const cx=cx0+i,cy=cy0+j,h=hash(cx,cy);if(Math.abs(cx)+Math.abs(cy)<2)continue;
+  const X=cx*C-P.x+W/2+40+(h%60),Y=cy*C-P.y+H/2+40+((h>>6)%60);prop(h%5,X,Y)}}
+function hash(a,b){let h=(a*374761393+b*668265263)|0;h=(h^(h>>>13))*1274126177|0;return (h^(h>>>16))>>>0}
+function shadow(cx,cy,w){x.fillStyle="rgba(40,25,15,.28)";x.beginPath();x.ellipse(cx,cy,w/2,w/5,0,0,7);x.fill()}
+function prop(k,X,Y){shadow(X+40,Y+56,100);
+ if(k===0){px(X+40,Y+30,"#9ca3af",96,44);px(X+40,Y+50,"#6b7280",96,10);[22,58].forEach(o=>{px(X+o,Y+26,"#1f2937",26,18);px(X+o,Y+26,Math.floor(t*8+o)%2?"#f97316":"#fb923c",14,6)});px(X+58,Y+14,"#374151",24,14);
+  for(let n=0;n<3;n++){const a=(t*.8+n/3)%1;x.globalAlpha=.5*(1-a);px(X+58+Math.sin(a*9+n)*4,Y+4-a*40,"#fff",6+a*6,6+a*6);x.globalAlpha=1}}
+ else if(k===1){px(X+40,Y+30,"#a16207",96,40);px(X+40,Y+50,"#713f12",96,10);px(X+30,Y+28,"#fde68a",36,22);px(X+30,Y+28,"#ef4444",10,8);px(X+40,Y+28,"#22c55e",8,8);px(X+66,Y+26,"#d1d5db",4,22)}
+ else if(k===2){px(X+40,Y+20,"#e5e7eb",50,76);px(X+40,Y+52,"#9ca3af",50,6);px(X+40,Y+16,"#cbd5e1",50,2);px(X+60,Y+2,"#6b7280",3,14);px(X+60,Y+30,"#6b7280",3,14)}
+ else if(k===3){px(X+40,Y+30,"#9ca3af",80,40);px(X+40,Y+50,"#6b7280",80,10);px(X+40,Y+28,"#60a5fa",44,22);px(X+40,Y+12,"#d1d5db",4,12);px(X+30,Y+26,"#bfdbfe",8,4)}
+ else{px(X+40,Y+40,"#92400e",44,30);px(X+40,Y+26,"#b45309",44,6);px(X+40,Y+40,"#78350f",44,2);px(X+40,Y+52,"#78350f",44,2)}}
 function px(cx,cy,c,w,h){x.fillStyle=c;x.fillRect(Math.round(cx-w/2),Math.round(cy-h/2),w,h)}
-function chef(cx,cy,c,hat,face){px(cx,cy+6,c,18,16);px(cx,cy-8,"#f5d0a9",16,14);px(cx-3*face,cy-9,"#111",2,3);px(cx+3*face,cy-9,"#111",2,3);if(hat){px(cx,cy-20,"#fafafa",18,10);px(cx,cy-15,"#e5e5e5",20,3)}}
+function chef(cx,cy,c,hat,face){shadow(cx,cy+16,26);px(cx+12*face,cy+4,"#374151",10,8);px(cx+20*face,cy+4,"#1f2937",8,3);px(cx,cy+4,"#fff",16,3);px(cx,cy+6,c,18,16);px(cx,cy-8,"#f5d0a9",16,14);px(cx-3*face,cy-9,"#111",2,3);px(cx+3*face,cy-9,"#111",2,3);if(hat){px(cx,cy-20,"#fafafa",18,10);px(cx,cy-15,"#e5e5e5",20,3)}}
 function draw(){const sx=shake>0?rnd(-4,4):0,sy=shake>0?rnd(-4,4):0;x.save();x.translate(sx,sy);tile();const ox=W/2-P.x,oy=H/2-P.y;
- for(const k of T){px(k.x+ox,k.y+oy,"#4ade80",8,10);px(k.x+ox,k.y+oy-2,"#166534",6,1)}
- for(const e of E){const ex=e.x+ox,ey=e.y+oy,c=e.fl>0?"#fff":e.c;
+ for(const k of T){px(k.x+ox,k.y+oy,"#fffbeb",10,13);px(k.x+ox,k.y+oy-6,"#22c55e",10,2);px(k.x+ox,k.y+oy-1,"#9ca3af",6,1);px(k.x+ox,k.y+oy+2,"#9ca3af",6,1)}
+ for(const e of E){const ex=e.x+ox,ey=e.y+oy,c=e.fl>0?"#fff":e.c;shadow(ex,ey+e.r,e.r*2.2);
   if(e.k==="bug"){px(ex,ey,c,16,12);px(ex-9,ey-3,c,4,2);px(ex+9,ey-3,c,4,2);px(ex-9,ey+3,c,4,2);px(ex+9,ey+3,c,4,2);px(ex-3,ey-3,"#111",3,3);px(ex+3,ey-3,"#111",3,3)}
   else if(e.k==="flaky"){px(ex,ey,c,14,14);px(ex,ey,"#111",4,8);px(ex,ey+5,"#111",4,2)}
   else if(e.k==="conflict"){px(ex,ey,c,30,26);x.fillStyle="#111";x.font="bold 10px monospace";x.textAlign="center";x.fillText("<<<",ex,ey-2);x.fillText(">>>",ex,ey+9)}
@@ -70,7 +83,7 @@ function draw(){const sx=shake>0?rnd(-4,4):0,sy=shake>0?rnd(-4,4):0;x.save();x.t
 function bar(y,v,c,label){px(W/2,y,"#000a",Math.min(W-32,420)+4,14);const w=Math.min(W-32,420);x.fillStyle=c;x.fillRect(W/2-w/2,y-5,w*Math.max(0,Math.min(1,v)),10);x.fillStyle="#fff";x.font="bold 11px monospace";x.textAlign="center";x.fillText(label,W/2,y+4)}
 function hud(){const left=Math.max(0,WIN-t),mm=Math.floor(left/60),ss=String(Math.floor(left%60)).padStart(2,"0");
  bar(16,xp/need,"#4ade80","Level "+lvl+"  ·  tickets "+xp+"/"+need);bar(34,P.hp/P.max,"#ef4444","Health "+Math.ceil(Math.max(0,P.hp)));
- x.fillStyle="#fff";x.font="bold 22px monospace";x.textAlign="center";x.fillText(mm+":"+ss,W/2,68);x.font="12px monospace";x.fillStyle="#aaa";x.fillText("bugs fixed "+kills+"  ·  cooks "+cooks.length+"/3",W/2,86);
+ px(W/2,61,"#000a",90,26);x.fillStyle="#fff";x.font="bold 22px monospace";x.textAlign="center";x.fillText(mm+":"+ss,W/2,68);px(W/2,82,"#000a",200,16);x.font="12px monospace";x.fillStyle="#ddd";x.fillText("bugs fixed "+kills+"  ·  cooks "+cooks.length+"/3",W/2,86);
  if(joy){x.strokeStyle="#fff4";x.beginPath();x.arc(joy.x0,joy.y0,40,0,7);x.stroke();px(joy.x,joy.y,"#fff6",16,16)}}
 let boxes=[];function pick(mx,my){return boxes.findIndex(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h)}
 function panel(title,lines,cta){x.fillStyle="#000b";x.fillRect(0,0,W,H);x.textAlign="center";x.fillStyle="#22c55e";x.font="bold "+Math.min(48,W/10)+"px monospace";x.fillText(title,W/2,H/2-70);
@@ -112,5 +125,6 @@ export const gamePage = (base: string) => `<!doctype html>
 <meta name="twitter:player" content="${base}/play">
 <meta name="twitter:player:width" content="480">
 <meta name="twitter:player:height" content="480">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Kitchen Rush","description":"A free survivors-like: hold out five minutes against bugs, flaky tests and red CI with up to three agent cooks.","url":"${base}/play","image":"${base}/play/card.png","genre":"Survivors-like","gamePlatform":"Web browser","playMode":"https://schema.org/SinglePlayer","isAccessibleForFree":true}</script>
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0b0f;touch-action:none;user-select:none;-webkit-user-select:none}canvas{display:block}</style>
 </head><body><canvas id="g" aria-label="Kitchen Rush game"></canvas><script>${SCRIPT}</script></body></html>`;

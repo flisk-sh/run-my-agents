@@ -159,6 +159,7 @@ describe("Kitchen Rush game", () => {
 		expect(html).toContain("KITCHEN RUSH");
 		expect(html).toContain('<canvas id="g"');
 		expect(html).toContain('name="twitter:card" content="player"');
+		expect(html).toContain('"@type":"VideoGame"');
 		expect(html).toContain('content="https://tool.test/play/card.png"');
 		expect(res.headers.get("content-security-policy")).toContain(
 			"https://x.com",
