@@ -89,11 +89,28 @@ function loop(now){const dt=Math.min(.05,(now-(last||now))/1000);last=now;
 requestAnimationFrame(loop);
 `;
 
-export const GAME_HTML = `<!doctype html>
+/** The page, with absolute links for its X player card (base has no trailing slash, as baseOf gives it). */
+export const gamePage = (base: string) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>Kitchen Rush · ${SITE.name}</title>
 <meta name="description" content="A free browser game from ${SITE.name}: hold out five minutes against bugs, flaky tests and red CI with up to three agent cooks.">
 <meta name="theme-color" content="#0b0b0f">
+<link rel="canonical" href="${base}/play">
+<meta property="og:title" content="Kitchen Rush">
+<meta property="og:description" content="Hold out five minutes against bugs, flaky tests and red CI with up to three agent cooks. Free, in your browser.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="${base}/play">
+<meta property="og:image" content="${base}/play/card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="player">
+<meta name="twitter:title" content="Kitchen Rush">
+<meta name="twitter:description" content="Hold out five minutes against bugs and red CI with your agent cooks. Tap to play right here.">
+<meta name="twitter:image" content="${base}/play/card.png">
+<meta name="twitter:image:alt" content="Kitchen Rush: four pixel chefs in white hats face red pixel bugs and a merge-conflict block on a dark tiled kitchen floor.">
+<meta name="twitter:player" content="${base}/play">
+<meta name="twitter:player:width" content="480">
+<meta name="twitter:player:height" content="480">
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0b0f;touch-action:none;user-select:none;-webkit-user-select:none}canvas{display:block}</style>
 </head><body><canvas id="g" aria-label="Kitchen Rush game"></canvas><script>${SCRIPT}</script></body></html>`;

@@ -150,7 +150,6 @@ describe("live board demo", () => {
 
 describe("Kitchen Rush game", () => {
 	it("serves the game with a script-only policy and links it from the nav", async () => {
-		const app = createApp();
 		const res = await app.request("/play");
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-security-policy")).toContain(
@@ -159,6 +158,13 @@ describe("Kitchen Rush game", () => {
 		const html = await res.text();
 		expect(html).toContain("KITCHEN RUSH");
 		expect(html).toContain('<canvas id="g"');
+		expect(html).toContain('name="twitter:card" content="player"');
+		expect(html).toContain('content="https://tool.test/play/card.png"');
+		expect(res.headers.get("content-security-policy")).toContain(
+			"https://x.com",
+		);
+		const card = await app.request("/play/card.png");
+		expect(card.headers.get("content-type")).toBe("image/png");
 		expect(await (await app.request("/")).text()).toContain('/play">Play</a>');
 		expect(await (await app.request("/sitemap.xml")).text()).toContain("/play");
 	});

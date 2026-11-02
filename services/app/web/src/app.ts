@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { ASSETS } from "./assets.generated";
 import { DEMO_FONTS, DEMO_HTML } from "./demo.generated";
-import { GAME_HTML } from "./game";
+import { gamePage } from "./game";
 import {
 	clientIp,
 	type ProxyMode,
@@ -156,13 +156,21 @@ export function createApp(options: AppOptions = {}) {
 			"cache-control": "public, max-age=31536000, immutable",
 		});
 	});
-	// Kitchen Rush, the browser game (see game.ts). One inline script and nothing else.
+	// Kitchen Rush, the browser game (see game.ts). One inline script and nothing else; X may frame it, so the
+	// game plays inside a post.
+	const card = readFileSync(join(import.meta.dir, "play-card.png"));
+	app.get("/play/card.png", (c) =>
+		c.body(card as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "image/png",
+			"cache-control": "public, max-age=86400",
+		}),
+	);
 	app.get("/play", (c) => {
 		c.header(
 			"content-security-policy",
-			"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+			"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com",
 		);
-		return c.html(GAME_HTML);
+		return c.html(gamePage(baseOf(c)));
 	});
 	app.get("/.well-known/security.txt", (c) => c.text(securityTxt(baseOf(c))));
 	for (const [name, file] of files)
