@@ -491,7 +491,7 @@ describe("typing box", () => {
 	});
 	it("offers a plain design that drops glow and animation, and remembers the choice", async () => {
 		const { PAGE } = await import("../src/page");
-		expect(PAGE).toContain('data-design="\'+k+\'"');
+		expect(PAGE).toContain('"data-design":k');
 		expect(PAGE).toContain('localStorage.setItem("rma-design",design)');
 		expect(PAGE).toMatch(/body\.plain \*,[^{]*\{animation:none!important/);
 		expect(PAGE).toContain('P("Resume cmd","Resume command")');
@@ -1428,7 +1428,7 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 		expect(linkCount(join(dir, "missing.jsonl"))).toBe(0);
 		expect((await app.request("/api/preview?url=file:///etc/passwd")).status).toBe(400);
 		const { PAGE } = await import("../src/page");
-		for (const part of ["data-links=", "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{", 'class="prc lnc" data-links=']) expect(PAGE).toContain(part);
+		for (const part of ["data-links=", "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{", 'class:"prc lnc","data-links":s.id']) expect(PAGE).toContain(part);
 	});
 
 	it("lists pull requests when you hover the branch", async () => {

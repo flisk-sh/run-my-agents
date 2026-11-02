@@ -9,6 +9,11 @@
 import { KITCHEN_CSS, KITCHEN_HTML, KITCHEN_JS } from "./kitchen/view";
 import { renderMarkdown } from "./markdown";
 import { EXTRAS } from "../../web/src/avatars";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+// Preact's UMD build (defines the global `preact`), inlined so the board works offline.
+const PREACT = readFileSync(join(dirname(Bun.resolveSync("preact/package.json", import.meta.dir)), "dist/preact.min.js"), "utf8").replace(/\/\/# sourceMappingURL=.*$/m, "");
 
 export const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Run My Agents</title><style>
@@ -574,6 +579,7 @@ ${KITCHEN_CSS}</style></head><body><div id="tip" role="tooltip"></div>
 <div id="drop" hidden><div class="dz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg><span id="dzt">Drop files to attach</span><small>up to 10 files, 25 MB each</small></div></div>
 <input type="file" id="fin" multiple hidden>
 <script>
+${PREACT}
 const renderMarkdown=${renderMarkdown.toString()};
 const XT=${JSON.stringify(EXTRAS)};
 const SH={circle:c=>'<circle cx="32" cy="32" r="28" fill="'+c+'"/><circle cx="32" cy="32" r="28" fill="url(#sh)"/>',
@@ -629,12 +635,37 @@ let gby=(()=>{try{return localStorage.getItem("rma-group")||"status"}catch(e){re
 const GKEY={type:s=>s.role||"Code",model:s=>{const m=mdl((s.tune&&s.tune.model)||s.model);return m?m.label:"Unknown"},folder:s=>(s.cwd||"").split("/").filter(Boolean).pop()||"No folder",branch:s=>s.branch||"No branch",pr:s=>{const p=s.prs||[];if(!p.length)return"No pull request";const o=p.find(x=>x.state==="OPEN");return o?(o.draft?"Draft PR":o.checks==="fail"?"Open, checks failing":"Open PR"):p.some(x=>x.state==="MERGED")?"Merged":"Closed PR"}};
 function groupList(){if(gby==="status"||!GKEY[gby])return GROUPS;const k=GKEY[gby],names=[...new Set(S.filter(s=>!s.hidden).map(k))].sort((a,b)=>S.filter(s=>!s.hidden&&k(s)===b).length-S.filter(s=>!s.hidden&&k(s)===a).length||a.localeCompare(b));return names.map(n=>[n,s=>!s.hidden&&k(s)===n]).concat([["Closed",s=>s.hidden]])}
 function face(s,n){const f=s.face,m=motion(s);return '<div class="av'+(m.low?" low":m.wig?" wig":"")+'" data-face="'+s.id+'" style="width:'+n+'px;height:'+n+'px;'+m.style+'"><svg width="'+n+'" height="'+n+'" viewBox="'+vb(f)+'">'+SH[f.shape](f.color)+EY[f.eyes]+(XT[f.extra]||"")+'</svg>'+(n>32?'<span class="dot '+state(s)+'"></span>':"")+"</div>"}
+// The sidebar is a Preact component (preact is inlined above); the rest of the page still draws HTML strings.
+const{h:H,Fragment:Frag,render:pRender}=preact;
+const Raw=x=>H("span",{style:"display:contents",dangerouslySetInnerHTML:{__html:x}});
+function SideRow({s}){const unread=s.feed.length-(seen[s.id]??s.feed.length);
+ return H("div",{class:"it "+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle ":"")+(s.id===movedId?"moved":""),"data-sel":s.id,draggable:"true"},
+ H("div",{class:"avc"},Raw(face(s,36)),H("span",{class:"rl",style:"color:"+s.face.color+";background:color-mix(in srgb,"+s.face.color+" 18%,transparent)"},s.role)),
+ H("div",{class:"t"},H("b",{class:"nm"},s.title||"Untitled session"),
+  H("span",{class:"meta"},H("span",{class:"ag "+s.agent},AGENT_BADGE[s.agent]),Raw(mtag(s)+ago(Date.now()-s.updatedAt)+prRow(s)),
+   s.links?H("span",{class:"prc lnc","data-links":s.id,title:s.links+" link"+(s.links>1?"s":"")+" in this chat. Hover to see them"},Raw(ico(IC.link)),s.links):null,Raw(rowAct(s))),
+  H("small",null,[s.doing||"",kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · "))),
+ unread>0&&s.id!==sel?H("span",{class:"badge"},unread):null)}
+function SideGroup({g,f}){const xs=ordSort(S.filter(f));
+ if(!xs.length)return g==="Pinned"?H("div",{class:"grp phold","data-grp":"Pinned"},"Drag an agent here to pin it"):null;
+ return H(Frag,null,H("div",{class:"grp","data-grp":g},(fold[g]?"▸":"▾")+" "+g+" · "+xs.length),fold[g]?null:xs.map(s=>H(SideRow,{s,key:s.id})))}
+function Side({groups}){const newBtn=H("button",{class:"btn new","data-act":"newopen"},Raw(ico(IC.plus)),"New session");
+ if(!groups)return H(Frag,null,H("div",{class:"proj"},"Run My Agents"),H("div",{class:"btns"},newBtn));
+ return H(Frag,null,
+ H("div",{class:"proj","data-act":"proj"},H("span",null,"Run My Agents"),H("small",{class:"cnt"},H("i",null),S.filter(s=>!s.hidden).length+" agents")),
+ H("div",{class:"btns"},newBtn,H("button",{class:"btn","data-act":"limits"},Raw(ico(IC.gauge)),L.sessionTokens?"Limit "+limLabel(L.sessionTokens)+" per session":"Set token limit")),
+ showLimits?Raw(limPanel()):null,
+ H("div",{class:"dsw","data-tip":"Switch between the current design and a plain one with no glow or animation"},[["current","Current design"],["plain","Plain design"]].map(([k,l])=>H("b",{key:k,class:k===design?"on":"","data-design":k},l))),
+ H("div",{class:"gby"},H("span",null,"Group by"),GBY.map(([k,l])=>H("b",{key:k,class:k===gby?"on":"","data-gby":k},l))),
+ Raw(umuxChip()),
+ groups.map(([g,f])=>H(SideGroup,{g,f,key:g})))}
+function drawSide(groups){pRender(H(Side,{groups}),$("side"))}
 function render(){
- if(!S.length){$("side").innerHTML='<div class="proj">Run My Agents</div><div class="btns"><button class="btn new" data-act="newopen">'+ico(IC.plus)+'New session</button></div>';$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
+ if(!S.length){drawSide();$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
  const groups=groupList();
  const oldRows=snapRows();
- $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small class="cnt"><i></i>'+S.filter(s=>!s.hidden).length+" agents</small></div>"+'<div class="btns"><button class="btn new" data-act="newopen">'+ico(IC.plus)+'New session</button><button class="btn" data-act="limits">'+ico(IC.gauge)+(L.sessionTokens?"Limit "+limLabel(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?limPanel():"")+'<div class="dsw" data-tip="Switch between the current design and a plain one with no glow or animation">'+[["current","Current design"],["plain","Plain design"]].map(([k,l])=>'<b class="'+(k===design?"on":"")+'" data-design="'+k+'">'+l+"</b>").join("")+'</div><div class="gby"><span>Group by</span>'+GBY.map(([k,l])=>'<b class="'+(k===gby?"on":"")+'" data-gby="'+k+'">'+l+"</b>").join("")+"</div>"+umuxChip()+groups.map(([g,f])=>{const xs=ordSort(S.filter(f));if(!xs.length){return g==="Pinned"?'<div class="grp phold" data-grp="Pinned">Drag an agent here to pin it</div>':""}return '<div class="grp" data-grp="'+esc(g)+'">'+(fold[g]?"▸":"▾")+" "+esc(g)+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle ":"")+(s.id===movedId?"moved":"")+'" data-sel="'+s.id+'" draggable="true"><div class="avc">'+face(s,36)+'<span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span></div><div class="t"><b class="nm">'+esc(s.title||"Untitled session")+'</b><span class="meta"><span class="ag '+s.agent+'">'+AGENT_BADGE[s.agent]+"</span>"+mtag(s)+ago(Date.now()-s.updatedAt)+prRow(s)+(s.links?'<span class="prc lnc" data-links="'+s.id+'" title="'+s.links+' link'+(s.links>1?"s":"")+' in this chat. Hover to see them">'+ico(IC.link)+s.links+"</span>":"")+rowAct(s)+"</span><small>"+[esc(s.doing||""),kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · ")+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
+ drawSide(groups);
  flip(oldRows);if(movedId){const mv=movedId;movedId="";setTimeout(()=>{const r=document.querySelector('#side .it[data-sel="'+mv+'"]');if(r)r.classList.remove("moved")},900)}
  const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.length;
  $("hd").innerHTML=face(s,34)+'<div class="ht"><div class="ttl">'+(renaming?'<input class="rnm" id="rnmIn" maxlength="120" placeholder="Session name" value="'+esc(s.title||"")+'">':'<b>'+esc(s.role)+'</b><i>&middot;</i><span class="rnmhit" title="Double-click to rename">'+esc(s.title||"Untitled")+'</span>')+'</div><div class="mchips">'+(s.branch||(s.prs&&s.prs.length)?'<span class="mc" data-ctext="'+esc(s.branch||"")+'" data-prs="'+s.id+'" title="Click to copy the branch. Hover for pull requests">'+ico(IC.branch)+esc(s.branch||"pull requests")+(s.prs&&s.prs.length?'<b class="prn">'+s.prs.length+" PR"+(s.prs.length>1?"s":"")+"</b>":"")+"</span>":"")+'<span class="mc" data-links="'+s.id+'" title="Hover for the links said in this chat">'+ico(IC.link)+'links</span>'+'<span class="mc" data-ctext="'+esc(s.cwd)+'" title="Copy folder path">'+ico(IC.folder)+esc(s.cwd.split("/").pop()||"")+'</span><span class="mc" data-ctext="'+esc(s.id)+'" title="Copy session ID">'+ico(IC.hash)+"session "+s.id.slice(0,8)+'</span></div></div><div class="hb">'+hb("rename","Rename",ico(IC.edit),renaming)+hb("pin",s.pinned?"Unpin":"Pin",ico(IC.pin),s.pinned)+hb("roles","Type: "+s.role,mini(s.face,14),showRoles)+hb("skills","Skills",ico(IC.star),showSkills)+hb("files","Files",ico(IC.files),false)+hb("mute",muted[s.id]?"Unmute":"Mute",ico(IC.bell),muted[s.id])+"</div>";
