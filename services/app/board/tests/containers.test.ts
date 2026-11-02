@@ -585,17 +585,55 @@ describe("ship and the skill sidecar", () => {
 		expect(done).toMatchObject({ stage: "done", shipping: false, pr: "https://github.com/flisk-sh/run-my-agents/pull/999" });
 	});
 
-	it("starts kitchen agents in auto mode and tells builders to use a worktree per order", async () => {
+	it("starts kitchen agents in auto mode, and the board makes each order's worktree and starts its agent there", async () => {
+		const { execFileSync } = await import("node:child_process");
+		const repo = mkdtempSync(join(tmpdir(), "rma-wt-"));
+		const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+		g("init", "-q", "-b", "main");
+		writeFileSync(join(repo, "a.txt"), "x");
+		g("add", ".");
+		g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init");
 		const sessions: Session[] = [];
-		const { post, sent, started } = setup(sessions);
-		await post("/api/containers", { name: "B", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "B", role: "Code", stages: ["build"], replicas: 1, cwd: repo });
 		await post("/api/containers/reconcile", {});
 		expect(started[0]).toMatchObject({ mode: "auto" });
-		sessions.push({ ...session(started[0].id as string, "Build"), updatedAt: Date.now() - 60_000 });
+		sessions.push({ ...session(started[0].id as string, "Build"), cwd: repo, updatedAt: Date.now() - 60_000 });
 		await post("/api/containers/reconcile", {});
-		order({ n: 7, stage: "build", cwd: "/repo" });
-		await post("/api/tasks/dispatch", { id: "t" });
-		expect(sent.at(-1)).toContain("kitchen/order-7");
+		order({ n: 7, stage: "build", cwd: repo, kind: "task" });
+		const r = (await post("/api/tasks/dispatch", { id: "t" })).body;
+		const { realpathSync } = await import("node:fs");
+		const wt = join(realpathSync(repo), ".git", "kitchen", "order-7");
+		expect(r).toMatchObject({ worktree: wt, fresh: true });
+		expect(existsSync(join(wt, "a.txt"))).toBe(true);
+		expect(execFileSync("git", ["-C", wt, "branch", "--show-current"], { encoding: "utf8" }).trim()).toBe("kitchen/order-7");
+		expect(started.at(-1)).toMatchObject({ cwd: wt, mode: "auto" });
+		expect(started.at(-1)?.text).toContain(`You are in this order's own git worktree: ${wt}`);
+		// A second stage reuses the same worktree instead of making another.
+		const { orderWorktree } = await import("../src/kitchen/routes");
+		expect(orderWorktree(repo, 7)).toBe(wt);
+		expect(orderWorktree("", 7)).toBeUndefined();
+	});
+
+	it("moves an order when its builder says the code lives in another folder, and builds again there", async () => {
+		const { elsewhere } = await import("../src/kitchen/routes");
+		expect(elsewhere("This order requires access to `/Users/x/flisk-candidate-test-draft/` and belongs in a separate build container")).toBe("/Users/x/flisk-candidate-test-draft");
+		expect(elsewhere("Changed src/a.ts")).toBeUndefined();
+		const other = mkdtempSync(join(tmpdir(), "rma-other-"));
+		const { post } = setup([{ ...session("bb", "Build"), feed: [{ who: "you", text: "Order", at: 1 } as never, { who: "agent", text: `Blocked: the code lives in \`${other}\`.`, at: 2 } as never] }]);
+		order({ stage: "build", assignee: "bb", sentAt: 1, cwd: "/repo", kind: "task" });
+		const r = (await post("/api/tasks/serve", { id: "t" })).body;
+		expect(r).toMatchObject({ stage: "build", cwd: other, assignee: "", moved: other });
+	});
+
+	it("writes a missing lessons skill before a container's agents start", async () => {
+		const { post } = setup([]);
+		const { createContainer } = await import("../src/kitchen/containers");
+		const { rmSync } = await import("node:fs");
+		createContainer({ name: "Review · repo", role: "Review", lessonsKey: "review", stages: ["review"], replicas: 1, cwd: "/repo" });
+		rmSync(join(skills, "rma-lessons-review"), { recursive: true, force: true });
+		await post("/api/containers/reconcile", {});
+		expect(readFileSync(join(skills, "rma-lessons-review", "SKILL.md"), "utf8")).toContain("Lessons the Review agents learned");
 	});
 
 	it("injects an order's skills into its container, then drops a skill whose orders keep failing", async () => {

@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 // The kitchen's HTTP API, mounted on the board's app: orders, the scoreboard, skill sets and agent containers.
 // Everything the board owns (reading sessions, sending a message, starting an agent) comes in through KitchenCtx,
 // so this module never reaches into the board's internals and can be tested on its own.
+import { execFileSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
@@ -79,6 +80,11 @@ const isDir = (p: string) => {
 	}
 };
 
+/** A builder saying the code is in another folder: "requires access to `/a/b`", "belongs in `/a/b`". */
+export function elsewhere(text: string): string | undefined {
+	return /\b(?:requires access to|belongs in|lives in|code is in|is in|move (?:it|this order) to)\b[^`\n]{0,30}`(\/[^`\s]+?)\/?`/i.exec(text)?.[1];
+}
+
 /**
  * The folder a spec names, in whatever form the agent wrote it: "Folder: /a/b", "**Folder** `/a/b`", or
  * "build target … `run-my-agents`" naming a known folder.
@@ -90,6 +96,41 @@ export function folderHint(text: string, folders: string[] = []): string | undef
 	if (!named) return undefined;
 	if (/^run[- ]my[- ]agents$/i.test(named)) return BOARD_ROOT;
 	return folders.find((f) => f.split("/").filter(Boolean).pop() === named);
+}
+
+const git = (dir: string, args: string[], timeout = 20_000) =>
+	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout }).trim();
+
+/**
+ * The order's own git worktree, made by the board (agents skipped the step when asked to): <repo>/.git/kitchen/
+ * order-<n> on branch kitchen/order-<n>, from origin/main (or HEAD when the repo has no remote). Every agent on the
+ * order starts its chat there, so no edit lands in the shared checkout, Review sees only this order's diff, and Ship
+ * has a clean branch to push. Not a git repo, or git fails: undefined, and the order works in its folder as before.
+ */
+export function orderWorktree(cwd: string, n: number): string | undefined {
+	// Only a real folder: never let git fall back to the board's own working directory.
+	if (!cwd || !cwd.startsWith("/") || !isDir(cwd)) return undefined;
+	try {
+		const top = git(cwd, ["rev-parse", "--show-toplevel"]);
+		const path = joinPath(resolvePath(top, git(top, ["rev-parse", "--git-common-dir"])), "kitchen", `order-${n}`);
+		if (isDir(path)) return path;
+		const branch = `kitchen/order-${n}`;
+		try {
+			git(top, ["fetch", "-q", "origin"]);
+		} catch {}
+		const has = (ref: string) => {
+			try {
+				git(top, ["rev-parse", "--verify", "--quiet", ref]);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		git(top, ["worktree", "add", path, ...(has(`refs/heads/${branch}`) ? [branch] : ["-b", branch, has("origin/main") ? "origin/main" : "HEAD"])]);
+		return path;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Where the Run My Agents board's own code lives, for orders about the board itself. */
@@ -112,9 +153,9 @@ export function whereOf(title: string, cwd: string, folders: string[]): string {
  */
 const STAGE_BRIEF = {
 	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code.",
-	build: "First make your own git worktree for this order so you never touch the shared checkout: run `git fetch -q origin && git worktree add \"$(git rev-parse --git-common-dir)/kitchen/order-{n}\" -b kitchen/order-{n} origin/main` (if it already exists, keep using it), work only in it, and name its path. Make the change the spec describes. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change.",
-	test: "The change is in the git worktree the Build agent named (branch kitchen/order-{n}); work there. Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
-	review: "The change is in the git worktree the Build agent named (branch kitchen/order-{n}). Read it (git diff origin/main) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
+	build: "Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change.",
+	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
+	review: "The change is in this order's worktree (branch kitchen/order-{n}). Read only its diff (git diff against the branch it started from) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
 } as const;
 
 const lastSaid = (s: Session | undefined) => {
@@ -377,20 +418,24 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			.filter((st) => st !== order.stage && order.notes?.[st])
 			.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
 			.join("");
+		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it.
+		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree ?? orderWorktree(order.cwd, order.n)) : undefined;
+		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt });
+		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
 		const fresh = order.requeued ? `\n\nThis order was requeued: treat it as new. Earlier verdicts or rejections of #${order.n} do not apply.` : "";
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
 		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
 		if (box && order.skills.length) injectSkills(box.id, order.skills);
 		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
 		// The same order (another round, the next stage in an all-stage container) keeps its chat.
 		const pod = box?.pods.find((p) => p.session === s.id && p.status !== "evicted");
 		let who = s.id;
-		if (box && pod?.lastOrder && pod.lastOrder !== order.id && s.agent === "claude") {
+		if (box && s.agent === "claude" && ((pod?.lastOrder && pod.lastOrder !== order.id) || (wt && s.cwd !== wt))) {
 			who = randomUUID();
-			k.start({ agent: "claude", cwd: order.cwd || box.cwd, text, model: policy.model, effort: policy.effort, id: who, role: box.role, mode: KITCHEN_MODE });
+			k.start({ agent: "claude", cwd: wt ?? (order.cwd || box.cwd), text, model: policy.model, effort: policy.effort, id: who, role: box.role, mode: KITCHEN_MODE });
 			freshChat(s.id, who, order.id);
 			k.name?.(who, podName(box, who));
 			k.close(s.id);
@@ -422,8 +467,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const said = handOff(k.read().find((x) => x.id === t?.assignee));
 			if (said) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: said } }) ?? t;
 			// The Spec agent can move an order to the folder its code is in.
-			const moved = t.stage === "spec" ? folderHint(said) : undefined;
-			if (moved && moved !== t.cwd && isDir(moved)) t = updateTask(t.id, { cwd: moved }) ?? t;
+			const moved = t.stage === "spec" ? folderHint(said) : t.stage === "build" ? elsewhere(said) : undefined;
+			if (moved && moved !== t.cwd && isDir(moved)) {
+				t = updateTask(t.id, { cwd: moved, worktree: undefined }) ?? t;
+				// A builder that found the code in another folder: build again there instead of failing the order.
+				if (t.stage === "build") return { status: 200, body: { ...updateTask(t.id, { assignee: "", sentAt: 0 }), moved } };
+			}
 		}
 		const order = t;
 		if (pass === false && (t.stage === "test" || t.stage === "review")) {
@@ -449,13 +498,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const branch = `kitchen/order-${t.n}`;
 			k.start({
 				agent: "claude",
-				cwd: t.cwd,
+				cwd: t.worktree ?? t.cwd,
 				id,
 				role: "Build",
 				mode: KITCHEN_MODE,
 				model: "haiku",
 				effort: "low",
-				text: `Ship order #${t.n}: ${t.title}\n\nThe Build agent's change is in the git worktree for this order (branch ${branch}, normally at "$(git rev-parse --git-common-dir)/kitchen/order-${t.n}", or the path it names below). In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\nFrom the Build agent:\n${t.notes.build}`,
+				text: `Ship order #${t.n}: ${t.title}\n\n${t.worktree ? `You are in this order's worktree: ${t.worktree} (branch ${branch}).` : `The Build agent's change is on branch ${branch}, in the worktree it names below.`} In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\nFrom the Build agent:\n${t.notes.build}`,
 			});
 			k.name?.(id, `Ship · #${t.n}`);
 			return { status: 200, body: { ...updateTask(t.id, { shipping: true, assignee: id, sentAt: Date.now() }) } };

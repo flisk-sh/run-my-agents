@@ -56,6 +56,8 @@ export type Task = {
 	zachman?: Zachman;
 	/** What each stage's agent handed on: the spec, the build summary, the test and review verdicts. */
 	notes?: Partial<Record<Stage, string>>;
+	/** This order's own git worktree (branch kitchen/order-<n>), made by the board for Build, Test, Review and Ship. */
+	worktree?: string;
 	/** Ship step running: an agent is committing, pushing and opening the pull request. */
 	shipping?: boolean;
 	/** The pull request the Ship step opened. */
@@ -98,7 +100,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;

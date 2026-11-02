@@ -5,7 +5,7 @@
 // and the loop starts a fresh agent that reads those lessons.
 import { randomUUID } from "node:crypto";
 import type { Stage } from "./pipeline";
-import { lessonsSkill, writeLessons } from "./skills";
+import { lessonsSkill, skillInstalled, writeLessons } from "./skills";
 import { JsonStore } from "./store";
 
 /** Kitchen agents run in auto mode: edits, git and gh go through without a prompt nobody would answer. */
@@ -265,6 +265,8 @@ export function reconcile(ctx: ReconcileCtx) {
 				did.push(`${c.name}: scaled down ${p.session.slice(0, 8)}`);
 			}
 			// Too few: start fresh agents with the container's template.
+			// Every container's lessons skill exists before its agents start, so none of them is told to read a missing one.
+			if (!skillInstalled(lessonsSkill(lessonsKeyOf(c)))) writeShared(all, lessonsKeyOf(c), c.lessonsKey ? c.role : c.name);
 			for (let i = live(c).length; i < c.replicas; i++) {
 				const id = randomUUID();
 				c.pods.push({ session: id, status: "starting", strikes: 0, served: 0, started: now });
