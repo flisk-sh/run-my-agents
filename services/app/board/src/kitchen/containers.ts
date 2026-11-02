@@ -8,8 +8,20 @@ import type { Stage } from "./pipeline";
 import { lessonsSkill, skillInstalled, writeLessons } from "./skills";
 import { JsonStore } from "./store";
 
-/** Kitchen agents run in auto mode: edits, git and gh go through without a prompt nobody would answer. */
-export const KITCHEN_MODE = "auto";
+/**
+ * Kitchen agents run in acceptEdits mode with KITCHEN_TOOLS allowed. Checked with a real non-interactive agent:
+ * "auto" mode asked for permission to edit (nobody can approve one), while acceptEdits plus these tools edited the
+ * file and ran git.
+ */
+export const KITCHEN_MODE = "acceptEdits";
+/** What a kitchen agent may run without asking: git and gh (ship), the usual build and test runners, reads, web. */
+export const KITCHEN_TOOLS = [
+	"Bash(git:*)", "Bash(gh:*)", "Bash(bun:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)", "Bash(pnpm:*)", "Bash(yarn:*)",
+	"Bash(make:*)", "Bash(python3:*)", "Bash(pytest:*)", "Bash(go:*)", "Bash(cargo:*)", "Bash(ls:*)", "Bash(cat:*)",
+	"Bash(grep:*)", "Bash(rg:*)", "Bash(find:*)", "Bash(mkdir:*)", "WebFetch", "WebSearch",
+];
+/** Chats the kitchen started: container agents ("Build · flisk 3125") and Ship agents ("Ship · #12"). */
+export const KITCHEN_CHAT = /^(?:(?:Spec|Build|Test|Review) · .+ [0-9a-f]{4}|Ship · #\d+|Auto cooks · .+ [0-9a-f]{4}|Kitchen cooks [0-9a-f]{4})$/;
 
 export type Pod = {
 	session: string;

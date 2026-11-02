@@ -14,6 +14,7 @@ import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import { KITCHEN_AGENTS } from "./kitchen/agents";
+import { KITCHEN_CHAT, KITCHEN_TOOLS } from "./kitchen/containers";
 import { mountKitchen } from "./kitchen/routes";
 import { skillsFor } from "./kitchen/skills";
 
@@ -136,7 +137,7 @@ export function sendToSession(s: Session, text: string, run = spawn, dirs: strin
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
-			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d])]];
+			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d]), ...(KITCHEN_CHAT.test(s.title ?? "") ? ["--allowedTools", ...KITCHEN_TOOLS] : [])]];
 	return new Promise((resolve, reject) => {
 		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);
@@ -300,8 +301,10 @@ export interface NewSession {
 	effort?: string;
 	/** Claude and Grok let the caller choose the session id, so the board knows it at once. */
 	id?: string;
-	/** Claude permission mode; kitchen agents use "auto" so git and gh are not blocked. */
+	/** Claude permission mode (kitchen agents: acceptEdits). */
 	mode?: string;
+	/** Tools allowed without asking (kitchen agents: KITCHEN_TOOLS). */
+	allow?: string[];
 }
 const MODELS = ["opus", "sonnet", "haiku"];
 
@@ -340,7 +343,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 	const [cmd, args] =
 		n.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
-			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : [])]];
+			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : []), ...(n.allow?.length ? ["--allowedTools", ...n.allow] : [])]];
 	return new Promise((resolveStart, reject) => {
 		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);
@@ -705,7 +708,7 @@ export function createApp(
 		start: (n) => {
 			setRole(n.id, n.role);
 			sending.add(n.id);
-			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode })
+			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode, allow: KITCHEN_TOOLS })
 				.catch((e) => console.error("container start failed:", e))
 				.finally(() => sending.delete(n.id));
 		},

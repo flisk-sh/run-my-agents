@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 // Everything the board owns (reading sessions, sending a message, starting an agent) comes in through KitchenCtx,
 // so this module never reaches into the board's internals and can be tested on its own.
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
-import { clearLessons, injectSkills, KITCHEN_MODE, freshChat, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
+import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
@@ -67,8 +67,6 @@ export function failLine(text: string): string {
 
 /** How many times the orchestrator answers one step's agent before the step moves on without it. */
 export const MAX_ANSWERS = 2;
-/** Chats the kitchen started: container agents ("Build · flisk 3125") and Ship agents ("Ship · #12"). */
-export const KITCHEN_CHAT = /^(?:(?:Spec|Build|Test|Review) · .+ [0-9a-f]{4}|Ship · #\d+|Auto cooks · .+ [0-9a-f]{4}|Kitchen cooks [0-9a-f]{4})$/;
 /** Every kitchen message ends with who reads the reply, so agents stop writing to (and waiting on) a user. */
 export const ADDRESS =
 	"Your reply goes to the kitchen's orchestrator, not to a person. When you stop, it reads your last message and moves the order on. If you need something from another agent on this order, write a line `To Spec: <question>` (or Build, Test, Review); the orchestrator delivers it and brings the answer back to you. Do not ask the user anything; otherwise end with one clear result line.";
@@ -144,7 +142,7 @@ const git = (dir: string, args: string[], timeout = 20_000) =>
 	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout }).trim();
 
 /**
- * The order's own git worktree, made by the board (agents skipped the step when asked to): <repo>/.git/kitchen/
+ * The order's own git worktree, made by the board (agents skipped the step when asked to): <repo>/.kitchen/
  * order-<n> on branch kitchen/order-<n>, from origin/main (or HEAD when the repo has no remote). Every agent on the
  * order starts its chat there, so no edit lands in the shared checkout, Review sees only this order's diff, and Ship
  * has a clean branch to push. Not a git repo, or git fails: undefined, and the order works in its folder as before.
@@ -154,8 +152,27 @@ export function orderWorktree(cwd: string, n: number): string | undefined {
 	if (!cwd || !cwd.startsWith("/") || !isDir(cwd)) return undefined;
 	try {
 		const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-		const path = joinPath(resolvePath(top, git(top, ["rev-parse", "--git-common-dir"])), "kitchen", `order-${n}`);
+		const common = resolvePath(top, git(top, ["rev-parse", "--git-common-dir"]));
+		// Under the repo's own folder, never under .git: Claude Code protects everything in .git, so agents could not
+		// edit a single file there ("File …/.git/kitchen/order-12/…/view.ts is protected"). Hidden from git status by
+		// .git/info/exclude.
+		const path = joinPath(top, ".kitchen", `order-${n}`);
+		try {
+			const exclude = joinPath(common, "info", "exclude");
+			const lines = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
+			if (!lines.split("\n").includes(".kitchen/")) {
+				mkdirSync(joinPath(common, "info"), { recursive: true });
+				appendFileSync(exclude, `${lines && !lines.endsWith("\n") ? "\n" : ""}.kitchen/\n`);
+			}
+		} catch {}
 		if (isDir(path)) return path;
+		// A worktree made where agents could not edit it (.git/kitchen, before this fix) moves here, keeping its branch.
+		const old = joinPath(common, "kitchen", `order-${n}`);
+		if (isDir(old)) {
+			mkdirSync(joinPath(top, ".kitchen"), { recursive: true });
+			git(top, ["worktree", "move", old, path]);
+			return path;
+		}
 		const branch = `kitchen/order-${n}`;
 		try {
 			git(top, ["fetch", "-q", "origin"]);
@@ -194,10 +211,10 @@ export function worktreeChanged(wt: string, base?: string): boolean {
 
 /**
  * An agent works in a repo when its chat is in the repo folder or in one of the repo's order worktrees
- * (<repo>/.git/kitchen/order-<n>): agents start each order's chat inside its worktree, so after their first order
+ * (<repo>/.kitchen/order-<n>, or .git/kitchen before it moved): agents start each order's chat inside its worktree, so after their first order
  * their folder is a worktree, and a plain equality check called every one of them busy elsewhere.
  */
-export const sameRepo = (agentCwd: string | undefined, repo: string) => !!agentCwd && (agentCwd === repo || agentCwd.startsWith(`${repo}/.git/kitchen/`));
+export const sameRepo = (agentCwd: string | undefined, repo: string) => !!agentCwd && (agentCwd === repo || agentCwd.startsWith(`${repo}/.kitchen/`) || agentCwd.startsWith(`${repo}/.git/kitchen/`));
 
 /** Where the Run My Agents board's own code lives, for orders about the board itself. */
 export const BOARD_ROOT = resolvePath(import.meta.dir, "../../../../..");
@@ -503,7 +520,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
 			.join("");
 		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it.
-		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree ?? orderWorktree(order.cwd, order.n)) : undefined;
+		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
 		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
 		const lastTime = order.retryOf

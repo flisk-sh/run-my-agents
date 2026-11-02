@@ -581,7 +581,7 @@ describe("ship and the skill sidecar", () => {
 		const r = (await post("/api/tasks/serve", { id: "t", pass: true })).body;
 		expect(r).toMatchObject({ stage: "review", shipping: true });
 		const ship = started.at(-1);
-		expect(ship).toMatchObject({ id: r.assignee, mode: "auto", model: "haiku", cwd: tmpdir() });
+		expect(ship).toMatchObject({ id: r.assignee, mode: "acceptEdits", model: "haiku", cwd: tmpdir() });
 		expect(ship?.text).toContain("git commit -s");
 		expect(ship?.text).toContain("gh pr create");
 		expect(ship?.text).toContain("kitchen/order-1");
@@ -603,17 +603,17 @@ describe("ship and the skill sidecar", () => {
 		const { post, started } = setup(sessions);
 		await post("/api/containers", { name: "B", role: "Code", stages: ["build"], replicas: 1, cwd: repo });
 		await post("/api/containers/reconcile", {});
-		expect(started[0]).toMatchObject({ mode: "auto" });
+		expect(started[0]).toMatchObject({ mode: "acceptEdits" });
 		sessions.push({ ...session(started[0].id as string, "Build"), cwd: repo, updatedAt: Date.now() - 60_000 });
 		await post("/api/containers/reconcile", {});
 		order({ n: 7, stage: "build", cwd: repo, kind: "task" });
 		const r = (await post("/api/tasks/dispatch", { id: "t" })).body;
 		const { realpathSync } = await import("node:fs");
-		const wt = join(realpathSync(repo), ".git", "kitchen", "order-7");
+		const wt = join(realpathSync(repo), ".kitchen", "order-7");
 		expect(r).toMatchObject({ worktree: wt, fresh: true });
 		expect(existsSync(join(wt, "a.txt"))).toBe(true);
 		expect(execFileSync("git", ["-C", wt, "branch", "--show-current"], { encoding: "utf8" }).trim()).toBe("kitchen/order-7");
-		expect(started.at(-1)).toMatchObject({ cwd: wt, mode: "auto" });
+		expect(started.at(-1)).toMatchObject({ cwd: wt, mode: "acceptEdits" });
 		expect(started.at(-1)?.text).toContain(`You are in this order's own git worktree: ${wt}`);
 		// A second stage reuses the same worktree instead of making another.
 		const { orderWorktree } = await import("../src/kitchen/routes");
@@ -826,5 +826,25 @@ describe("agent to agent", () => {
 		const { ADDRESS, questionsIn } = await import("../src/kitchen/routes");
 		expect(ADDRESS).toContain("To Spec: <question>");
 		expect(questionsIn("**To Spec:** what is X?\nnot a question\nTo build: and Y")).toEqual([{ stage: "spec", question: "what is X?" }, { stage: "build", question: "and Y" }]);
+	});
+});
+
+describe("kitchen permissions", () => {
+	it("starts and resumes kitchen chats with the tool allow-list, and leaves your own chats alone", async () => {
+		const { sendToSession, startNewSession } = await import("../src/index");
+		const { KITCHEN_TOOLS } = await import("../src/kitchen/containers");
+		const calls: string[][] = [];
+		const run = ((_cmd: string, args: string[]) => {
+			calls.push(args);
+			return { on: (e: string, f: () => void) => e === "close" && setTimeout(f, 0), stdin: { end() {} } };
+		}) as never;
+		await startNewSession({ agent: "claude", cwd: "/repo", text: "x", id: "a", mode: "acceptEdits", allow: KITCHEN_TOOLS }, run);
+		expect(calls[0]).toContain("--allowedTools");
+		expect(calls[0]).toContain("Bash(git:*)");
+		expect(calls[0][calls[0].indexOf("--permission-mode") + 1]).toBe("acceptEdits");
+		await sendToSession({ ...session("k", "Build"), title: "Build · repo 1a2b", tune: { mode: "acceptEdits" } }, "hi", run);
+		expect(calls[1]).toContain("Bash(gh:*)");
+		await sendToSession({ ...session("m", "Code"), title: "my own chat" }, "hi", run);
+		expect(calls[2]).not.toContain("--allowedTools");
 	});
 });

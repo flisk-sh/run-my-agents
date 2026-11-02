@@ -110,7 +110,7 @@ describe("full SDLC, end to end", () => {
 		expect(Object.keys(t.notes)).toEqual(["spec", "build", "test", "review"]);
 		expect(t.notes.spec).toContain("Checks: range(1,3) is [1,2,3]");
 		// The change lives on the order's branch, committed with sign-off, never in the main checkout.
-		const wt = join(r, ".git", "kitchen", "order-1");
+		const wt = join(r, ".kitchen", "order-1");
 		expect(t.worktree).toBe(wt);
 		expect(execFileSync("git", ["-C", wt, "log", "-1", "--format=%s%n%b"], { encoding: "utf8" })).toContain("fix: range includes its end");
 		expect(execFileSync("git", ["-C", wt, "log", "-1", "--format=%b"], { encoding: "utf8" })).toContain("Signed-off-by");
@@ -137,7 +137,7 @@ describe("full SDLC, end to end", () => {
 		expect(t).toMatchObject({ stage: "done", failed: true, followUp: 2 });
 		expect(t.failures[0]).toContain("build: no changes made in the worktree");
 		expect(follow).toMatchObject({ n: 2, retryOf: 1, kind: "task" });
-		expect(existsSync(join(r, ".git", "kitchen", "order-1"))).toBe(true);
+		expect(existsSync(join(r, ".kitchen", "order-1"))).toBe(true);
 	});
 });
 
@@ -152,5 +152,24 @@ describe("ship guard", () => {
 		const res = await (await app.request("/api/tasks/serve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: "t", pass: true }) })).json();
 		expect(res).toMatchObject({ stage: "done" });
 		expect(started.filter((t) => t.startsWith("Ship order"))).toEqual([]);
+	});
+});
+
+describe("worktree location", () => {
+	it("keeps order worktrees out of .git (agents cannot edit there), hidden from git status, and moves an old one", async () => {
+		const r = repo();
+		const { orderWorktree } = await import("../src/kitchen/routes");
+		const wt = orderWorktree(r, 3) as string;
+		expect(wt).toBe(join(r, ".kitchen", "order-3"));
+		expect(wt.includes("/.git/")).toBe(false);
+		expect(execFileSync("git", ["-C", r, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
+		// A worktree made under .git/kitchen before this fix moves to .kitchen with its branch and its edits.
+		execFileSync("git", ["-C", r, "worktree", "add", join(r, ".git", "kitchen", "order-4"), "-b", "kitchen/order-4"], { stdio: "ignore" });
+		writeFileSync(join(r, ".git", "kitchen", "order-4", "note.txt"), "work in progress");
+		const moved = orderWorktree(r, 4) as string;
+		expect(moved).toBe(join(r, ".kitchen", "order-4"));
+		expect(readFileSync(join(moved, "note.txt"), "utf8")).toBe("work in progress");
+		expect(execFileSync("git", ["-C", moved, "branch", "--show-current"], { encoding: "utf8" }).trim()).toBe("kitchen/order-4");
+		expect(existsSync(join(r, ".git", "kitchen", "order-4"))).toBe(false);
 	});
 });
