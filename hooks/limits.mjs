@@ -5,7 +5,7 @@
 
 import { mkdirSync, readFileSync, renameSync, statSync, openSync, readSync, closeSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 export const DIR = process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
 const LIMITS = join(DIR, "limits.json");
@@ -91,9 +91,21 @@ export function transcriptUsage(session, path) {
   return cache;
 }
 
-/** Sets the model for new sessions in a project, in its .claude/settings.local.json, keeping other settings. */
+/**
+ * Sets the model for new sessions in a project, in its .claude/settings.local.json, keeping other settings.
+ * Answers null without writing anything unless the folder exists and the alias is on the ladder: the board takes
+ * the folder from a session's own transcript, which is not ours to trust with a file write.
+ */
 export function setProjectModel(cwd, alias) {
-  const path = join(cwd, ".claude", "settings.local.json");
+  if (!LADDER.includes(alias)) return null;
+  const dir = String(cwd || "");
+  if (!isAbsolute(dir)) return null;
+  try {
+    if (!statSync(dir).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  const path = join(dir, ".claude", "settings.local.json");
   const settings = readJson(path, {});
   writeJson(path, { ...settings, model: alias });
   return path;

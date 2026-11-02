@@ -110,6 +110,16 @@ describe("codex, limits and skills", () => {
 		expect(res.status).toBe(400);
 	});
 
+	it("will not write settings into a folder that does not exist", async () => {
+		const s = parseSession("o", [ask("x"), line({ type: "assistant", cwd: "/no/such/folder", message: { model: "claude-opus-5-5", content: [{ type: "text", text: "hi" }] } })], now);
+		const app = createApp(() => (s ? [s] : []));
+		const res = await app.request("/api/downgrade", { method: "POST", headers: { "content-type": "application/json" }, body: '{"id":"o"}' });
+		expect(res.status).toBe(400);
+		const { setProjectModel } = await import("../../../../hooks/limits.mjs");
+		expect(setProjectModel("relative/dir", "sonnet")).toBeNull();
+		expect(setProjectModel("/tmp", "../../etc")).toBeNull();
+	});
+
 	it("suggests skills for each role from the roadmap catalog", async () => {
 		const { skillsFor } = await import("../src/index");
 		expect(skillsFor("Design").every((k) => k.cat === "frontend")).toBe(true);

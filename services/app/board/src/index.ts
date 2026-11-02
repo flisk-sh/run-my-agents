@@ -279,7 +279,9 @@ export function createApp(
 		const s = read().find((x) => x.id === id && x.agent === "claude");
 		const lower = s ? lowerModel(s.model) : null;
 		if (!s || !s.cwd || !lower) return c.json({ error: "No cheaper model for this session." }, 400);
-		return c.json({ model: lower, file: setProjectModel(s.cwd, lower) });
+		const file = setProjectModel(s.cwd, lower);
+		if (!file) return c.json({ error: "That session's folder is gone." }, 400);
+		return c.json({ model: lower, file });
 	});
 	app.post("/api/send", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
