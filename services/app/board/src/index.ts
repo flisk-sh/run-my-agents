@@ -13,6 +13,7 @@ import { PAGE } from "./page";
 import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
+import { KITCHEN_AGENTS } from "./kitchen/agents";
 import { mountKitchen } from "./kitchen/routes";
 import { skillsFor } from "./kitchen/skills";
 
@@ -20,7 +21,7 @@ export { skillsFor };
 
 /** The avatar for a session: always its role's own face and color (Code is blue, Design purple, ...). */
 export function faceOf(s: Session) {
-	const a = AGENTS.find((x) => x.role === s.role) ?? (AGENTS.find((x) => x.role === "Code") as (typeof AGENTS)[number]);
+	const a = AGENTS.find((x) => x.role === s.role) ?? KITCHEN_AGENTS.find((x) => x.role === s.role) ?? (AGENTS.find((x) => x.role === "Code") as (typeof AGENTS)[number]);
 	return { shape: a.shape, eyes: a.eyes, color: a.color, extra: a.extra };
 }
 
@@ -709,6 +710,7 @@ export function createApp(
 		tune: (id, t) => setTune(id, t),
 		close: (id) => setHidden(id, true),
 		name: (id, label) => setName(id, label),
+		type: (id, role) => setRole(id, role),
 		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd, o) => askHaiku(q, cwd, spawn, !!o?.web) : undefined),
 		guessRole: (title) => guessRole(title, []),
 		sameOrigin,

@@ -8,11 +8,11 @@ export const STAGES = ["inbox", "spec", "build", "test", "review", "done"] as co
 export type Stage = (typeof STAGES)[number];
 /** Which agent types can cook each stage. The first is the one the order asks for. */
 export const STAGE_ROLES: Record<Stage, string[]> = {
-	inbox: ["Planner"],
-	spec: ["Planner"],
-	build: ["Code", "Feature", "Refactor", "Bug", "Design"],
-	test: ["Bug", "Code"],
-	review: ["Planner", "Code"],
+	inbox: ["Spec", "Planner"],
+	spec: ["Spec", "Planner"],
+	build: ["Build", "Code", "Feature", "Refactor", "Bug", "Design"],
+	test: ["Test", "Bug", "Code"],
+	review: ["Review", "Planner", "Code"],
 	done: [],
 };
 export const PRIORITIES = ["P0", "P1", "P2"] as const;

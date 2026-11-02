@@ -6,9 +6,10 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { AGENTS } from "../../web/src/avatars";
+import { KITCHEN_ROLES } from "./kitchen/agents";
 import type { Session } from "./sessions";
 
-export const ROLES: string[] = AGENTS.map((a) => a.role);
+export const ROLES: string[] = [...AGENTS.map((a) => a.role), ...KITCHEN_ROLES];
 
 /** Read on every call, so a different RUN_MY_AGENTS_DIR (tests, a second profile) just works. */
 const dir = () => process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");

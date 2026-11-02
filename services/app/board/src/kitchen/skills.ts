@@ -24,6 +24,10 @@ export const ROLE_CATS: Record<string, string[]> = {
 	Bug: ["debug", "test", "code"],
 	Refactor: ["code", "test"],
 	Feature: ["code", "frontend", "test"],
+	Spec: ["plan"],
+	Build: ["code", "debug"],
+	Test: ["test"],
+	Review: ["review", "security"],
 };
 
 /** Up to `n` catalog skills for an agent type, Flisk's own first. */

@@ -39,6 +39,8 @@ export type Container = {
 	missMinutes: number;
 	pods: Pod[];
 	lessons: { at: number; order: string; reason: string }[];
+	/** Containers with the same key share one lessons skill: every Build container learns from every build. */
+	lessonsKey?: string;
 	created: number;
 };
 
@@ -73,13 +75,14 @@ export function createContainer(c: Partial<Container> & { name: string; role: st
 		missMinutes: Math.max(5, Math.min(24 * 60, c.missMinutes ?? 30)),
 		pods: [],
 		lessons: [],
+		...(c.lessonsKey ? { lessonsKey: c.lessonsKey } : {}),
 		created: Date.now(),
 	};
 	store.write([...all, box]);
 	return box;
 }
 
-export function patchContainer(id: string, patch: Partial<Pick<Container, "replicas" | "floor" | "model" | "effort" | "skills" | "maxStrikes" | "missMinutes" | "name">>) {
+export function patchContainer(id: string, patch: Partial<Pick<Container, "replicas" | "floor" | "role" | "lessonsKey" | "model" | "effort" | "skills" | "maxStrikes" | "missMinutes" | "name">>) {
 	return store.update((all) => {
 		const c = all.find((x) => x.id === id);
 		if (!c) return undefined;
@@ -94,7 +97,7 @@ export function clearLessons(id: string) {
 		const c = all.find((x) => x.id === id);
 		if (!c) return undefined;
 		c.lessons = [];
-		writeLessons(c.slug, c.name, []);
+		writeShared(all, lessonsKeyOf(c), c.lessonsKey ? `${c.role} agents` : c.name);
 		return c;
 	});
 }
@@ -104,6 +107,14 @@ export const removeContainer = (id: string) => store.update((all) => {
 	if (i >= 0) all.splice(i, 1);
 	return i >= 0;
 });
+
+/** The lessons skill a container reads and writes: shared by key, else its own. */
+export const lessonsKeyOf = (c: Pick<Container, "slug" | "lessonsKey">) => c.lessonsKey ?? c.slug;
+/** Rewrites one lessons skill from every container that shares its key. */
+function writeShared(all: Container[], key: string, name: string) {
+	const lessons = all.filter((x) => lessonsKeyOf(x) === key).flatMap((x) => x.lessons).sort((a, b) => a.at - b.at);
+	writeLessons(key, name, lessons);
+}
 
 const live = (c: Container) => c.pods.filter((p) => p.status !== "evicted");
 
@@ -129,7 +140,7 @@ export function strike(session: string, order: string, reason: string): { contai
 			c.lessons.push({ at: Date.now(), order, reason });
 			const fired = p.strikes >= c.maxStrikes;
 			if (fired) Object.assign(p, { status: "evicted", reason: `${p.strikes} strikes. Last: ${reason}`.slice(0, 300), evictedAt: Date.now() });
-			writeLessons(c.slug, c.name, c.lessons);
+			writeShared(all, lessonsKeyOf(c), c.lessonsKey ? `${c.role} agents` : c.name);
 			return { container: c.id, pod: { ...p }, fired };
 		}
 		return undefined;
@@ -151,6 +162,8 @@ export type ReconcileCtx = {
 	close: (id: string) => void;
 	/** Names a pod on the board, so a container's agents are told apart from your own chats. */
 	name?: (id: string, label: string) => void;
+	/** Sets a pod's agent type on the board to its container's type. */
+	type?: (id: string, role: string) => void;
 	now?: number;
 };
 
@@ -159,7 +172,7 @@ export const podName = (c: Pick<Container, "name">, id: string) => `${c.name} ${
 
 /** The first prompt a new pod gets: who it is, and the lessons it must read. */
 export function bootPrompt(c: Container) {
-	return `You are a ${c.role} agent in the "${c.name}" agent container on the Run My Agents board. Orders for ${c.stages.join(", ")} will arrive as messages. Before each order, read the /${lessonsSkill(c.slug)} skill: it lists mistakes that got earlier agents in this container replaced. Reply "ready" and wait for your first order.`;
+	return `You are a ${c.role} agent in the "${c.name}" agent container on the Run My Agents board. Orders for ${c.stages.join(", ")} will arrive as messages. Before each order, read the /${lessonsSkill(lessonsKeyOf(c))} skill: it lists mistakes that got earlier agents in this container replaced. Reply "ready" and wait for your first order.`;
 }
 
 /**
@@ -177,6 +190,7 @@ export function reconcile(ctx: ReconcileCtx) {
 				if (s && !s.hidden && p.status === "starting") {
 					p.status = "ready";
 					ctx.name?.(p.session, podName(c, p.session));
+					ctx.type?.(p.session, c.role);
 					did.push(`${c.name}: ${p.session.slice(0, 8)} ready`);
 				}
 				// Gone or closed by hand: a starting pod gets 10 minutes to show up.

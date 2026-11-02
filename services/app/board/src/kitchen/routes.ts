@@ -3,7 +3,8 @@
 // so this module never reaches into the board's internals and can be tested on its own.
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
-import { clearLessons, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
+import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
+import { clearLessons, lessonsKeyOf, podName, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
@@ -22,6 +23,8 @@ export type KitchenCtx = {
 	ask?: (question: string, cwd: string, opts?: { web?: boolean }) => Promise<string>;
 	/** Names a session on the board (container agents get their container's name). */
 	name?: (id: string, label: string) => void;
+	/** Sets a session's agent type on the board (container agents get their stage's type). */
+	type?: (id: string, role: string) => void;
 	guessRole: (title: string) => string;
 	sameOrigin: (c: Context) => boolean;
 	fetch?: typeof fetch;
@@ -47,10 +50,6 @@ const SETTINGS = new JsonStore<{ auto: boolean }>("kitchen.json");
 const settings = () => SETTINGS.read()[0] ?? { auto: true };
 /** The most agents the autoscaler runs per folder. */
 export const MAX_AGENTS = 3;
-/** The stages that have their own agent containers, and who staffs each. */
-const WORK_STAGES = ["spec", "build", "test", "review"] as const;
-const STAGE_NAME: Record<(typeof WORK_STAGES)[number], string> = { spec: "Spec", build: "Build", test: "Test", review: "Review" };
-const STAGE_ROLE: Record<(typeof WORK_STAGES)[number], string> = { spec: "Planner", build: "Code", test: "Bug", review: "Planner" };
 /** The stage that has to staff an order next: an inbox task goes to spec, or straight to build on the fast lane. */
 const staffStage = (t: Task) => (t.stage === "inbox" ? (t.lane === "fast" ? "build" : "spec") : t.stage);
 /** The assignee of a question the front desk is answering. */
@@ -62,7 +61,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const tick = () => {
 		missed();
 		auto();
-		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close, name: k.name });
+		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close, name: k.name, type: k.type });
 	};
 	if (k.every) setInterval(tick, k.every).unref?.();
 
@@ -250,7 +249,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// A question is a worker's job (Haiku, low); only planning a task is the orchestrator's.
 		const policy = policyFor(order.kind === "question" ? "build" : order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, policy);
-		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(box.slug)] : [])]);
+		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(lessonsKeyOf(box))] : [])]);
 		const verdict = order.stage === "test" || order.stage === "review";
 		const card = order.zachman ? `\n\n${zachmanLines(order.zachman)}` : "";
 		const text =
@@ -338,8 +337,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	}
 
 	/**
-	 * The autoscaler, like a Kubernetes HorizontalPodAutoscaler, with one container per stage per folder: Spec
-	 * (Planner), Build (Code), Test (Bug) and Review (Planner), each with its stage's skill set and its own lessons.
+	 * The autoscaler, like a Kubernetes HorizontalPodAutoscaler, with one container per stage per folder, staffed by
+	 * the kitchen's four agent types (Spec, Build, Test, Review). Each has its stage's skill set, and all containers
+	 * of a stage share one lessons skill (rma-lessons-<stage>).
 	 * A stage container is made the first time an order needs that stage, grows while every agent in it is busy (up
 	 * to MAX_AGENTS) and shrinks back to its floor when the stage has no orders. Containers you made yourself are
 	 * used and scaled the same way, never deleted.
@@ -356,9 +356,20 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				const waiting = here.filter((t) => !t.assignee).length;
 				const working = here.filter((t) => t.assignee).length;
 				let box = readContainers().find((x) => x.cwd === cwd && x.stages.length === 1 && x.stages[0] === stage);
+				// Older stage containers used the general types (Planner, Code, Bug): move them to the stage's type
+				// and its shared lessons, and retype their agents.
+				if (box && (box.role !== STAGE_TYPE[stage] || box.lessonsKey !== stage)) {
+					patchContainer(box.id, { role: STAGE_TYPE[stage], lessonsKey: stage });
+					for (const p of box.pods)
+						if (p.status !== "evicted") {
+							k.type?.(p.session, STAGE_TYPE[stage]);
+							k.name?.(p.session, podName({ name: box.name }, p.session));
+						}
+					did.push(`${box.name}: now ${STAGE_TYPE[stage]} agents`);
+				}
 				if (!box) {
 					if (!waiting) continue;
-					box = createContainer({ floor: 1, name: `${STAGE_NAME[stage]} · ${folder}`, role: STAGE_ROLE[stage], stages: [stage], replicas: 1, cwd, model: "", effort: "", skills: STAGE_SKILLS[stage] });
+					box = createContainer({ floor: 1, name: `${STAGE_TYPE[stage]} · ${folder}`, role: STAGE_TYPE[stage], lessonsKey: stage, stages: [stage], replicas: 1, cwd, model: "", effort: "", skills: STAGE_SKILLS[stage] });
 					stock(STAGE_SKILLS[stage], k.fetch);
 					did.push(`created ${box.name}`);
 					continue;
@@ -402,12 +413,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.get("/api/skillsets", (c) =>
 		c.json({
 			policy: POLICY,
+			types: KITCHEN_AGENTS,
 			stages: Object.fromEntries(STAGES.map((st) => [st, { policy: policyFor(st), skills: STAGE_SKILLS[st].map((n) => ({ name: n, haiku: haikuFit(n), state: skillState(n), what: SKILLS.find((s) => s.name === n)?.what ?? "" })) }])),
 		}),
 	);
 
 	// ---------- agent containers ----------
-	const view = (x: Container) => ({ ...x, lessonsSkill: lessonsSkill(x.slug), ready: x.pods.filter((p) => p.status === "ready").length, skills: x.skills.map((n) => ({ name: n, haiku: haikuFit(n), state: skillState(n) })) });
+	const view = (x: Container) => ({ ...x, lessonsSkill: lessonsSkill(lessonsKeyOf(x)), ready: x.pods.filter((p) => p.status === "ready").length, skills: x.skills.map((n) => ({ name: n, haiku: haikuFit(n), state: skillState(n) })) });
 	app.get("/api/containers", (c) => c.json({ containers: readContainers().map(view), roles: Object.keys(STAGE_ROLES) }));
 	app.post("/api/containers", async (c) => {
 		const no = guard(c);

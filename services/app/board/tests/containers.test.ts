@@ -77,7 +77,7 @@ describe("agent containers", () => {
 		expect(box).toMatchObject({ slug: "builders", model: "", effort: "" });
 		await post("/api/containers/reconcile", {});
 		expect(started).toHaveLength(2);
-		expect(started[0].text).toContain("/rma-lessons-builders");
+		expect(started[0].text).toContain("/rma-lessons-build");
 		for (const s of started) sessions.push(session(s.id as string, "Code"));
 		await post("/api/containers/reconcile", {});
 		expect(readContainers()[0].pods.map((p) => p.status)).toEqual(["ready", "ready"]);
@@ -108,7 +108,7 @@ describe("agent containers", () => {
 		expect((await post("/api/tasks/serve", { id: "t", pass: false })).body.fired).toBe(false);
 		order({ stage: "test", assignee: "tester", sentAt: 1, rounds: 1, crew: { build: { id: pod, role: "Code", name: "x" } } });
 		expect((await post("/api/tasks/serve", { id: "t", pass: false })).body.fired).toBe(true);
-		const lessons = readFileSync(join(skills, "rma-lessons-builders", "SKILL.md"), "utf8");
+		const lessons = readFileSync(join(skills, "rma-lessons-build", "SKILL.md"), "utf8");
 		expect(lessons).toContain("#1 fix it");
 		await post("/api/containers/reconcile", {});
 		expect(started).toHaveLength(2);
@@ -126,7 +126,7 @@ describe("agent containers", () => {
 		await post("/api/containers/reconcile", {});
 		expect(readContainers()[0].pods[0].strikes).toBe(1);
 		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0].assignee).toBe("");
-		expect(existsSync(join(skills, "rma-lessons-builders", "SKILL.md"))).toBe(true);
+		expect(existsSync(join(skills, "rma-lessons-build", "SKILL.md"))).toBe(true);
 	});
 
 	it("names every pod after its container, so it is not another 'You are a Code agent' row", async () => {
@@ -185,7 +185,7 @@ describe("autopilot", () => {
 		const { post, started } = setup([]);
 		order({ stage: "inbox", approved: false, cwd: "/work/app", title: "add search filters to the sessions list with saved views" });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("created Spec · app");
-		expect(readContainers()[0]).toMatchObject({ name: "Spec · app", role: "Planner", stages: ["spec"], replicas: 1, model: "" });
+		expect(readContainers()[0]).toMatchObject({ name: "Spec · app", role: "Spec", lessonsKey: "spec", stages: ["spec"], replicas: 1, model: "" });
 		expect(readContainers()[0].skills).toContain("spec-driven-workflow");
 		await post("/api/containers/reconcile", {});
 		expect(started.length).toBe(1);
@@ -193,7 +193,7 @@ describe("autopilot", () => {
 		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1, stage: "build", approved: true }))));
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("created Build · app");
-		expect(readContainers().find((x) => x.name === "Build · app")).toMatchObject({ role: "Code", stages: ["build"] });
+		expect(readContainers().find((x) => x.name === "Build · app")).toMatchObject({ role: "Build", lessonsKey: "build", stages: ["build"] });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · app: 1 → 3 agents");
 		// All served: back to one.
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2, 3].map((i) => ({ ...t, id: `t${i}`, n: i + 1, stage: "done" }))));
