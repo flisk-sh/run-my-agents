@@ -678,3 +678,33 @@ describe("ship and the skill sidecar", () => {
 		expect(asked[0].skills).toContain("Use page.getByRole.");
 	});
 });
+
+describe("follow-up on failure", () => {
+	it("records each FAIL, then opens one follow-up task that carries the reasons and the old spec", async () => {
+		const tester = { ...session("tst", "Test"), feed: [{ who: "you", text: "Order", at: 1 } as never, { who: "agent", text: "Ran it.\n**FAIL** — range(1,3) returned [1,2], expected [1,2,3].", at: 2 } as never] };
+		const { post, sent } = setup([tester, { ...session("bld", "Build"), updatedAt: Date.now() - 60_000 }]);
+		order({ kind: "task", stage: "test", assignee: "tst", sentAt: 1, rounds: 2, cwd: "/repo", notes: { spec: "Goal: include the end." } });
+		const r = (await post("/api/tasks/serve", { id: "t", pass: false })).body;
+		expect(r).toMatchObject({ stuck: true, failures: ["test: FAIL — range(1,3) returned [1,2], expected [1,2,3]."] });
+		const did = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(did).toContain("#1 closed as failed");
+		expect(did).toContain("#1 followed up as #2");
+		const [old, next] = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+		expect(old).toMatchObject({ failed: true, followUp: 2 });
+		expect(next).toMatchObject({ n: 2, title: "fix it", lane: "full", retryOf: 1, failures: old.failures, notes: { spec: "Goal: include the end." } });
+		// Its agents are told what went wrong last time.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([old, { ...next, stage: "build", approved: true }]));
+		await post("/api/tasks/dispatch", { id: next.id, session: "bld" });
+		expect(sent.at(-1)).toContain("This is the second attempt at #1, which failed.");
+		expect(sent.at(-1)).toContain("- test: FAIL — range(1,3) returned [1,2]");
+	});
+
+	it("does not follow up a follow-up, so a hopeless order cannot loop", async () => {
+		const { post } = setup([]);
+		order({ kind: "task", stage: "test", stuck: true, rounds: 3, retryOf: 9 });
+		const did = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(did).toContain("#1 closed as failed");
+		expect(did.some((d: string) => d.includes("followed up"))).toBe(false);
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))).toHaveLength(1);
+	});
+});

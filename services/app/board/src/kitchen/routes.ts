@@ -440,11 +440,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree ?? orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt });
 		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
+		const lastTime = order.retryOf
+			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
+			: "";
 		const fresh = order.requeued ? `\n\nThis order was requeued: treat it as new. Earlier verdicts or rejections of #${order.n} do not apply.` : "";
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
 		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
 		if (box && order.skills.length) injectSkills(box.id, order.skills);
 		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
@@ -497,6 +500,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const builder = t.crew?.build?.id;
 			// The lesson is the agent's FAIL line, not the tail of its reply.
 			const why = failLine(handOff(k.read().find((x) => x.id === t.assignee))) || `FAIL in ${t.stage} (no reason given)`;
+			updateTask(t.id, { failures: [...(t.failures ?? []), `${t.stage}: ${why}`].slice(-6) });
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
 			if (hit?.fired && builder) k.close(builder);
 			const back = sendBack(t);
@@ -554,6 +558,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			} else if (t.stuck && t.stage !== "done") {
 				updateTask(t.id, { stage: "done", failed: true, assignee: "", sentAt: 0, servedAt: now });
 				did.push(`#${t.n} closed as failed`);
+				const next = followUp(t);
+				if (next) did.push(`#${t.n} followed up as #${next.n}`);
 			}
 		}
 		did.push(...autoscale(), ...retireMixed(), ...letIdleGo(now), ...sidecar());
@@ -623,6 +629,21 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			}
 		}
 		return did;
+	}
+
+	/**
+	 * A failed task gets one follow-up: a new order for the same request, through the full kitchen (spec first), that
+	 * carries what went wrong (each FAIL line) and the old spec. A follow-up that fails too is not followed up again,
+	 * so a hopeless order cannot loop and spend tokens forever.
+	 */
+	function followUp(t: Task): Task | undefined {
+		if (t.kind !== "task" || t.retryOf || t.followUp) return undefined;
+		const route = t.route;
+		const next = addTask({ title: t.title, cwd: t.cwd, priority: t.priority, skills: t.skills, route, kind: "task", lane: "full", zachman: t.zachman });
+		stock(t.skills, k.fetch);
+		updateTask(next.id, { retryOf: t.n, failures: t.failures ?? [], ...(t.notes?.spec ? { notes: { spec: t.notes.spec } } : {}) });
+		updateTask(t.id, { followUp: next.n });
+		return next;
 	}
 
 	/**

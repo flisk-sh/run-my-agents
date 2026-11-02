@@ -58,6 +58,12 @@ export type Task = {
 	notes?: Partial<Record<Stage, string>>;
 	/** This order's own git worktree (branch kitchen/order-<n>), made by the board for Build, Test, Review and Ship. */
 	worktree?: string;
+	/** Why its test or review said FAIL, one line per round, so a follow-up can learn from it. */
+	failures?: string[];
+	/** This order is the follow-up of failed order #retryOf. */
+	retryOf?: number;
+	/** The failed order was followed up as #followUp. */
+	followUp?: number;
 	/** Ship step running: an agent is committing, pushing and opening the pull request. */
 	shipping?: boolean;
 	/** The pull request the Ship step opened. */
@@ -100,7 +106,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
