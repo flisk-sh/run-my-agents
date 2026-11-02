@@ -384,6 +384,10 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 .gp.live .led.on{background:var(--c);box-shadow:0 0 10px -2px var(--c)}
 .gp .autob{display:none}
 .gp .gc:has(.led.on) .autob{display:inline-block}
+
+.gby{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:8px 4px 2px;font:600 10px var(--mono)}.gby span{color:var(--muted);margin-right:2px;text-transform:uppercase;letter-spacing:.06em;font-size:9px}
+.gby b{padding:3px 8px;border-radius:999px;color:var(--muted);background:rgba(255,255,255,.04);cursor:pointer;font-weight:600;transition:color .2s,background .2s,transform .15s}.gby b:hover{color:var(--text);background:rgba(255,255,255,.08)}.gby b:active{transform:scale(.94)}
+.gby b.on{color:#04120a;background:var(--mint);box-shadow:0 0 12px -3px var(--mint)}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
@@ -441,13 +445,18 @@ function toast(t){const el=$("toast");el.textContent=t;el.classList.add("on");cl
 const state=s=>C.some(c=>c.sessions.includes(s.id))?"y":Date.now()-s.updatedAt<120000?"g":"z";
 const GROUPS=[["Pinned",s=>!s.hidden&&s.pinned],["Working",s=>!s.hidden&&!s.pinned&&s.viaApp!==false&&state(s)!=="z"],["Idle",s=>!s.hidden&&!s.pinned&&s.viaApp!==false&&state(s)==="z"],["Not in the Claude app",s=>!s.hidden&&!s.pinned&&s.viaApp===false],["Closed",s=>s.hidden]];
 const groupName=s=>(GROUPS.find(g=>g[1](s))||[""])[0];
+// Group by: Status is the board's own grouping; the others group open sessions by one field, Closed stays last.
+const GBY=[["status","Status"],["type","Type"],["model","Model"],["folder","Folder"],["branch","Branch"],["pr","Pull request"]];
+let gby=(()=>{try{return localStorage.getItem("rma-group")||"status"}catch(e){return"status"}})();
+const GKEY={type:s=>s.role||"Code",model:s=>{const m=mdl((s.tune&&s.tune.model)||s.model);return m?m.label:"Unknown"},folder:s=>(s.cwd||"").split("/").filter(Boolean).pop()||"No folder",branch:s=>s.branch||"No branch",pr:s=>{const p=s.prs||[];if(!p.length)return"No pull request";const o=p.find(x=>x.state==="OPEN");return o?(o.draft?"Draft PR":o.checks==="fail"?"Open, checks failing":"Open PR"):p.some(x=>x.state==="MERGED")?"Merged":"Closed PR"}};
+function groupList(){if(gby==="status"||!GKEY[gby])return GROUPS;const k=GKEY[gby],names=[...new Set(S.filter(s=>!s.hidden).map(k))].sort((a,b)=>S.filter(s=>!s.hidden&&k(s)===b).length-S.filter(s=>!s.hidden&&k(s)===a).length||a.localeCompare(b));return names.map(n=>[n,s=>!s.hidden&&k(s)===n]).concat([["Closed",s=>s.hidden]])}
 function face(s,n){const f=s.face,m=motion(s);return '<div class="av'+(m.low?" low":m.wig?" wig":"")+'" data-face="'+s.id+'" style="width:'+n+'px;height:'+n+'px;'+m.style+'"><svg width="'+n+'" height="'+n+'" viewBox="0 0 64 64">'+SH[f.shape](f.color)+EY[f.eyes]+(XT[f.extra]||"")+'</svg>'+(n>32?'<span class="dot '+state(s)+'"></span>':"")+"</div>"}
 function render(){
  if(!S.length){$("side").innerHTML='<div class="proj">Run My Agents</div><div class="btns"><button class="btn new" data-act="newopen">'+ico(IC.plus)+'New session</button></div>';$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
- const groups=GROUPS;
+ const groups=groupList();
  const oldRows=snapRows();
- $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small class="cnt"><i></i>'+S.filter(s=>!s.hidden).length+" agents</small></div>"+'<div class="btns"><button class="btn new" data-act="newopen">'+ico(IC.plus)+'New session</button><button class="btn" data-act="limits">'+ico(IC.gauge)+(L.sessionTokens?"Limit "+limLabel(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?limPanel():"")+groups.map(([g,f])=>{const xs=ordSort(S.filter(f));if(!xs.length){return g==="Pinned"?'<div class="grp phold" data-grp="Pinned">Drag an agent here to pin it</div>':""}return '<div class="grp" data-grp="'+g+'">'+(fold[g]?"▸":"▾")+" "+g+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle ":"")+(s.id===movedId?"moved":"")+'" data-sel="'+s.id+'" draggable="true">'+face(s,36)+'<div class="t"><b class="nm">'+esc(s.title||"Untitled session")+'</b><span class="meta"><span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span><span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span>"+mtag(s)+ago(Date.now()-s.updatedAt)+prRow(s)+"</span><small>"+[esc(s.doing||""),kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · ")+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
+ $("side").innerHTML='<div class="proj" data-act="proj"><span>Run My Agents</span><small class="cnt"><i></i>'+S.filter(s=>!s.hidden).length+" agents</small></div>"+'<div class="btns"><button class="btn new" data-act="newopen">'+ico(IC.plus)+'New session</button><button class="btn" data-act="limits">'+ico(IC.gauge)+(L.sessionTokens?"Limit "+limLabel(L.sessionTokens)+" per session":"Set token limit")+"</button></div>"+(showLimits?limPanel():"")+'<div class="gby"><span>Group by</span>'+GBY.map(([k,l])=>'<b class="'+(k===gby?"on":"")+'" data-gby="'+k+'">'+l+"</b>").join("")+"</div>"+groups.map(([g,f])=>{const xs=ordSort(S.filter(f));if(!xs.length){return g==="Pinned"?'<div class="grp phold" data-grp="Pinned">Drag an agent here to pin it</div>':""}return '<div class="grp" data-grp="'+esc(g)+'">'+(fold[g]?"▸":"▾")+" "+esc(g)+" · "+xs.length+"</div>"+(fold[g]?"":xs.map(s=>{const unread=(s.feed.length-(seen[s.id]??s.feed.length));return '<div class="it '+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle ":"")+(s.id===movedId?"moved":"")+'" data-sel="'+s.id+'" draggable="true">'+face(s,36)+'<div class="t"><b class="nm">'+esc(s.title||"Untitled session")+'</b><span class="meta"><span class="rl" style="color:'+s.face.color+';background:color-mix(in srgb,'+s.face.color+' 18%,transparent)">'+esc(s.role)+'</span><span class="ag '+s.agent+'">'+(s.agent==="codex"?"CODEX":"CLAUDE")+"</span>"+mtag(s)+ago(Date.now()-s.updatedAt)+prRow(s)+"</span><small>"+[esc(s.doing||""),kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · ")+"</small></div>"+(unread>0&&s.id!==sel?'<span class="badge">'+unread+"</span>":"")+"</div>"}).join(""))}).join("");
  flip(oldRows);if(movedId){const mv=movedId;movedId="";setTimeout(()=>{const r=document.querySelector('#side .it[data-sel="'+mv+'"]');if(r)r.classList.remove("moved")},900)}
  const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.length;
  $("hd").innerHTML=face(s,34)+'<div class="ht"><div class="ttl"><b>'+esc(s.role)+'</b><i>&middot;</i><span title="'+esc(s.title||"Untitled")+'">'+esc(s.title||"Untitled")+'</span></div><div class="mchips">'+(s.branch||(s.prs&&s.prs.length)?'<span class="mc" data-ctext="'+esc(s.branch||"")+'" data-prs="'+s.id+'" title="Click to copy the branch. Hover for pull requests">'+ico(IC.branch)+esc(s.branch||"pull requests")+(s.prs&&s.prs.length?'<b class="prn">'+s.prs.length+" PR"+(s.prs.length>1?"s":"")+"</b>":"")+"</span>":"")+'<span class="mc" data-ctext="'+esc(s.cwd)+'" title="Copy folder path">'+ico(IC.folder)+esc(s.cwd.split("/").pop()||"")+'</span><span class="mc" data-ctext="'+esc(s.id)+'" title="Copy session ID">'+ico(IC.hash)+"session "+s.id.slice(0,8)+'</span></div></div><div class="hb">'+hb("pin",s.pinned?"Unpin":"Pin",ico(IC.pin),s.pinned)+hb("roles","Type: "+s.role,mini(s.face,14),showRoles)+hb("skills","Skills",ico(IC.star),showSkills)+hb("files","Files",ico(IC.files),false)+hb("mute",muted[s.id]?"Unmute":"Mute",ico(IC.bell),muted[s.id])+"</div>";
@@ -508,6 +517,7 @@ document.addEventListener("click",e=>{
  const cc=e.target.closest("[data-copycode]");if(cc){cp(cc.parentElement.querySelector("code").textContent);return}
  const qn=e.target.closest("[data-qnow]");if(qn){queueAct("api/queue/now",qn.dataset.qnow);return}
  const qd=e.target.closest("[data-qdrop]");if(qd){queueAct("api/queue/drop",qd.dataset.qdrop);return}
+ const gb=e.target.closest("[data-gby]");if(gb){gby=gb.dataset.gby;try{localStorage.setItem("rma-group",gby)}catch(_){}last="";render();return}
  const cl=e.target.closest("[data-col]");if(cl){const k=cl.dataset.col;if(COL.has(k))COL.delete(k);else COL.add(k);render();return}
  if(e.target.closest("a"))return;
  const m=e.target.closest("[data-msg]");if(m){if(String(getSelection()).length)return;m.classList.toggle("open");return}
@@ -620,8 +630,9 @@ document.addEventListener("drop",e=>{if(!dragId)return;const t=e.target.closest(
 function dropAgent(id,gname,where){const s=S.find(x=>x.id===id);if(!s)return;
  if(gname==="Closed"){if(!s.hidden){s.hidden=true;post("api/hide",{id,hidden:true})}}
  else{if(s.hidden){s.hidden=false;post("api/hide",{id,hidden:false})}
-  if(gname==="Pinned"&&!s.pinned){s.pinned=true;post("api/pin",{id,pinned:true})}
-  else if(gname!=="Pinned"&&s.pinned){s.pinned=false;post("api/pin",{id,pinned:false})}}
+  // in the other group-by views a drop only reorders, it never pins or unpins
+  if(gby==="status"){if(gname==="Pinned"&&!s.pinned){s.pinned=true;post("api/pin",{id,pinned:true})}
+  else if(gname!=="Pinned"&&s.pinned){s.pinned=false;post("api/pin",{id,pinned:false})}}}
  const flat=[];for(const g of GROUPS)for(const x of ordSort(S.filter(g[1])))flat.push(x.id);
  flat.splice(flat.indexOf(id),1);
  let at;if(where.target)at=flat.indexOf(where.target)+(where.after?1:0);else{const first=flat.findIndex(x=>groupName(S.find(y=>y.id===x))===gname);at=first<0?flat.length:first}
