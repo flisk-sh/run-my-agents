@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 // Everything the board owns (reading sessions, sending a message, starting an agent) comes in through KitchenCtx,
 // so this module never reaches into the board's internals and can be tested on its own.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
@@ -150,6 +151,22 @@ export function folderHint(text: string, folders: string[] = []): string | undef
 
 const git = (dir: string, args: string[], timeout = 20_000) =>
 	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout }).trim();
+
+/**
+ * A folder an agent's text may move an order to: only the root of a git repo, never the home folder. An agent's
+ * reply can carry a prompt injection from repo content, so "Folder: /Users/me" must not send an acceptEdits build
+ * into the home folder or any other non-repo folder (#190).
+ */
+export function movableTo(p: string | undefined): boolean {
+	if (!p || !p.startsWith("/") || !isDir(p)) return false;
+	try {
+		const real = realpathSync(p);
+		if (real === realpathSync(homedir()) || real === "/") return false;
+		return realpathSync(git(real, ["rev-parse", "--show-toplevel"])) === real;
+	} catch {
+		return false;
+	}
+}
 
 /**
  * The order's own git worktree, made by the board (agents skipped the step when asked to): <repo>/.kitchen/
@@ -764,7 +781,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (all) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: all }, draft: undefined }) ?? t;
 			// The Spec agent can move an order to the folder its code is in.
 			const moved = t.stage === "spec" ? folderHint(said) : t.stage === "build" ? elsewhere(said) : undefined;
-			if (moved && moved !== t.cwd && isDir(moved)) {
+			if (moved && moved !== t.cwd && movableTo(moved)) {
 				t = updateTask(t.id, { cwd: moved, worktree: undefined, baseDirty: undefined }) ?? t;
 				// A builder that found the code in another folder: build again there instead of failing the order.
 				if (t.stage === "build") return { status: 200, body: { ...updateTask(t.id, { assignee: "", sentAt: 0 }), moved } };

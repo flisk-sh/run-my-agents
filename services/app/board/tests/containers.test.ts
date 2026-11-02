@@ -531,13 +531,15 @@ describe("failure causes found in the agents' chats", () => {
 		const cook = { ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 };
 		sessions.push(cook);
 		await post("/api/containers/reconcile", {});
+		const repo = mkdtempSync(join(tmpdir(), "rma-spec-"));
+		(await import("node:child_process")).execFileSync("git", ["init", "-q", repo]);
 		order({ stage: "spec", approved: false, title: "add retries to the upload client so flaky networks recover", cwd: "/repo" });
 		await post("/api/tasks/dispatch", { id: "t" });
-		cook.feed = [...cook.feed, { who: "you", text: "Order #1 (spec)", at: Date.now() } as never, { who: "agent", text: `Goal: retry uploads 3 times.\nFolder: ${tmpdir()}`, at: Date.now() } as never, { who: "agent", text: "Spec complete.", at: Date.now() } as never];
+		cook.feed = [...cook.feed, { who: "you", text: "Order #1 (spec)", at: Date.now() } as never, { who: "agent", text: `Goal: retry uploads 3 times.\nFolder: ${repo}`, at: Date.now() } as never, { who: "agent", text: "Spec complete.", at: Date.now() } as never];
 		const served = (await post("/api/tasks/serve", { id: "t" })).body;
 		expect(served.notes.spec).toContain("Goal: retry uploads 3 times.");
 		expect(served.notes.spec).toContain("Spec complete.");
-		expect(served.cwd).toBe(tmpdir());
+		expect(served.cwd).toBe(repo);
 		expect(sent.at(-1)).toContain("add a line 'Folder:");
 	});
 
@@ -599,6 +601,25 @@ describe("one chat per order", () => {
 		expect(started.at(-1)?.text).toContain("Order #2 (build)");
 		expect(readContainers()[0].pods.find((p) => p.status !== "evicted")).toMatchObject({ session: b.assignee, lastOrder: "b" });
 		expect(sent.filter((x) => x.includes("Order #2"))).toEqual([]);
+	});
+
+	it("moves an order only to a git repo root, never the home folder or a plain folder (#190)", async () => {
+		const { movableTo, BOARD_ROOT } = await import("../src/kitchen/routes");
+		const { execFileSync } = await import("node:child_process");
+		const { homedir } = await import("node:os");
+		const repo = mkdtempSync(join(tmpdir(), "rma-repo-"));
+		execFileSync("git", ["init", "-q", repo]);
+		expect(movableTo(repo)).toBe(true);
+		expect(movableTo(join(repo, "."))).toBe(true);
+		const sub = join(repo, "sub");
+		(await import("node:fs")).mkdirSync(sub);
+		expect(movableTo(sub)).toBe(false);
+		expect(movableTo(mkdtempSync(join(tmpdir(), "rma-plain-")))).toBe(false);
+		expect(movableTo(homedir())).toBe(false);
+		expect(movableTo("/")).toBe(false);
+		expect(movableTo("/no/such/folder")).toBe(false);
+		expect(movableTo(undefined)).toBe(false);
+		expect(typeof BOARD_ROOT).toBe("string");
 	});
 
 	it("reads a spec's folder in any form, and lets you move an order's folder", async () => {
@@ -729,6 +750,7 @@ describe("ship and the skill sidecar", () => {
 		expect(elsewhere("This order requires access to `/Users/x/flisk-candidate-test-draft/` and belongs in a separate build container")).toBe("/Users/x/flisk-candidate-test-draft");
 		expect(elsewhere("Changed src/a.ts")).toBeUndefined();
 		const other = mkdtempSync(join(tmpdir(), "rma-other-"));
+		(await import("node:child_process")).execFileSync("git", ["init", "-q", other]);
 		const { post } = setup([{ ...session("bb", "Build"), feed: [{ who: "you", text: "Order", at: 1 } as never, { who: "agent", text: `Blocked: the code lives in \`${other}\`.`, at: 2 } as never] }]);
 		order({ stage: "build", assignee: "bb", sentAt: 1, cwd: "/repo", kind: "task" });
 		const r = (await post("/api/tasks/serve", { id: "t" })).body;
