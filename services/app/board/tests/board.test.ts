@@ -239,6 +239,30 @@ describe("send", () => {
 		expect(s?.hooks).toEqual({ runs: 1, errors: 1, last: "notify.sh" });
 	});
 
+	it("counts edit sizes, the context window and when you last wrote", async () => {
+		const { editSize } = await import("../src/sessions");
+		expect(editSize("Edit", { old_string: "a\nb", new_string: "a\nb\nc" })).toEqual({ add: 3, del: 2 });
+		expect(editSize("Write", { content: "x\ny" })).toEqual({ add: 2, del: 0 });
+		expect(editSize("MultiEdit", { edits: [{ old_string: "a", new_string: "b" }, { old_string: "c", new_string: "d\ne" }] })).toEqual({ add: 3, del: 2 });
+		const s = parseSession("ctx", [
+			line({ type: "user", timestamp: "2026-11-01T12:00:00Z", message: { content: "go" } }),
+			line({ type: "assistant", message: { usage: { input_tokens: 10, cache_read_input_tokens: 90_000, cache_creation_input_tokens: 5_000, output_tokens: 7 }, content: [{ type: "text", text: "ok" }] } }),
+			line({ type: "system", subtype: "compact_boundary" }),
+		], now);
+		expect([s?.context, s?.compacts, s?.asked]).toEqual([95_010, 1, Date.parse("2026-11-01T12:00:00Z")]);
+	});
+
+	it("keeps UMUX-Lite ratings on this computer and refuses bad ones", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(`${tmpdir()}/rma-umux-`);
+		const app = createApp(() => []);
+		const post = (b: object) => app.request("/api/umux", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+		expect((await post({ q1: 0, q2: 5 })).status).toBe(400);
+		expect((await post({ q1: 6, q2: 7 })).status).toBe(200);
+		expect((await (await app.request("/api/umux")).json()).ratings.map((r: { q1: number; q2: number }) => [r.q1, r.q2])).toEqual([[6, 7]]);
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

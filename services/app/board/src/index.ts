@@ -3,7 +3,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pr } from "./desktop";
-import { mkdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { Hono } from "hono";
@@ -358,6 +358,26 @@ export function createApp(
 			order: readOrder(),
 			build: BUILD,
 		});
+	});
+	// UMUX-Lite: two 1-7 questions about the board, kept on this computer, so changes can be measured.
+	const umuxFile = () => join(dataDir(), "umux.json");
+	const readUmux = (): { at: number; q1: number; q2: number }[] => {
+		try {
+			const a = JSON.parse(readFileSync(umuxFile(), "utf8"));
+			return Array.isArray(a) ? a.filter((r) => r && [r.q1, r.q2].every((q) => Number.isInteger(q) && q >= 1 && q <= 7)).slice(-200) : [];
+		} catch {
+			return [];
+		}
+	};
+	app.get("/api/umux", (c) => c.json({ ratings: readUmux() }));
+	app.post("/api/umux", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { q1, q2 } = (await c.req.json().catch(() => ({}))) as { q1?: number; q2?: number };
+		if (![q1, q2].every((q) => Number.isInteger(q) && (q as number) >= 1 && (q as number) <= 7)) return c.json({ error: "Answer both questions from 1 to 7." }, 400);
+		const all = [...readUmux(), { at: Date.now(), q1: q1 as number, q2: q2 as number }];
+		mkdirSync(dataDir(), { recursive: true });
+		writeFileSync(umuxFile(), JSON.stringify(all.slice(-200), null, 2));
+		return c.json({ ratings: all });
 	});
 	app.post("/api/limits", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);

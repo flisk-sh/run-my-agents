@@ -32,7 +32,13 @@ export interface Session {
 	/** The last tool it used, like "Edit api.ts". */
 	doing: string;
 	/** Files it edited, newest last, with the time of the edit. */
-	edits: { file: string; at: number }[];
+	edits: { file: string; at: number; add?: number; del?: number }[];
+	/** Tokens in the context window at the last reply (input plus cached), and how often it was compacted. */
+	context?: number;
+	ctxPeak?: number;
+	compacts?: number;
+	/** When you last wrote to it, so the board can time how long it has been working since. */
+	asked?: number;
 	/** Folders its shell commands changed into (`cd /path`), so a resumed copy can be let into them. */
 	dirs?: string[];
 	updatedAt: number;
@@ -99,6 +105,14 @@ export interface Clash {
 }
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+
+const lines = (v: unknown) => (typeof v === "string" && v ? v.split("\n").length : 0);
+/** Lines an edit added and removed, from the tool call itself, like a diff stat. */
+export function editSize(name: string, input?: Record<string, unknown>): { add: number; del: number } {
+	if (name === "Write") return { add: lines(input?.content), del: 0 };
+	const parts = name === "MultiEdit" && Array.isArray(input?.edits) ? (input.edits as Record<string, unknown>[]) : [input ?? {}];
+	return parts.reduce<{ add: number; del: number }>((t, p) => ({ add: t.add + lines(p.new_string ?? p.new_source), del: t.del + lines(p.old_string) }), { add: 0, del: 0 });
+}
 
 /** Guesses what kind of agent a session is from its title and the files it touched. */
 export function guessRole(title: string, files: string[]): string {
@@ -216,6 +230,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			gitBranch?: string;
 			timestamp?: string;
 			isMeta?: boolean;
+			isCompactSummary?: boolean;
 			permissionMode?: string;
 			subtype?: string;
 			hookCount?: number;
@@ -232,6 +247,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 		if (e.gitBranch) s.branch = e.gitBranch;
 		const at = e.timestamp ? Date.parse(e.timestamp) : updatedAt;
 		if (e.permissionMode) s.mode = e.permissionMode;
+		if (e.isCompactSummary || e.subtype === "compact_boundary") s.compacts = (s.compacts ?? 0) + 1;
 		if (e.subtype === "stop_hook_summary") {
 			const h = (s.hooks ??= { runs: 0, errors: 0 });
 			h.runs++;
@@ -262,12 +278,15 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			const t = textOf(e.message?.content).trim();
 			if (t && !t.startsWith("<")) {
 				s.feed.push({ at, who: "you", text: t.slice(0, 2000), tools: [] });
+				s.asked = at;
 				if (optItem) delete optItem.options;
 				optItem = undefined;
 			}
 		}
 		const u = e.type === "assistant" ? e.message?.usage : undefined;
 		if (u) {
+			s.context = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+			s.ctxPeak = Math.max(s.ctxPeak ?? 0, s.context);
 			s.tokens.used += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
 			s.tokens.cached += u.cache_read_input_tokens ?? 0;
 		}
@@ -298,7 +317,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 				}
 				const file = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
 				s.doing = file ? `${toolLabel(c.name, c.input)} ${basename(file)}` : toolLabel(c.name, c.input);
-				if (file && EDIT_TOOLS.has(c.name)) s.edits.push({ file, at });
+				if (file && EDIT_TOOLS.has(c.name)) s.edits.push({ file, at, ...editSize(c.name, c.input) });
 				if (c.name === "Bash") {
 					for (const m of String(c.input?.command ?? "").matchAll(/\bcd\s+("[^"]+"|'[^']+'|[~/][^\s;&|)]*)/g)) {
 						const d = m[1].replace(/^["']|["']$/g, "").replace(/^~(?=\/|$)/, homedir());
