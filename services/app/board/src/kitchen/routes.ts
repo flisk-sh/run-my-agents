@@ -366,7 +366,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		for (const t of readTasks()) {
 			if (!t.assignee || !t.sentAt) continue;
 			const home = podOf(t.assignee);
-			if (!home) continue;
+			// An order assigned to a dead pod (closed, evicted, never started, recycled session) is stuck forever
+			// because `missed()` skips it and `pick()` won't assign to a missedBy session. Reclaim it after 30 min.
+			if (!home) {
+				const s = all.find((x) => x.id === t.assignee);
+				const quiet = now - Math.max(t.sentAt, s?.updatedAt ?? 0);
+				if (quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, missedBy: [...(t.missedBy ?? []), t.assignee] });
+				continue;
+			}
 			const s = all.find((x) => x.id === t.assignee);
 			const quiet = now - Math.max(t.sentAt, s?.updatedAt ?? 0);
 			if (quiet < home.container.missMinutes * 60_000) continue;
