@@ -631,8 +631,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * Your own chats only get orders you dispatch by hand.
 	 */
 	function auto(now = Date.now()) {
-		if (!settings().auto) return [];
 		const did: string[] = [];
+		did.push(...letIdleGo(now));
+		const all = k.read();
+		did.push(...tidy(all, now));
+		if (!settings().auto) return did;
 		// Autopilot: a finished spec crosses the pass by itself, and an order stuck after MAX_ROUNDS is closed as
 		// failed (a gutter on the scoreboard) so it never blocks the belt.
 		for (const t of readTasks()) {
@@ -646,8 +649,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				if (next) did.push(`#${t.n} followed up as #${next.n}`);
 			}
 		}
-		did.push(...autoscale(), ...retireMixed(), ...letIdleGo(now), ...sidecar());
-		const all = k.read();
+		did.push(...autoscale(), ...retireMixed(), ...sidecar());
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
@@ -713,7 +715,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			serve(t.id, v);
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
 		}
-		did.push(...answerStrays(all, now), ...tidy(all, now));
+		did.push(...answerStrays(all, now));
 		for (const t of beltOrder(readTasks())) {
 			if (t.assignee || t.stage === "done" || t.stuck || t.atPass) continue;
 			// Auto-dispatch only uses container agents, so orders never land in a chat you are typing in.
@@ -879,7 +881,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	function letIdleGo(now = Date.now()) {
 		const did: string[] = [];
 		const idleMs = settings().idleMinutes * 60_000;
-		const open = readTasks().filter((t) => t.stage !== "done" && !t.stuck);
+		const open = readTasks().filter((t) => t.stage !== "done" && !t.stuck && !t.atPass);
 		for (const box of readContainers()) {
 			const pods = new Set(box.pods.filter((p) => p.status !== "evicted").map((p) => p.session));
 			const busy = open.some((t) => (t.assignee && pods.has(t.assignee)) || (t.cwd === box.cwd && (box.stages as string[]).includes(staffStage(t))));
