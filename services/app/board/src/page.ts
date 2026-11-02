@@ -497,7 +497,9 @@ body.plain .btn:hover,body.plain .hb span:hover,body.plain .gby b:hover,body.pla
 body.plain .gby b.on,body.plain .dsw b.on,body.plain .hb span.on{background:#ddf4ff!important;border-color:#54aeff;color:#0969da}
 body.plain .dsw{background:transparent!important;gap:4px;padding:0}
 body.plain .btn.new,body.plain .send{background:#1f883d!important;color:#fff!important;border:1px solid rgba(31,35,40,.15);border-radius:6px}
-body.plain .hd{border-bottom:1px solid var(--line)}
+body.plain .hd{border-bottom:1px solid var(--line);flex-wrap:wrap;row-gap:8px}body.plain .ht{flex:1 1 280px;min-width:0}body.plain .ttl{font-size:15px}body.plain .mchips{gap:4px 12px}body.plain .hb{gap:6px}body.plain .hb span{padding:4px 10px}
+body.plain kbd{display:inline-block;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:#f6f8fa!important;color:var(--text);font:11px/18px var(--mono)}
+body.plain .sk b{color:#0969da;font-family:var(--mono)}body.plain .sk{border:1px solid var(--line);border-radius:6px}body.plain .sk:hover{background:#f6f8fa!important}
 body.plain .bar{background:#eaeef2!important;border-radius:3px}body.plain .bar i{background:#1f883d!important}body.plain .bar.hot i{background:#cf222e!important}
 body.plain .bub{background:#fff!important;border:1px solid var(--line);border-radius:6px;max-width:80%}
 body.plain .from-me .bub{background:#ddf4ff!important;border-color:#b6e3ff}

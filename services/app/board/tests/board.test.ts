@@ -330,6 +330,8 @@ describe("typing box", () => {
 		const { PAGE } = await import("../src/page");
 		expect(PAGE).toMatch(/body\.plain\{--text:#1f2328[^}]*color-scheme:light/);
 		expect(PAGE).toMatch(/body\.plain \.av,[^{]*\{display:none!important/);
+		// the header wraps, so the action buttons cannot squeeze the session title
+		expect(PAGE).toMatch(/body\.plain \.hd\{[^}]*flex-wrap:wrap/);
 		expect(PAGE).toContain('design==="plain"?\'<div class="pp" style="flex:1">\'+plainTune("","")');
 	});
 	it("draws a plain agent panel with text controls and a tooltip on each", async () => {
