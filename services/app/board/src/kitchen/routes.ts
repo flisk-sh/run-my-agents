@@ -71,6 +71,10 @@ export const MAX_ANSWERS = 2;
 export const STRAY_ANSWER =
 	"No. This is the kitchen's orchestrator answering for the user: no order is waiting on you right now, so there is nothing to ship or change. Do not run any command or edit any file. Stop here; the board will send you an order when there is one.";
 
+/** What the orchestrator says to a builder that finished without changing anything. */
+export const NO_CHANGES =
+	"Your build step left no changes in this order's worktree, so there is nothing for Test to check. Make the change now, in this worktree. If it truly cannot be done here, reply with one line starting with FAIL that says exactly why.";
+
 /** What the orchestrator says to an agent that stopped to ask the user. */
 export const ORCHESTRATOR_ANSWER =
 	"Yes, go ahead. This is the kitchen's orchestrator answering for the user: nobody else will reply. Make the most reasonable choice yourself, do it, and finish this step. Do not ask again.";
@@ -153,6 +157,23 @@ export function orderWorktree(cwd: string, n: number): string | undefined {
 		return path;
 	} catch {
 		return undefined;
+	}
+}
+
+export const headOf = (wt: string) => {
+	try {
+		return git(wt, ["rev-parse", "HEAD"]);
+	} catch {
+		return undefined;
+	}
+};
+/** Did Build change anything in the order's worktree: uncommitted edits, or commits since it started? */
+export function worktreeChanged(wt: string, base?: string): boolean {
+	try {
+		if (git(wt, ["status", "--porcelain"])) return true;
+		return Boolean(base) && git(wt, ["rev-parse", "HEAD"]) !== base;
+	} catch {
+		return true;
 	}
 }
 
@@ -461,7 +482,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			.join("");
 		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it.
 		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree ?? orderWorktree(order.cwd, order.n)) : undefined;
-		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt });
+		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
 		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
 		const lastTime = order.retryOf
 			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
@@ -591,6 +612,19 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
 			if (!finished(t, s, now)) continue;
+			// A build that left nothing in its worktree is not ready for Test: ask once more to make the change, then
+			// fail it, so Test is never handed an empty branch.
+			if (t.stage === "build" && !t.shipping && t.worktree && isDir(t.worktree) && !worktreeChanged(t.worktree, t.base)) {
+				if ((t.answered ?? 0) < MAX_ANSWERS && s && k.send(s, `#${t.n}: no changes`, NO_CHANGES).status < 400) {
+					updateTask(t.id, { answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
+					did.push(`#${t.n} build left no changes: asked again`);
+				} else {
+					const why = `build: no changes made in the worktree. ${failLine(handOff(s)) || handOff(s).split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
+					updateTask(t.id, { stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), why].slice(-6) });
+					did.push(`#${t.n} build made no changes: failed`);
+				}
+				continue;
+			}
 			// The orchestrator answers an agent that stopped to ask (nobody else will), at most twice per step.
 			if (s && asksBack(handOff(s), t) && (t.answered ?? 0) < MAX_ANSWERS) {
 				const res = k.send(s, `#${t.n}: orchestrator's answer`, ORCHESTRATOR_ANSWER);

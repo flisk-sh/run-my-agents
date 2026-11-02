@@ -107,6 +107,10 @@ export const KITCHEN_CSS = String.raw`
 export const KITCHEN_HTML = String.raw`<div class="ktabs" id="ktabs"></div><div id="kview" hidden></div>`;
 
 export const KITCHEN_JS = String.raw`
+/* Who sent a "you" message in a chat: the kitchen sends orders, hand-offs and answers as the user, so name the real sender. */
+function kSender(t){t=String(t||"");let m=/^Order #\d+ \((\w+)\)/.exec(t);if(m){const st=m[1],prev={spec:"Intake",build:"Spec",test:"Build",review:"Test"}[st]||"Kitchen";return "Kitchen \u00b7 "+prev+" \u2192 "+(st[0].toUpperCase()+st.slice(1))}
+ if(/^Ship order #/.test(t))return "Kitchen \u00b7 Review \u2192 Ship";if(/^Question #\d+ from the board/.test(t))return "Kitchen \u00b7 Front desk";
+ if(/kitchen's orchestrator answering for the user/.test(t))return "Orchestrator";if(/^You are a \w+ agent in the "/.test(t))return "Kitchen \u00b7 Start";return "You"}
 const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lanes"],["scores","Scores"],["crew","Crew"]];
 let CR=null,SS=null,NB={name:"",role:"Code",stages:["build"],replicas:2,model:"haiku",strikes:3};
 let SC=null,scBy=(()=>{try{return localStorage.getItem("rma-scby")||"agents"}catch(e){return"agents"}})();

@@ -271,3 +271,15 @@ describe("triage: math questions", () => {
 		expect(quickMath("1/0")).toBeUndefined(); // division by zero returns Infinity
 	});
 });
+
+describe("chat sender labels", () => {
+	it("names who really sent a message the kitchen sent as the user", async () => {
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		const kSender = new Function(`${/function kSender\(t\)\{[\s\S]*?return "You"\}/.exec(KITCHEN_JS)?.[0]}; return kSender;`)() as (t: string) => string;
+		expect(kSender("Order #23 (test): Try complete this task")).toBe("Kitchen · Build → Test");
+		expect(kSender("Order #12 (review): seems agents")).toBe("Kitchen · Test → Review");
+		expect(kSender("Ship order #12: seems")).toBe("Kitchen · Review → Ship");
+		expect(kSender("Yes, go ahead. This is the kitchen's orchestrator answering for the user: nobody")).toBe("Orchestrator");
+		expect(kSender("please fix the login page")).toBe("You");
+	});
+});

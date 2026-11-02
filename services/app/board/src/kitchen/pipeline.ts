@@ -58,6 +58,8 @@ export type Task = {
 	notes?: Partial<Record<Stage, string>>;
 	/** This order's own git worktree (branch kitchen/order-<n>), made by the board for Build, Test, Review and Ship. */
 	worktree?: string;
+	/** The commit the worktree started from, to tell whether Build changed anything. */
+	base?: string;
 	/** Why its test or review said FAIL, one line per round, so a follow-up can learn from it. */
 	failures?: string[];
 	/** How many times the orchestrator answered a question from this step's agent (reset each step). */
@@ -108,7 +110,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp" | "answered">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp" | "answered" | "base">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;

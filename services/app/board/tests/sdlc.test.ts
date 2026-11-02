@@ -1,0 +1,142 @@
+// End to end: one order through the whole kitchen on a real git repo, driven by the real autopilot loop.
+// intake → spec → pass → build (real edit in the order's worktree) → test → review → ship (real commit) → served.
+// The agents are scripted: each reads the message the board sent and answers the way a good agent would.
+import { beforeEach, describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createApp } from "../src/index";
+import { readContainers } from "../src/kitchen/containers";
+import { parseSession, type Session } from "../src/sessions";
+
+let dir = "";
+beforeEach(() => {
+	dir = mkdtempSync(join(tmpdir(), "rma-sdlc-"));
+	process.env.RUN_MY_AGENTS_DIR = dir;
+	process.env.RUN_MY_AGENTS_SKILLS_DIR = mkdtempSync(join(tmpdir(), "rma-sdlc-skills-"));
+});
+
+function repo() {
+	const r = realpathSync(mkdtempSync(join(tmpdir(), "rma-sdlc-repo-")));
+	const g = (...a: string[]) => execFileSync("git", ["-C", r, ...a], { stdio: "ignore" });
+	g("init", "-q", "-b", "main");
+	writeFileSync(join(r, "math.ts"), "export const range = (a: number, b: number) => { const o = []; for (let i = a; i < b; i++) o.push(i); return o; };\n");
+	g("add", ".");
+	g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init");
+	return r;
+}
+
+type Agent = (text: string, cwd: string) => string;
+/** The scripted agents. `build` decides whether the builder really changes the file. */
+function kitchen(build: "fix" | "nothing") {
+	const reply: Agent = (text, cwd) => {
+		if (/^You are a \w+ agent/.test(text)) return "ready";
+		if (/\(spec\)/.test(text)) return "Goal: range includes its end.\nWhy: callers expect 1..3 to give 3 numbers.\nChecks: range(1,3) is [1,2,3].\nFiles: math.ts";
+		if (/\(build\)|no changes in this order's worktree/.test(text)) {
+			if (build === "nothing") return "This build step cannot be completed without more information.";
+			writeFileSync(join(cwd, "math.ts"), readFileSync(join(cwd, "math.ts"), "utf8").replace("i < b", "i <= b"));
+			return "Changed math.ts: the loop now includes b. Check: range(1,3) is [1,2,3].";
+		}
+		if (/\(test\)/.test(text)) return "Ran range(1,3): [1,2,3].\n\nPASS — the end is included.";
+		if (/\(review\)/.test(text)) return "Diff is one character in math.ts and matches the spec.\n\nPASS — correct and minimal.";
+		if (/^Ship order/.test(text)) {
+			execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "fix: range includes its end", "-s"], { stdio: "ignore" });
+			return "Committed and pushed. Opened https://github.com/acme/demo/pull/42";
+		}
+		return "Done.";
+	};
+	const sessions: Session[] = [];
+	const talk = (s: Session, text: string) => {
+		const answer = reply(text, s.cwd as string);
+		s.feed = [...s.feed, { who: "you", text, at: Date.now() } as never, { who: "agent", text: answer, at: Date.now() } as never];
+		s.updatedAt = Date.now();
+	};
+	const app = createApp(
+		() => sessions,
+		async (s, text) => talk(sessions.find((x) => x.id === s.id) as Session, text),
+		{
+			start: async (n) => {
+				const s = { ...(parseSession(n.id as string, [JSON.stringify({ type: "user", cwd: n.cwd, message: { content: "start" } })], Date.now()) as Session), cwd: n.cwd, role: "Build", feed: [] };
+				sessions.push(s);
+				talk(s, n.text);
+			},
+			fetch: (async () => new Response("---\nname: x\n---\n")) as unknown as typeof fetch,
+		},
+	);
+	const post = async (path: string, body: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+	const tasks = () => JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+	/** Lets time pass: every agent has been quiet for a while, every order was sent a minute ago. */
+	const later = () => {
+		for (const s of sessions) s.updatedAt = Date.now() - 10_000;
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify(tasks().map((t: { sentAt: number }) => (t.sentAt ? { ...t, sentAt: Date.now() - 60_000 } : t))));
+	};
+	/** One autopilot pass plus the container loop, the way the server's 3 s tick runs them. */
+	const tick = async () => {
+		const r = await post("/api/kitchen", { auto: true });
+		const c = await post("/api/containers/reconcile", {});
+		await Bun.sleep(5);
+		later();
+		return r.did as string[];
+	};
+	return { post, tasks, tick, sessions };
+}
+
+describe("full SDLC, end to end", () => {
+	it("takes one order from intake to a served pull request, every step through its own stage agent", async () => {
+		const r = repo();
+		const k = kitchen("fix");
+		const order = await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: r });
+		expect(order).toMatchObject({ kind: "task", lane: "full", stage: "inbox" });
+
+		const log: string[] = [];
+		const stages: string[] = [];
+		for (let i = 0; i < 30 && k.tasks()[0].stage !== "done"; i++) {
+			log.push(...(await k.tick()));
+			const st = k.tasks()[0].shipping ? "ship" : k.tasks()[0].stage;
+			if (stages.at(-1) !== st) stages.push(st);
+		}
+		const t = k.tasks()[0];
+
+		// Every stage, in order, and served.
+		expect(stages).toEqual(["spec", "build", "test", "review", "ship", "done"]);
+		// The spec crossed the pass: autopilot approved it (approved, no longer waiting at the pass).
+		expect(k.tasks()[0]).toMatchObject({ approved: true, atPass: false });
+		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/42" });
+		expect(t.failed).toBeFalsy();
+		// One container per stage, each with its own type.
+		expect(readContainers().map((c) => `${c.role}:${c.stages.join()}`).sort()).toEqual(["Build:build", "Review:review", "Spec:spec", "Test:test"]);
+		// Each stage's work was handed on.
+		expect(Object.keys(t.notes)).toEqual(["spec", "build", "test", "review"]);
+		expect(t.notes.spec).toContain("Checks: range(1,3) is [1,2,3]");
+		// The change lives on the order's branch, committed with sign-off, never in the main checkout.
+		const wt = join(r, ".git", "kitchen", "order-1");
+		expect(t.worktree).toBe(wt);
+		expect(execFileSync("git", ["-C", wt, "log", "-1", "--format=%s%n%b"], { encoding: "utf8" })).toContain("fix: range includes its end");
+		expect(execFileSync("git", ["-C", wt, "log", "-1", "--format=%b"], { encoding: "utf8" })).toContain("Signed-off-by");
+		expect(readFileSync(join(r, "math.ts"), "utf8")).toContain("i < b");
+		expect(readFileSync(join(wt, "math.ts"), "utf8")).toContain("i <= b");
+		// Times are recorded.
+		expect(t.startedAt).toBeGreaterThan(0);
+		expect(t.servedAt).toBeGreaterThanOrEqual(t.startedAt);
+		// Test and Review were given the spec and the build summary.
+		const said = k.sessions.flatMap((s) => s.feed.filter((m) => m.who === "you").map((m) => String((m as { text?: string }).text)));
+		expect(said.find((m) => m.startsWith("Order #1 (review)"))).toContain("From the Build agent:\nChanged math.ts");
+	});
+
+	it("never hands an empty build to Test: asks again, then fails the order and opens a follow-up", async () => {
+		const r = repo();
+		const k = kitchen("nothing");
+		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: r });
+		const log: string[] = [];
+		for (let i = 0; i < 30 && k.tasks()[0].stage !== "done"; i++) log.push(...(await k.tick()));
+		const [t, follow] = k.tasks();
+		expect(log.filter((l) => l === "#1 build left no changes: asked again")).toHaveLength(2);
+		expect(log).toContain("#1 build made no changes: failed");
+		expect(log.some((l) => l.startsWith("#1 test"))).toBe(false);
+		expect(t).toMatchObject({ stage: "done", failed: true, followUp: 2 });
+		expect(t.failures[0]).toContain("build: no changes made in the worktree");
+		expect(follow).toMatchObject({ n: 2, retryOf: 1, kind: "task" });
+		expect(existsSync(join(r, ".git", "kitchen", "order-1"))).toBe(true);
+	});
+});
