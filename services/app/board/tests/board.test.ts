@@ -216,6 +216,25 @@ describe("grok", () => {
 		expect(sessions).toHaveLength(1);
 		expect(sessions[0]).toMatchObject({ id, agent: "grok", cwd: "/repo", title: "add tests", tokens: { used: 15, cached: 0 } });
 	});
+
+	it("shows why a Grok turn failed instead of thinking forever", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const root = mkdtempSync(join(tmpdir(), "rma-grok-err-"));
+		const id = "3d5e4e6b-9d17-4eda-a033-9413c94a3b51";
+		const dir = join(root, encodeURIComponent("/repo"), id);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "chat_history.jsonl"), userQuery("hello"));
+		const done = (stop: string, result: string) => JSON.stringify({ method: "_x.ai/session/update", params: { sessionId: id, update: { sessionUpdate: "turn_completed", stop_reason: stop, agent_result: result }, _meta: { agentTimestampMs: Date.now() } } });
+		writeFileSync(join(dir, "updates.jsonl"), [done("end_turn", "ok"), done("error", "API error (status 402 Payment Required): Grok Build usage balance exhausted")].join("\n"));
+		const { readGrokSessions, grokTurnError } = await import("../src/sessions");
+		const [s] = readGrokSessions(root, 60 * 60_000, Date.now());
+		expect(s.doing).toBe("Error");
+		expect(s.feed.at(-1)).toMatchObject({ who: "agent", text: expect.stringContaining("usage balance exhausted") });
+		writeFileSync(join(dir, "updates.jsonl"), [done("error", "x"), done("end_turn", "ok")].join("\n"));
+		expect(grokTurnError(dir)).toBeUndefined();
+	});
 });
 
 describe("send", () => {

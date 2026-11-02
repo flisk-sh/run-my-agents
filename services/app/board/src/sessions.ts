@@ -579,6 +579,31 @@ export function parseGrokSession(
  * Grok Build sessions changed within maxAgeMs: one folder per working directory (URL-encoded), one per session id
  * inside it. `grok sessions`, `grok export` and `grok usage` all read this same layout, so it is a stable interface.
  */
+/** The error of the session's last turn, when that turn failed, from Grok's updates.jsonl. */
+export function grokTurnError(dir: string): { at: number; text: string } | undefined {
+	let lines: string[];
+	try {
+		lines = readFileSync(join(dir, "updates.jsonl"), "utf8").split("\n");
+	} catch {
+		return undefined;
+	}
+	for (let i = lines.length - 1; i >= 0; i--) {
+		type Update = { update?: { sessionUpdate?: string; stop_reason?: string; agent_result?: unknown }; _meta?: { agentTimestampMs?: number } };
+		let e: Update;
+		try {
+			// Each line is an ACP notification, { method, params: { sessionId, update, _meta } }.
+			const j = JSON.parse(lines[i]) as Update & { params?: Update };
+			e = j.params ?? j;
+		} catch {
+			continue;
+		}
+		if (e.update?.sessionUpdate !== "turn_completed") continue;
+		if (e.update.stop_reason !== "error") return undefined;
+		return { at: Number(e._meta?.agentTimestampMs) || 0, text: String(e.update.agent_result ?? "the turn failed").slice(0, 500) };
+	}
+	return undefined;
+}
+
 export function readGrokSessions(
 	root = process.env.GROK_SESSIONS_DIR || join(homedir(), ".grok", "sessions"),
 	maxAgeMs = 60 * 60_000,
@@ -620,6 +645,13 @@ export function readGrokSessions(
 			const s = parseGrokSession(id, info?.cwd || decodeURIComponent(enc), readFileSync(chatPath, "utf8").split("\n"), usage, mtime);
 			if (s) {
 				s.file = chatPath;
+				const failed = grokTurnError(dir);
+				// A turn that failed (no credit, a bad model) writes no reply: say why instead of looking busy forever.
+				if (failed && s.feed.at(-1)?.who === "you") {
+					s.feed.push({ at: Math.max(failed.at, s.feed.at(-1)?.at ?? 0), who: "agent", text: `⚠ Grok Build: ${failed.text}`, tools: [] });
+					s.doing = "Error";
+					s.updatedAt = Math.max(s.updatedAt, failed.at);
+				}
 				out.push(s);
 			}
 		}
