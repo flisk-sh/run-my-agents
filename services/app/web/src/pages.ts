@@ -88,6 +88,11 @@ h1 span{background:linear-gradient(90deg,var(--accent),#6ee7a0,#38bdf8,var(--acc
 .steps>*,.limits li{transition:transform .25s,box-shadow .25s}.steps>*:hover{transform:translateY(-4px)}
 .copy,button{transition:transform .15s,filter .2s}.copy:hover,button:hover{filter:brightness(1.15)}.copy:active,button:active{transform:scale(.95)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+.mac{margin:30px auto 0;max-width:1100px;border-radius:14px;overflow:hidden;background:#0b0b10;box-shadow:0 0 0 1px rgba(255,255,255,.1),0 40px 90px -30px rgba(34,197,94,.35),0 30px 60px -30px rgba(0,0,0,.8);animation:rise .9s .5s cubic-bezier(.2,.8,.2,1) both}
+.mbar{display:flex;align-items:center;gap:7px;padding:10px 14px;background:#16161d;border-bottom:1px solid rgba(255,255,255,.06)}.mbar i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.mbar i:nth-child(2){background:#febc2e}.mbar i:nth-child(3){background:#28c840}.mbar span{flex:1;text-align:center;margin-right:50px;font:500 12px var(--body);color:rgba(236,236,241,.55)}
+.live{display:block;width:100%;height:min(78vh,720px);border:0;background:#06060a}
+@media (max-width:700px){.live{height:640px}}
 `;
 
 function layout(base: string, meta: PageMeta, body: string): string {
@@ -181,7 +186,7 @@ export function homePage(base: string): string {
 <h1>Run My <span>Agents</span></h1>
 <p class="lede">Run many Claude Code sessions on one repo, and stop them overwriting each other's work.</p>
 ${installBox()}
-<p class="meta">No server. No account. No keys. Everything stays on your computer.</p><img class="shot" src="/preview.gif" width="800" height="500" alt="The Run My Agents board: every Claude Code session, its model, tokens and pull requests on one screen"></div>
+<p class="meta">No server. No account. No keys. Everything stays on your computer.</p><div class="mac"><div class="mbar"><i></i><i></i><i></i><span>Run My Agents</span></div><iframe class="live" src="/demo/" title="Run My Agents board, live demo with made-up sessions" loading="lazy"></iframe></div><p class="meta">That is the real board, running on made-up sessions. Click an agent, answer a question, send a message.</p></div>
 <section><h2>Your agent team, on one repo</h2><p class="sub">Every agent has its own job. Click one to see what it's working on.</p>${demoBoard()}<p class="meta">A preview of five agents' chats. Install it and this runs for real, on your own repo.</p></section>
 <section><h2>What your agent sees</h2><p class="sub">Session 2 tries to edit a file session 1 changed two minutes ago.</p>
 <div class="term"><div><span class="who">session 1 ·</span> Edit api.ts <span class="ok">✓</span></div>
