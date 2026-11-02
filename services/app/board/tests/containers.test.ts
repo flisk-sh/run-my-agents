@@ -753,3 +753,23 @@ describe("stray agents", () => {
 		expect(sent).toHaveLength(1);
 	});
 });
+
+describe("tidy and address", () => {
+	it("closes idle kitchen agents with no order, keeps your chats, held agents and live container agents", async () => {
+		const old = (id: string, title: string) => ({ ...session(id, "Build"), title, updatedAt: Date.now() - 5 * 60_000 });
+		const { post } = setup([old("s12", "Ship · #12"), old("b31", "Build · flisk 3125"), old("mine", "my own chat"), old("held", "Build · flisk e5d4")]);
+		order({ kind: "task", stage: "build", assignee: "held", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		const did = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(did).toContain("closed idle agent Ship · #12");
+		expect(did).toContain("closed idle agent Build · flisk 3125");
+		expect(did.join()).not.toContain("my own chat");
+		expect(did.join()).not.toContain("e5d4");
+	});
+
+	it("tells every agent its reply goes to the orchestrator", async () => {
+		const { post, sent } = setup([{ ...session("b", "Build"), updatedAt: Date.now() - 60_000 }]);
+		order({ stage: "build", cwd: "/repo" });
+		await post("/api/tasks/dispatch", { id: "t", session: "b" });
+		expect(sent.at(-1)).toContain("Your reply goes to the kitchen's orchestrator, not to a person.");
+	});
+});

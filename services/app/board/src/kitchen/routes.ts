@@ -67,6 +67,12 @@ export function failLine(text: string): string {
 
 /** How many times the orchestrator answers one step's agent before the step moves on without it. */
 export const MAX_ANSWERS = 2;
+/** Chats the kitchen started: container agents ("Build · flisk 3125") and Ship agents ("Ship · #12"). */
+export const KITCHEN_CHAT = /^(?:(?:Spec|Build|Test|Review) · .+ [0-9a-f]{4}|Ship · #\d+|Auto cooks · .+ [0-9a-f]{4}|Kitchen cooks [0-9a-f]{4})$/;
+/** Every kitchen message ends with who reads the reply, so agents stop writing to (and waiting on) a user. */
+export const ADDRESS =
+	"Your reply goes to the kitchen's orchestrator, not to a person. When you stop, it reads your last message and moves the order on. Do not ask questions or wait for an answer; end with one clear result line.";
+
 /** What the orchestrator says to a kitchen agent that asks while it holds no order. */
 export const STRAY_ANSWER =
 	"No. This is the kitchen's orchestrator answering for the user: no order is waiting on you right now, so there is nothing to ship or change. Do not run any command or edit any file. Stop here; the board will send you an order when there is one.";
@@ -491,7 +497,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
 		if (box && order.skills.length) injectSkills(box.id, order.skills);
 		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
@@ -572,7 +578,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				mode: KITCHEN_MODE,
 				model: "haiku",
 				effort: "low",
-				text: `Ship order #${t.n}: ${t.title}\n\n${t.worktree ? `You are in this order's worktree: ${t.worktree} (branch ${branch}).` : `The Build agent's change is on branch ${branch}, in the worktree it names below.`} In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\nFrom the Build agent:\n${t.notes.build}`,
+				text: `Ship order #${t.n}: ${t.title}\n\n${t.worktree ? `You are in this order's worktree: ${t.worktree} (branch ${branch}).` : `The Build agent's change is on branch ${branch}, in the worktree it names below.`} In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\n${ADDRESS}\n\nFrom the Build agent:\n${t.notes.build}`,
 			});
 			k.name?.(id, `Ship · #${t.n}`);
 			return { status: 200, body: { ...updateTask(t.id, { shipping: true, assignee: id, sentAt: Date.now() }) } };
@@ -640,7 +646,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			serve(t.id, v);
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
 		}
-		did.push(...answerStrays(all, now));
+		did.push(...answerStrays(all, now), ...tidy(all, now));
 		for (const t of beltOrder(readTasks())) {
 			if (t.assignee || t.stage === "done" || t.stuck || t.atPass) continue;
 			// Auto-dispatch only uses container agents, so orders never land in a chat you are typing in.
@@ -718,6 +724,25 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				strayAnswered.add(s.id);
 				did.push(`answered stray agent ${(s.title ?? s.id).slice(0, 30)}: no order`);
 			}
+		}
+		return did;
+	}
+
+	/**
+	 * Closes kitchen agents nobody needs any more: a Spec/Build/Test/Review/Ship chat that holds no order, is not a
+	 * live container agent, and has been quiet for 2 minutes (a Ship agent whose order is served, a chat replaced by a
+	 * fresh one). Your own chats are never closed.
+	 */
+	function tidy(all: Session[], now: number) {
+		const did: string[] = [];
+		const held = new Set(readTasks().filter((t) => t.assignee).map((t) => t.assignee));
+		const pods = new Set(readContainers().flatMap((c) => c.pods.filter((p) => p.status !== "evicted").map((p) => p.session)));
+		for (const s of all) {
+			if (s.hidden || held.has(s.id) || pods.has(s.id) || k.busy(s)) continue;
+			if (!KITCHEN_CHAT.test(s.title ?? "")) continue;
+			if (now - s.updatedAt < 2 * 60_000) continue;
+			k.close(s.id);
+			did.push(`closed idle agent ${(s.title ?? "").slice(0, 30)}`);
 		}
 		return did;
 	}
