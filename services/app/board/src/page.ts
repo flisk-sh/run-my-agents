@@ -283,8 +283,9 @@ button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:7
 .rich .mh1,.rich .mh2,.rich .mh3,.rich .mh4{font-weight:700;color:var(--text);margin:8px 0 4px}.rich .mh1{font-size:15px}.rich .mh2{font-size:14px}.rich .mh3,.rich .mh4{font-size:13px}
 .chev{margin-left:auto;width:18px;height:18px;border-radius:6px;cursor:pointer;position:relative;background:rgba(255,255,255,.04);transition:background .2s,transform .25s}.chev::before{content:"";position:absolute;left:5px;top:4px;width:5px;height:5px;border-right:1.6px solid var(--muted);border-bottom:1.6px solid var(--muted);transform:rotate(45deg);transition:border-color .2s}.chev:hover{background:rgba(110,231,160,.18)}.chev:hover::before{border-color:var(--mint)}
 .msg.col .chev{transform:rotate(-90deg)}.msg.col .rich{max-height:1.55em;overflow:hidden;opacity:.7;-webkit-mask-image:linear-gradient(#000 40%,transparent)}.msg.col .tools,.msg.col .opts{display:none}
-.msg .rich.long{max-height:30em;overflow:hidden;position:relative}.msg .rich.long::after{content:"Show more";position:absolute;left:0;right:0;bottom:0;padding:34px 0 2px;text-align:center;font:600 10px var(--mono);color:var(--mint);background:linear-gradient(transparent,#14141c 70%);cursor:pointer}
-.msg.open .rich.long{max-height:none}.msg.open .rich.long::after{display:none}
+.msg.col .rich-prev .rp-more,.msg.col .rich-prev .rich:last-child{display:none}
+.msg .rich.long{position:relative}.msg .rich.full{display:none}.rp-more{margin:3px 0;padding:5px 0;text-align:center;font:600 10px var(--mono);color:var(--mint);cursor:pointer;border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);transition:color .15s}.rp-more:hover{color:var(--text)}
+.msg.open .rich.full{display:block;margin-top:2px}.msg.open .rich-prev{display:none}
 .dz2{display:grid;grid-template-columns:1fr 1fr;gap:5px}
 .tl2{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 4px;border-radius:var(--ri);background:linear-gradient(#232330,#17171f);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 0 0 1px var(--line),0 3px 0 #0b0b10;font:600 10px var(--mono);cursor:pointer;color:var(--muted);transition:transform .15s,box-shadow .15s,color .2s,background .3s}
 .tl2 .ic{width:13px;height:13px}.tl2:hover{transform:translateY(-2px);color:var(--text)}.tl2:hover .ic{transform:scale(1.25) rotate(-8deg)}.tl2:active{transform:translateY(2px)}
@@ -311,7 +312,6 @@ button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:7
 .msg.from-ag .who{justify-content:flex-end}.who b{font-weight:600;color:var(--text);opacity:.85}.who time{font-weight:400;opacity:.7;min-width:0;padding:0}
 .msg.from-ag .tools{justify-content:flex-end}
 .rich{font-size:14px}.rich code{font-size:13px}
-.msg.from-me .rich.long::after{background:linear-gradient(transparent,#171d2b 70%)}.msg.from-ag .rich.long::after{background:linear-gradient(transparent,#131d18 70%)}
 .typing{justify-content:flex-end;padding:2px 14px 6px 0}
 .cmenu.gp{width:min(252px,94vw);gap:3px}
 .gp .gg2 .gsv{width:66%}.gp .dial{width:38%}.gp .leds{height:30px;gap:3px;padding-top:2px}.gp .led{width:9px;border-radius:3px}
@@ -438,7 +438,7 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
    copy chips show copy, rows you can drag show grab, and buttons that are busy show not-allowed. */
 .msg,.bub{cursor:default}
 .msg .rich,.msg .rich *,.msg p,.orec,.oask,.qt{cursor:text}
-.msg .rich a,.msg .rich a *,.cpb,.chev,.msg .rich.long::after{cursor:pointer}
+.msg .rich a,.msg .rich a *,.cpb,.chev,.rp-more{cursor:pointer}
 [role="button"],[data-act],[data-opt],[data-pick],[data-gby],[data-qnow],[data-qdrop],[data-col],[data-pop],[data-prs],[data-mpick],[data-face],[data-setmode],[data-effort],[data-skill],.obtn,.tool,.btn,.send,.qnow,.qx,.mopt,.ml,.gby b,.grp{cursor:pointer}
 [data-ctext]{cursor:copy}
 .it[draggable="true"]{cursor:pointer}.it[draggable="true"]:active,body.dnd,body.dnd *{cursor:grabbing}
@@ -629,7 +629,7 @@ function render(){
  const feed=$("feed"),stick=feed.scrollTop+feed.clientHeight>=feed.scrollHeight-40;
  const key=s.id+":"+s.feed.length+":"+(s.feed.at(-1)?.at??0)+":"+COL.size+":"+state(s)+":"+(s.sending?1:0);
  if(key!==feedKey){const sc=feedKey.split(":")[0]!==s.id;feedKey=key;
- feed.innerHTML=s.feed.map((m,mi)=>{const ck=s.id+":"+(m.t0||m.at);return '<div class="msg '+(m.who==="you"?"from-me":"from-ag")+(COL.has(ck)?" col":"")+'" data-msg><div class="bub"><div class="who"><b>'+(m.who==="you"?"You":esc(s.role))+"</b><time>"+hm(m.at)+"</time>"+(m.who==="agent"?'<span class="chev" data-col="'+ck+'" title="Collapse or expand this reply"></span>':"")+"</div>"+(m.text?'<div class="rich'+(m.text.length>9000?" long":"")+'">'+renderMarkdown(m.text)+"</div>":"")+(m.tools.length?'<div class="tools">'+toolRuns(m.calls&&m.calls.length?m.calls.map(c=>c.label):m.tools,s.id,mi)+"</div>":"")+(m.options&&mi===s.feed.length-1&&!s.sending?optsHtml(m.options):"")+"</div></div>"}).join("")+(state(s)==="g"?'<div class="typing"><i></i><i></i><i></i></div>':"");
+ feed.innerHTML=s.feed.map((m,mi)=>{const ck=s.id+":"+(m.t0||m.at);return '<div class="msg '+(m.who==="you"?"from-me":"from-ag")+(COL.has(ck)?" col":"")+'" data-msg><div class="bub"><div class="who"><b>'+(m.who==="you"?"You":esc(s.role))+"</b><time>"+hm(m.at)+"</time>"+(m.who==="agent"?'<span class="chev" data-col="'+ck+'" title="Collapse or expand this reply"></span>':"")+"</div>"+richHtml(m)+(m.tools.length?'<div class="tools">'+toolRuns(m.calls&&m.calls.length?m.calls.map(c=>c.label):m.tools,s.id,mi)+"</div>":"")+(m.options&&mi===s.feed.length-1&&!s.sending?optsHtml(m.options):"")+"</div></div>"}).join("")+(state(s)==="g"?'<div class="typing"><i></i><i></i><i></i></div>':"");
  if(stick||first||sc)feed.scrollTop=feed.scrollHeight;else armScroll()}
  if(composerFor!==s.id){composerFor=s.id;$("box").outerHTML='<div class="compose" id="box"><i class="glow"></i><i class="sh"></i><i class="line"></i><i class="fill"></i><div class="sky"><div class="fairy"><i class="wl"></i><i class="wr"></i><b></b></div><div class="fairy f2"><i class="wl"></i><i class="wr"></i><b></b></div></div><div class="atray" id="atray"></div><div class="row"><div class="watch">'+face(s,28)+'</div><span class="clip" data-act="attach" title="Attach files (or drop them anywhere)">'+ico(IC.clip)+'<b id="clipn" hidden>0</b></span><textarea id="msg" rows="1" placeholder="Message '+esc(s.role)+(s.agent!=="claude"?" ("+AGENT_LABEL[s.agent]+")":"")+(s.viaApp===true?" \u00b7 separate copy":"")+'…" title="'+(s.viaApp===true?"This session is open in the Claude app. A message from here runs a separate copy of it, which the app does not show live.":"Message this agent")+'"></textarea><span class="ch" id="ch">0</span><div class="eq"><i></i><i></i><i></i><i></i></div><span class="rs" data-act="resume" title="Copy the resume command">⧉</span><button class="send" data-act="send">Send</button></div></div>';restoreDraft(s.id);drawTray()}
  const sb=document.querySelector(".send");if(sb){sb.disabled=false;sb.textContent=s.sending?"Queue":"Send"}
@@ -920,6 +920,19 @@ function showModelPick(el,s){hideMenu();const cur=(s.tune&&s.tune.model)||"";con
 function optsHtml(o){return '<div class="opts">'+(o.recap?'<div class="orec">'+renderMarkdown(o.recap)+"</div>":"")+(o.ask?'<div class="oask">'+esc(o.ask)+"</div>":"")+'<div class="obtns">'+o.labels.map((l,i)=>'<span class="obtn'+(i===0?" first":"")+'" data-opt="'+esc(l)+'">'+esc(l)+(i===0?"<kbd>\u2318\u21b5</kbd>":"")+"</span>").join("")+"</div></div>"}
 async function answer(label){const s=S.find(x=>x.id===sel);if(!s)return;const r=await post("api/send",{id:s.id,text:label}).catch(()=>({error:"The board is not answering."}));if(r.error){toast(r.error);return}
  document.querySelectorAll("#feed .obtn").forEach(b=>{b.classList.add("done");if(b.dataset.opt===label)b.classList.add("picked")});s.sending=true;toast("Sent: "+label);last=""}
+/**
+ * A long reply collapses to its first 2 lines and last 2 lines, with a "Show N more lines" bar between them (click
+ * anywhere on the message, same as the chevron fold, to read the rest). 4 lines or fewer render in full: there is
+ * nothing useful to hide. The head and tail are rendered through the same markdown renderer as a best-effort
+ * preview; the full reply underneath, shown once opened, is always rendered in full and exact.
+ */
+function richHtml(m){
+ if(!m.text)return"";
+ const lines=m.text.split("\\n"),longCls=m.text.length>9000?" long":"";
+ if(lines.length<=4)return '<div class="rich'+longCls+'">'+renderMarkdown(m.text)+"</div>";
+ const head=lines.slice(0,2).join("\\n"),tail=lines.slice(-2).join("\\n"),hidden=lines.length-4;
+ return '<div class="rich-prev"><div class="rich">'+renderMarkdown(head)+'</div><div class="rp-more" title="Show the whole reply">\u22ef '+hidden+" more line"+(hidden===1?"":"s")+' \u00b7 Show</div><div class="rich">'+renderMarkdown(tail)+'</div></div><div class="rich full'+longCls+'">'+renderMarkdown(m.text)+"</div>"
+}
 function toolRuns(ts,sid,fi){const r=[];for(const t of ts){const l=r[r.length-1];if(l&&l[0]===t)l[1]++;else r.push([t,1])}let at=0;return r.map(([t,n])=>{const from=at;at+=n;return '<span class="tool" data-act="tool"'+(sid?' data-pop="calls" data-sid="'+sid+'" data-fi="'+fi+'" data-from="'+from+'" data-n="'+n+'"':"")+' title="'+esc(t)+(n>1?" \u00d7"+n:"")+'">'+esc(t)+(n>1?"<b>\u00d7"+n+"</b>":"")+"</span>"}).join("")}
 function pinSession(id,on){post("api/pin",{id,pinned:on}).then(r=>{if(r.error){toast(r.error);return}last="";load();toast(on?"Pinned to the top":"Unpinned")})}
 let tipT=0;function tipHide(){clearTimeout(tipT);$("tip").classList.remove("on")}

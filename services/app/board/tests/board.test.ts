@@ -1086,6 +1086,39 @@ describe("formatted replies, close and delete in the panel, smaller gauges", () 
 		expect(PAGE).not.toContain('(m.text?"<p>"+esc(m.text)+"</p>":"")');
 	});
 
+	it("collapses a long reply to its first and last 2 lines, with a show-more bar between them", async () => {
+		const { PAGE } = await import("../src/page");
+		const js = PAGE.split("<script>")[1].split("</script>")[0];
+		const src = js.slice(js.indexOf("function richHtml("), js.indexOf("function toolRuns("));
+		const richHtml = new Function("renderMarkdown", `${src}; return richHtml;`)(
+			(t: string) => `<p>${t}</p>`,
+		) as (m: { text: string }) => string;
+		const short = richHtml({ text: "one\ntwo\nthree\nfour" });
+		expect(short).toBe('<div class="rich"><p>one\ntwo\nthree\nfour</p></div>');
+		expect(short).not.toContain("rich-prev");
+		const nine = Array.from({ length: 9 }, (_, i) => `line ${i + 1}`).join("\n");
+		const long = richHtml({ text: nine });
+		expect(long).toContain('<div class="rich-prev">');
+		expect(long).toContain("<p>line 1\nline 2</p>");
+		expect(long).toContain("<p>line 8\nline 9</p>");
+		expect(long).toContain("rp-more");
+		expect(long).toContain("5 more line");
+		expect(long).toContain('<div class="rich full">');
+	});
+
+	it("keeps the collapse CSS in place for the fold (chevron) and open states", async () => {
+		const { PAGE } = await import("../src/page");
+		for (const part of [
+			".rich-prev",
+			".rp-more",
+			".msg .rich.full{display:none}",
+			".msg.open .rich.full{display:block",
+			".msg.open .rich-prev{display:none}",
+			".msg.col .rich-prev .rp-more,.msg.col .rich-prev .rich:last-child{display:none}",
+		])
+			expect(PAGE).toContain(part);
+	});
+
 	it("has Close and Delete in the right-click panel, a Closed group, and a smaller panel", async () => {
 		const { PAGE } = await import("../src/page");
 		for (const part of ['data-close="1"', 'data-del="1"', 'class="dz2"', '["Closed",s=>s.hidden]', "fold={Closed:true}", ".tl2.red.arm", "width:min(288px,94vw)"]) expect(PAGE).toContain(part);
