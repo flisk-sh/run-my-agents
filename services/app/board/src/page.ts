@@ -878,13 +878,17 @@ async function bowl(el,s0){const T=await three();if(!el.isConnected)return;const
   pins.forEach(q=>{if(!q.hit)return;q.v.y-=9.8*dt;q.g.position.addScaledVector(q.v,dt);if(q.g.position.y<0){q.g.position.y=0;q.v.y*=-.3;q.v.x*=.7;q.v.z*=.7}q.g.rotation.x+=q.av.x*dt;q.g.rotation.z+=q.av.z*dt;q.av.multiplyScalar(.985);q.l.material.opacity=Math.max(.25,q.l.material.opacity-dt)});
   R.render(SC,C);requestAnimationFrame(tick)})()}
 let apEl=null,apT=0;
-function showAct(chip){hideAct();const s=S.find(x=>x.id===chip.dataset.sid);if(!s)return;const html=popHtml(chip.dataset.pop,s,chip);if(!html)return;const p=document.createElement("div");p.className="prpop apop";p._chip=chip;p.innerHTML=html;p.addEventListener("mouseenter",()=>clearTimeout(apT));p.addEventListener("mouseleave",()=>{apT=setTimeout(hideAct,250)});
+function showAct(chip){hideAct();const s=S.find(x=>x.id===chip.dataset.sid);if(!s)return;const html=popHtml(chip.dataset.pop,s,chip);if(!html)return;const p=document.createElement("div");p.className="prpop apop";p._chip=chip;p.innerHTML=html;p.addEventListener("mouseenter",()=>clearTimeout(apT));
+ // A bowling lane takes a couple of seconds to roll; losing the hover for a moment used to close it before any
+ // pin fell. While it is playing, only a click elsewhere, the chip again, or Escape closes it.
+ p.addEventListener("mouseleave",()=>{if(p.querySelector(".bowl canvas"))return;apT=setTimeout(hideAct,250)});
  p.addEventListener("click",e=>{const o=e.target.closest("[data-setmode]");if(!o)return;e.stopPropagation();tune(s,{mode:o.dataset.setmode}).then(r=>{if(r&&r.error)return;toast("Board messages to "+s.role+" run in "+(o.dataset.setmode?MODE[o.dataset.setmode][0]:"the session's own mode"));last="";render();hideAct()})});
  document.body.appendChild(p);placeBelow(p,chip);apEl=p;const bw=p.querySelector("[data-bowl]");if(bw)bowl(bw,s).then(()=>{if(p.isConnected)placeBelow(p,chip)}).catch(()=>bw.remove())}
 function hideAct(){if(apEl){apEl.remove();apEl=null}}
-document.addEventListener("mouseover",e=>{const c=e.target.closest&&e.target.closest("[data-pop]");if(c){clearTimeout(apT);if(!apEl||apEl._chip!==c)apT=setTimeout(()=>showAct(c),120)}else if(apEl&&!e.target.closest(".apop")){clearTimeout(apT);apT=setTimeout(hideAct,250)}});
+document.addEventListener("mouseover",e=>{const c=e.target.closest&&e.target.closest("[data-pop]");if(c){clearTimeout(apT);if(!apEl||apEl._chip!==c)apT=setTimeout(()=>showAct(c),120)}else if(apEl&&!e.target.closest(".apop")&&!apEl.querySelector(".bowl canvas")){clearTimeout(apT);apT=setTimeout(hideAct,250)}});
 document.addEventListener("focusin",e=>{const c=e.target.closest&&e.target.closest("[data-pop]");if(c)showAct(c)});
 document.addEventListener("click",e=>{const c=e.target.closest("[data-pop]");if(c){e.stopPropagation();if(apEl&&apEl._chip===c)hideAct();else showAct(c)}},true);
+document.addEventListener("click",e=>{if(apEl&&!e.target.closest(".apop")&&!e.target.closest("[data-pop]"))hideAct()});
 /* Accessibility: every clickable chip, row and option works from the keyboard and is announced as a button. */
 const CLICKABLE='[data-act],[data-sel],[data-opt],[data-pick],[data-gby],[data-qnow],[data-qdrop],[data-col],[data-prs],[data-pop],[data-mpick],[data-ctext],[data-face],[data-setmode],[data-effort],[data-think]';
 function a11y(root){root.querySelectorAll(CLICKABLE).forEach(el=>{if(el.matches("button,a,input,textarea,select"))return;if(!el.hasAttribute("tabindex"))el.tabIndex=0;if(!el.hasAttribute("role"))el.setAttribute("role","button");if(!el.hasAttribute("aria-label")){const l=el.getAttribute("title")||(el.dataset.face?((S.find(x=>x.id===el.dataset.face)||{}).role||"Agent")+" agent":"");if(l)el.setAttribute("aria-label",l)}});

@@ -431,6 +431,17 @@ describe("page", () => {
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
 	});
+
+	it("keeps the plan popover open while its bowling lane is rolling, so a pin gets the chance to fall", async () => {
+		const { PAGE } = await import("../src/page");
+		// The roll takes a couple of seconds; a stray mouseout used to close the popover (and tear down the WebGL
+		// canvas) long before any pin could fall. The hover-away and click-away closers must both check for a
+		// live ".bowl canvas" and skip closing while it is there; a click on the chip, elsewhere, or Escape still
+		// closes it (those paths are unchanged and still covered by the click/mouseover listeners below).
+		expect(PAGE).toContain('if(p.querySelector(".bowl canvas"))return;apT=setTimeout(hideAct,250)');
+		expect(PAGE).toContain('!apEl.querySelector(".bowl canvas")');
+		expect(PAGE).toContain('document.addEventListener("click",e=>{if(apEl&&!e.target.closest(".apop")&&!e.target.closest("[data-pop]"))hideAct()});');
+	});
 });
 
 describe("roles", () => {
