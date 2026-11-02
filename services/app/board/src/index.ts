@@ -392,6 +392,23 @@ export function chatLinks(file: string): { url: string; host: string; who: "you"
 	return [...seen.values()].reverse().slice(0, 60);
 }
 
+const linkCounts = new Map<string, { key: string; n: number }>();
+/** How many links a transcript's messages hold; re-read only when the file changes. */
+export function linkCount(file: string): number {
+	let key = "";
+	try {
+		const st = statSync(file);
+		key = `${st.mtimeMs}:${st.size}`;
+	} catch {
+		return 0;
+	}
+	const hit = linkCounts.get(file);
+	if (hit?.key === key) return hit.n;
+	const n = chatLinks(file).length;
+	linkCounts.set(file, { key, n });
+	return n;
+}
+
 const previewCache = new Map<string, { at: number; card: LinkCard }>();
 type LinkCard = { url: string; title?: string; description?: string; image?: string; site?: string; error?: string };
 /** Reads a page's title, description and image from its meta tags. Cached for 10 minutes; gives up after 6 seconds. */
@@ -489,13 +506,14 @@ export function createApp(
 		const sessions = read();
 		const limits = readLimits();
 		return c.json({
-			sessions: sessions.map(({ file: _file, ...s }) => ({
+			sessions: sessions.map(({ file, ...s }) => ({
 				...s,
 				face: faceOf(s),
 				lower: s.agent === "claude" ? lowerModel(s.tune?.model || s.model) : null,
 				skills: skillsFor(s.role),
 				sending: sending.has(s.id),
 				prs: mergePrs(s.prs ?? [], cachedPrs(s, prsFor)),
+				links: file ? linkCount(file) : 0,
 				queue: (queues.get(s.id) ?? []).map(({ qid, text }) => ({ qid, text })),
 			})),
 			clashes: findClashes(sessions),

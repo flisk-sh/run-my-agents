@@ -1423,9 +1423,12 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 		const app = createApp(() => [{ id: "ln1", cwd: "/repo", agent: "claude", file } as never], undefined, { fetch: fake });
 		expect((await (await app.request("/api/links?id=ln1")).json()).links).toHaveLength(2);
 		expect((await app.request("/api/links?id=nope")).status).toBe(404);
+		const { linkCount } = await import("../src/index");
+		expect(linkCount(file)).toBe(2);
+		expect(linkCount(join(dir, "missing.jsonl"))).toBe(0);
 		expect((await app.request("/api/preview?url=file:///etc/passwd")).status).toBe(400);
 		const { PAGE } = await import("../src/page");
-		for (const part of ["data-links=", "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{"]) expect(PAGE).toContain(part);
+		for (const part of ["data-links=", "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{", 'class="prc lnc" data-links=']) expect(PAGE).toContain(part);
 	});
 
 	it("lists pull requests when you hover the branch", async () => {
