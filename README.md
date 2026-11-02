@@ -39,6 +39,11 @@ A `PreToolUse` hook runs before `Edit`, `Write`, `MultiEdit` and `NotebookEdit`.
 |---|---|---|
 | `RUN_MY_AGENTS_TTL_MINUTES` | `10` | How long an edit counts as "recent" |
 | `RUN_MY_AGENTS_DIR` | `~/.run-my-agents` | Where claims are kept |
+| `RUN_MY_AGENTS_MODE` | `warn` | `off` turns the warning off without uninstalling |
+| `RUN_MY_AGENTS_IGNORE` | (none) | Extra comma-separated globs that never warn, like `*.snap,docs/gen/**`. Lockfiles, `*.generated.*`, `dist/` and `node_modules/` are always skipped |
+| `RUN_MY_AGENTS_DEBUG` | (off) | `1` logs every decision and error to `debug.log` in the claims folder |
+
+When a session ends, its claims are dropped, so a finished session never stops anyone.
 
 ## Limits
 
