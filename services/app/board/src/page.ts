@@ -7,6 +7,7 @@
 //   app 22 ─ pad 8 ─► panel 14 ─ pad 6 ─► row 8 ─ pad 4 ─► chip 4
 
 import { renderMarkdown } from "./markdown";
+import { EXTRAS } from "../../web/src/avatars";
 
 export const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Run My Agents</title><style>
@@ -382,6 +383,7 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 <input type="file" id="fin" multiple hidden>
 <script>
 const renderMarkdown=${renderMarkdown.toString()};
+const XT=${JSON.stringify(EXTRAS)};
 const SH={circle:c=>'<circle cx="32" cy="32" r="28" fill="'+c+'"/><circle cx="32" cy="32" r="28" fill="url(#sh)"/>',
 square:c=>'<rect x="5" y="5" width="54" height="54" rx="12" fill="'+c+'"/><rect x="5" y="5" width="54" height="54" rx="12" fill="url(#sh)"/>',
 pill:c=>'<rect x="2" y="12" width="60" height="40" rx="20" fill="'+c+'"/><rect x="2" y="12" width="60" height="40" rx="20" fill="url(#sh)"/>',
@@ -423,7 +425,7 @@ function toast(t){const el=$("toast");el.textContent=t;el.classList.add("on");cl
 const state=s=>C.some(c=>c.sessions.includes(s.id))?"y":Date.now()-s.updatedAt<120000?"g":"z";
 const GROUPS=[["Pinned",s=>!s.hidden&&s.pinned],["Working",s=>!s.hidden&&!s.pinned&&s.viaApp!==false&&state(s)!=="z"],["Idle",s=>!s.hidden&&!s.pinned&&s.viaApp!==false&&state(s)==="z"],["Not in the Claude app",s=>!s.hidden&&!s.pinned&&s.viaApp===false],["Closed",s=>s.hidden]];
 const groupName=s=>(GROUPS.find(g=>g[1](s))||[""])[0];
-function face(s,n){const f=s.face,m=motion(s);return '<div class="av'+(m.low?" low":m.wig?" wig":"")+'" data-face="'+s.id+'" style="width:'+n+'px;height:'+n+'px;'+m.style+'"><svg width="'+n+'" height="'+n+'" viewBox="0 0 64 64">'+SH[f.shape](f.color)+EY[f.eyes]+'</svg>'+(n>32?'<span class="dot '+state(s)+'"></span>':"")+"</div>"}
+function face(s,n){const f=s.face,m=motion(s);return '<div class="av'+(m.low?" low":m.wig?" wig":"")+'" data-face="'+s.id+'" style="width:'+n+'px;height:'+n+'px;'+m.style+'"><svg width="'+n+'" height="'+n+'" viewBox="0 0 64 64">'+SH[f.shape](f.color)+EY[f.eyes]+(XT[f.extra]||"")+'</svg>'+(n>32?'<span class="dot '+state(s)+'"></span>':"")+"</div>"}
 function render(){
  if(!S.length){$("side").innerHTML='<div class="proj">Run My Agents</div><div class="btns"><button class="btn new" data-act="newopen">'+ico(IC.plus)+'New session</button></div>';$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;

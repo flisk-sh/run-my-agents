@@ -12,6 +12,18 @@ type Eyes =
 	| "happy"
 	| "bars"
 	| "squint";
+type Extra = "bug" | "refactor" | "feature";
+const INK = "#0b0b10";
+/** Props for some roles, drawn on top of the body and eyes in the same 64x64 box. */
+export const EXTRAS: Record<Extra, string> = {
+	// antenna feelers and a magnifier over the right eye
+	bug: `<path d="M24 9q-3-6-9-6M40 9q3-6 9-6" fill="none" stroke="${INK}" stroke-width="2.5" stroke-linecap="round"/><circle cx="15" cy="3.5" r="2.5" fill="${INK}"/><circle cx="49" cy="3.5" r="2.5" fill="${INK}"/><circle cx="42" cy="30" r="10" fill="rgba(255,255,255,.18)" stroke="${INK}" stroke-width="3"/><path d="M49 37l8 8" stroke="${INK}" stroke-width="4.5" stroke-linecap="round"/><path d="M14 52l-5 4M20 56l-3 5M50 52l5 4M44 56l3 5" stroke="${INK}" stroke-width="2.5" stroke-linecap="round"/>`,
+	// two stacked blocks mid-swap, and a wrench for an antenna
+	refactor: `<path d="M5 41h54v6a12 12 0 0 1-12 12H17A12 12 0 0 1 5 47z" fill="rgba(0,0,0,.22)"/><path d="M5 41h54" stroke="${INK}" stroke-width="2" stroke-dasharray="4 3"/><path d="M24 50h16m-4-3 4 3-4 3" fill="none" stroke="${INK}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M32 6V1" stroke="${INK}" stroke-width="3" stroke-linecap="round"/><path d="M27.5 1.5a4.5 4.5 0 1 0 9 0" fill="none" stroke="${INK}" stroke-width="2.5" stroke-linecap="round"/>`,
+	// a spark above the head and a plus on the chest
+	feature: `<path d="M32 0l2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2z" fill="#fde68a" stroke="${INK}" stroke-width="1.2"/><path d="M32 40v8M28 44h8" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`,
+};
+
 type Look = "left" | "right" | "up" | "down" | "center";
 
 export interface Agent {
@@ -20,6 +32,8 @@ export interface Agent {
 	shape: Shape;
 	eyes: Eyes;
 	look: Look;
+	/** A prop drawn over the face: a bug hunter's magnifier, a refactorer's wrench, a feature's spark. */
+	extra?: Extra;
 	/** What the agent is doing, for the team board. */
 	task: string;
 	file: string;
@@ -123,6 +137,7 @@ export const AGENTS: Agent[] = [
 		shape: "blob",
 		eyes: "squint",
 		look: "down",
+		extra: "bug",
 		task: "Find why checkout crashes",
 		file: "src/cart.ts",
 		state: "editing",
@@ -133,6 +148,7 @@ export const AGENTS: Agent[] = [
 		shape: "square",
 		eyes: "sleepy",
 		look: "left",
+		extra: "refactor",
 		task: "Split the payments module",
 		file: "src/payments/",
 		state: "waiting",
@@ -143,6 +159,7 @@ export const AGENTS: Agent[] = [
 		shape: "pill",
 		eyes: "wide",
 		look: "up",
+		extra: "feature",
 		task: "Add dark mode",
 		file: "src/theme.ts",
 		state: "done",
@@ -225,5 +242,5 @@ function eyes(kind: Eyes, look: Look): string {
 
 /** One agent's face as an SVG, size in pixels. */
 export function avatar(a: Agent, size = 48): string {
-	return `<svg class="ava" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${a.role} agent">${body(a.shape, a.color)}${eyes(a.eyes, a.look)}</svg>`;
+	return `<svg class="ava" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${a.role} agent">${body(a.shape, a.color)}${eyes(a.eyes, a.look)}${a.extra ? EXTRAS[a.extra] : ""}</svg>`;
 }

@@ -18,7 +18,7 @@ import SKILLS from "./skills.json";
 /** The avatar for a session: always its role's own face and color (Code is blue, Design purple, ...). */
 export function faceOf(s: Session) {
 	const a = AGENTS.find((x) => x.role === s.role) ?? (AGENTS.find((x) => x.role === "Code") as (typeof AGENTS)[number]);
-	return { shape: a.shape, eyes: a.eyes, color: a.color };
+	return { shape: a.shape, eyes: a.eyes, color: a.color, extra: a.extra };
 }
 
 /** Which roadmap skill categories fit each agent's job. */
