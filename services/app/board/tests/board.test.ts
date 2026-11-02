@@ -1541,3 +1541,32 @@ describe("tool chips", () => {
 		expect(html).not.toContain("clist");
 	});
 });
+
+describe("page wiring", () => {
+	const page = async () => await (await createApp(() => []).request("/")).text();
+	const set = (h: string, re: RegExp) => new Set([...h.matchAll(re)].map((m) => m[1]));
+
+	it("is never served from the browser cache", async () => {
+		const r = await createApp(() => []).request("/");
+		// The script is inline, so a cached document runs the old board against the new API.
+		expect(r.headers.get("cache-control")).toBe("no-store");
+	});
+
+	// #193 removed the "calls" popup but left the chips emitting data-pop="calls", so clicking a
+	// tool chip did nothing until #196. Every attribute the markup emits must have a branch.
+	it("every data-act the markup emits has a branch in the click handler", async () => {
+		const h = await page();
+		const emitted = set(h, /data-act="([a-zA-Z]+)"/g);
+		const handled = set(h, /k==="([a-zA-Z]+)"/g);
+		expect(emitted.size).toBeGreaterThan(5);
+		expect([...emitted].filter((k) => !handled.has(k))).toEqual([]);
+	});
+
+	it("every data-pop the markup emits has a branch in popHtml", async () => {
+		const h = await page();
+		const emitted = set(h, /data-pop="([a-zA-Z]+)"/g);
+		const handled = set(h, /kind==="([a-zA-Z]+)"/g);
+		expect(emitted.size).toBeGreaterThan(3);
+		expect([...emitted].filter((k) => !handled.has(k))).toEqual([]);
+	});
+});
