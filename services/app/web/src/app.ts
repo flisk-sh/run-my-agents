@@ -66,9 +66,6 @@ export function createApp(options: AppOptions = {}) {
 		const host = c.req.header("x-forwarded-host") ?? url.host;
 		return `${proto}://${host}${/^(\/[\w.-]+)+$/.test(prefix) ? prefix : ""}`;
 	};
-	const rootOf = (c: Parameters<typeof baseOf>[0]) =>
-		new URL(`${baseOf(c)}/`).pathname.replace(/\/$/, "");
-
 	const limited = (c: { req: { raw: Request }; env: unknown }) => {
 		const env = c.env as
 			| { requestIP?: (r: Request) => { address: string } | null }

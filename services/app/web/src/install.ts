@@ -23,6 +23,7 @@ export function installSteps(client = "claude-code"): Install | undefined {
 		client: "claude-code",
 		commands: INSTALL_COMMANDS,
 		needs: "Claude Code and node on your PATH.",
+		// biome-ignore lint/suspicious/noThenProperty: a JSON field of /api/install, which is only serialised, never awaited or imported
 		then: "Open two or more Claude Code sessions on the same repo, or on worktrees of it, and work as usual. Before a session edits a file another session edited in the last 10 minutes, it gets a warning once.",
 	};
 }
