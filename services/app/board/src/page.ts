@@ -660,23 +660,36 @@ function Side({groups}){const newBtn=H("button",{class:"btn new","data-act":"new
  Raw(umuxChip()),
  groups.map(([g,f])=>H(SideGroup,{g,f,key:g})))}
 function drawSide(groups){pRender(H(Side,{groups}),$("side"))}
+function Head({s}){const t=s.title||"";return H(Frag,null,Raw(face(s,34)),
+ H("div",{class:"ht"},H("div",{class:"ttl"},renaming?H("input",{class:"rnm",id:"rnmIn",maxlength:"120",placeholder:"Session name",defaultValue:t})
+  :H(Frag,null,H("b",null,s.role),H("i",null,"·"),H("span",{class:"rnmhit",title:"Double-click to rename"},t||"Untitled"))),
+ H("div",{class:"mchips"},
+  s.branch||(s.prs&&s.prs.length)?H("span",{class:"mc","data-ctext":s.branch||"","data-prs":s.id,title:"Click to copy the branch. Hover for pull requests"},Raw(ico(IC.branch)),s.branch||"pull requests",s.prs&&s.prs.length?H("b",{class:"prn"},s.prs.length+" PR"+(s.prs.length>1?"s":"")):null):null,
+  H("span",{class:"mc","data-links":s.id,title:"Hover for the links said in this chat"},Raw(ico(IC.link)),"links"),
+  H("span",{class:"mc","data-ctext":s.cwd,title:"Copy folder path"},Raw(ico(IC.folder)),s.cwd.split("/").pop()||""),
+  H("span",{class:"mc","data-ctext":s.id,title:"Copy session ID"},Raw(ico(IC.hash)),"session "+s.id.slice(0,8)))),
+ Raw('<div class="hb">'+hb("rename","Rename",ico(IC.edit),renaming)+hb("pin",s.pinned?"Unpin":"Pin",ico(IC.pin),s.pinned)+hb("roles","Type: "+s.role,mini(s.face,14),showRoles)+hb("skills","Skills",ico(IC.star),showSkills)+hb("files","Files",ico(IC.files),false)+hb("mute",muted[s.id]?"Unmute":"Mute",ico(IC.bell),muted[s.id])+"</div>"))}
+function Meter({s}){const over=L.sessionTokens&&s.tokens.used>=L.sessionTokens,pct=L.sessionTokens?Math.min(100,s.tokens.used/L.sessionTokens*100):0,tag=mtag(s);
+ return H("div",{class:"meter"},tag?Raw(tag):H("span",null,s.agent),
+ L.sessionTokens?H(Frag,null,H("div",{class:"bar"+(over?" hot":"")},H("i",{style:"width:"+pct+"%"})),H("span",null,kt(s.tokens.used)+" / "+kt(L.sessionTokens)))
+  :H("span",{style:"flex:1"},kt(s.tokens.used)+" tokens · "+kt(s.tokens.cached)+" cached"),
+ s.lower?H("button",{class:"btn"+(over?" go":""),"data-act":"down"},"Move to "+s.lower):null)}
+const Skills=({s})=>showSkills?H("div",{class:"skills"},s.skills.map(k=>H("div",{key:k.name,class:"sk","data-skill":k.name,title:k.source+"/"+k.path},H("b",null,"/"+k.name),H("p",null,k.what)))):null;
+const Roles=({s})=>showRoles&&OPT?H("div",{class:"roles"},H("span",{class:"rc"+(s.roleSet?"":" on"),"data-act":"setrole","data-role":"",style:"--c:#8a8a99"},"Auto"),Raw(chips(s.roleSet?s.role:"","","setrole"))):null;
+function Warns({s}){return H(Frag,null,C.filter(c=>c.sessions.includes(s.id)&&!muted[s.id]).map(c=>{const other=c.sessions.filter(x=>x!==s.id).map(x=>(S.find(y=>y.id===x)||{role:"another session"}).role).join(", ");
+ return H("div",{key:c.file,class:"warn","data-act":"go","data-file":c.file,"data-other":c.sessions.find(x=>x!==s.id)},H("span",null,"⚠ "+other+" also edited "+c.file.split("/").pop()+" in the last 10 min"),H("span",null,"Open "+other))}))}
+function drawHead(s){pRender(H(Head,{s}),$("hd"));pRender(H(Meter,{s}),$("meter"));pRender(H(Skills,{s}),$("skills"));pRender(H(Roles,{s}),$("roles"));pRender(H(Warns,{s}),$("warns"))}
 function render(){
- if(!S.length){drawSide();$("hd").innerHTML="";$("warns").innerHTML="";$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
+ if(!S.length){drawSide();pRender(null,$("hd"));pRender(null,$("warns"));$("feed").innerHTML='<p class="empty">No Claude Code sessions in the last hour. Start one and it shows up here.</p>';$("box").innerHTML="";return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
  const groups=groupList();
  const oldRows=snapRows();
  drawSide(groups);
  flip(oldRows);if(movedId){const mv=movedId;movedId="";setTimeout(()=>{const r=document.querySelector('#side .it[data-sel="'+mv+'"]');if(r)r.classList.remove("moved")},900)}
  const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.length;
- $("hd").innerHTML=face(s,34)+'<div class="ht"><div class="ttl">'+(renaming?'<input class="rnm" id="rnmIn" maxlength="120" placeholder="Session name" value="'+esc(s.title||"")+'">':'<b>'+esc(s.role)+'</b><i>&middot;</i><span class="rnmhit" title="Double-click to rename">'+esc(s.title||"Untitled")+'</span>')+'</div><div class="mchips">'+(s.branch||(s.prs&&s.prs.length)?'<span class="mc" data-ctext="'+esc(s.branch||"")+'" data-prs="'+s.id+'" title="Click to copy the branch. Hover for pull requests">'+ico(IC.branch)+esc(s.branch||"pull requests")+(s.prs&&s.prs.length?'<b class="prn">'+s.prs.length+" PR"+(s.prs.length>1?"s":"")+"</b>":"")+"</span>":"")+'<span class="mc" data-links="'+s.id+'" title="Hover for the links said in this chat">'+ico(IC.link)+'links</span>'+'<span class="mc" data-ctext="'+esc(s.cwd)+'" title="Copy folder path">'+ico(IC.folder)+esc(s.cwd.split("/").pop()||"")+'</span><span class="mc" data-ctext="'+esc(s.id)+'" title="Copy session ID">'+ico(IC.hash)+"session "+s.id.slice(0,8)+'</span></div></div><div class="hb">'+hb("rename","Rename",ico(IC.edit),renaming)+hb("pin",s.pinned?"Unpin":"Pin",ico(IC.pin),s.pinned)+hb("roles","Type: "+s.role,mini(s.face,14),showRoles)+hb("skills","Skills",ico(IC.star),showSkills)+hb("files","Files",ico(IC.files),false)+hb("mute",muted[s.id]?"Unmute":"Mute",ico(IC.bell),muted[s.id])+"</div>";
+ drawHead(s);
  {let ab=$("actbar");if(!ab){ab=document.createElement("div");ab.id="actbar";ab.className="actbar";$("hd").after(ab)}const h=actChips(s);if(ab.dataset.h!==h){ab.dataset.h=h;ab.innerHTML=h}ab.hidden=!h}
  if(renaming){const ri=$("rnmIn");if(ri&&document.activeElement!==ri){ri.focus();ri.select()}}
- const over=L.sessionTokens&&s.tokens.used>=L.sessionTokens,pct=L.sessionTokens?Math.min(100,s.tokens.used/L.sessionTokens*100):0;
- $("meter").innerHTML='<div class="meter"><span>'+(mtag(s)||esc(s.agent))+"</span>"+(L.sessionTokens?'<div class="bar'+(over?" hot":"")+'"><i style="width:'+pct+'%"></i></div><span>'+kt(s.tokens.used)+" / "+kt(L.sessionTokens)+"</span>":'<span style="flex:1">'+kt(s.tokens.used)+" tokens · "+kt(s.tokens.cached)+" cached</span>")+(s.lower?'<button class="btn'+(over?" go":"")+'" data-act="down">Move to '+s.lower+"</button>":"")+"</div>";
- $("skills").innerHTML=showSkills?'<div class="skills">'+s.skills.map(k=>'<div class="sk" data-skill="'+esc(k.name)+'" title="'+esc(k.source+"/"+k.path)+'"><b>/'+esc(k.name)+"</b><p>"+esc(k.what)+"</p></div>").join("")+"</div>":"";
- $("roles").innerHTML=showRoles&&OPT?'<div class="roles"><span class="rc'+(s.roleSet?"":" on")+'" data-act="setrole" data-role="" style="--c:#8a8a99">Auto</span>'+chips(s.roleSet?s.role:"","","setrole")+"</div>":"";
- const mine=C.filter(c=>c.sessions.includes(s.id));
- $("warns").innerHTML=mine.filter(c=>!muted[s.id]).map(c=>{const other=c.sessions.filter(x=>x!==s.id).map(x=>(S.find(y=>y.id===x)||{role:"another session"}).role).join(", ");return '<div class="warn" data-act="go" data-file="'+esc(c.file)+'" data-other="'+c.sessions.find(x=>x!==s.id)+'"><span>⚠ '+esc(other)+" also edited "+esc(c.file.split("/").pop())+" in the last 10 min</span><span>Open "+esc(other)+"</span></div>"}).join("");
  const feed=$("feed"),stick=feed.scrollTop+feed.clientHeight>=feed.scrollHeight-40;
  const key=s.id+":"+s.feed.length+":"+(s.feed.at(-1)?.at??0)+":"+COL.size+":"+OPEN.size+":"+state(s)+":"+(s.sending?1:0);
  if(key!==feedKey){const sc=feedKey.split(":")[0]!==s.id;feedKey=key;

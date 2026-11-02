@@ -975,7 +975,7 @@ describe("header", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ["function hb(", 'class="mchips"', 'data-ctext="', ".hb span:hover", ".mc:hover", ".hd::after", ".proj span{", ".cnt i{", ".btn:active", "const IC="]) expect(PAGE).toContain(part);
+		for (const part of ["function hb(", 'class:"mchips"', 'data-ctext="', ".hb span:hover", ".mc:hover", ".hd::after", ".proj span{", ".cnt i{", ".btn:active", "const IC="]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -1428,12 +1428,12 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 		expect(linkCount(join(dir, "missing.jsonl"))).toBe(0);
 		expect((await app.request("/api/preview?url=file:///etc/passwd")).status).toBe(400);
 		const { PAGE } = await import("../src/page");
-		for (const part of ["data-links=", "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{", 'class:"prc lnc","data-links":s.id']) expect(PAGE).toContain(part);
+		for (const part of ['"data-links":s.id', "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{", 'class:"prc lnc","data-links":s.id']) expect(PAGE).toContain(part);
 	});
 
 	it("lists pull requests when you hover the branch", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of ["data-prs=", "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class="prn"']) expect(PAGE).toContain(part);
+		for (const part of ["data-prs=", "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class:"prn"']) expect(PAGE).toContain(part);
 	});
 
 	it("shows more chat text: tighter spacing, wider bubbles, smaller tool labels that group repeats, no early cut-off", async () => {
