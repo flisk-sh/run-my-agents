@@ -426,6 +426,29 @@ describe("pins and open-in", () => {
 		expect(seen.length).toBe(1);
 		expect(seen[0].at(-1)).toBe("/repo");
 	});
+
+	it("opens Linux terminals in turn, skipping any that is not installed", async () => {
+		const { openIn } = await import("../src/index");
+		const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+		const term = process.env.TERMINAL;
+		Object.defineProperty(process, "platform", { value: "linux" });
+		delete process.env.TERMINAL;
+		try {
+			const seen: string[] = [];
+			const fake = ((cmd: string) => {
+				seen.push(cmd);
+				const child = new (require("node:events").EventEmitter)();
+				setTimeout(() => child.emit(cmd === "gnome-terminal" ? "spawn" : "error", new Error("ENOENT")), 0);
+				return child;
+			}) as never;
+			expect(await openIn("terminal", "/repo", fake)).toBe(true);
+			expect(seen).toEqual(["x-terminal-emulator", "gnome-terminal"]);
+		} finally {
+			Object.defineProperty(process, "platform", platform);
+			if (term === undefined) delete process.env.TERMINAL;
+			else process.env.TERMINAL = term;
+		}
+	});
 });
 
 describe("right-click gauges panel and animated controls", () => {

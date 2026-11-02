@@ -94,9 +94,34 @@ export function sendToSession(s: Session, text: string, run = spawn, dirs: strin
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 
 
+/** Linux terminal launchers in the order to try them; the session folder is the process cwd, or passed as a flag. */
+function linuxTerminals(cwd: string): [string, string[]][] {
+	return [
+		...(process.env.TERMINAL ? [[process.env.TERMINAL, []] as [string, string[]]] : []),
+		["x-terminal-emulator", []],
+		["gnome-terminal", ["--working-directory", cwd]],
+		["konsole", ["--workdir", cwd]],
+		["xterm", ["-e", process.env.SHELL ?? "sh"]],
+	];
+}
+
+/** Starts the first Linux terminal that is installed. A launcher that cannot start is skipped; resolves false when none can. */
+async function openLinuxTerminal(cwd: string, run = spawn): Promise<boolean> {
+	for (const [cmd, args] of linuxTerminals(cwd)) {
+		const started = await new Promise<boolean | undefined>((resolveStart) => {
+			const child = run(cmd, args, { cwd, stdio: "ignore" });
+			child.on("error", () => resolveStart(undefined));
+			child.on("spawn", () => resolveStart(true));
+		});
+		if (started !== undefined) return started;
+	}
+	return false;
+}
+
 /** Opens a session's folder in Finder, Terminal or VS Code. Resolves false when the app could not be opened. */
 export function openIn(target: string, cwd: string, run = spawn): Promise<boolean> {
 	const mac = process.platform === "darwin";
+	if (target === "terminal" && process.platform === "linux") return openLinuxTerminal(cwd, run);
 	const argv =
 		target === "finder"
 			? mac ? ["open", cwd] : ["xdg-open", cwd]
