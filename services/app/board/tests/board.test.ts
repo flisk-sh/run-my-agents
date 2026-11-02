@@ -272,6 +272,17 @@ describe("typing box", () => {
 		// the dots keep their own .typing rule
 		expect(PAGE).toContain(".typing{display:flex");
 	});
+	it("gives every control in the agent panel a hover tooltip", async () => {
+		const { PAGE } = await import("../src/page");
+		const panel = PAGE.split("function gaugePanel(s){")[1].split("function tune(")[0];
+		for (const hook of ['data-sw="pin"', 'data-sw="mute"', 'data-tile="', 'data-copy="name"', 'data-copy="id"', 'data-copy="resume"', 'data-close="1"', 'data-del="1"', 'data-mrole=""']) {
+			expect(panel).toContain(hook);
+			expect(panel.split(hook)[1].slice(0, 200)).toContain("data-tip=");
+		}
+		expect(PAGE).toContain('id="tip"');
+		expect(PAGE).toMatch(/class="mdot" data-tip=/);
+		expect(PAGE).toMatch(/data-effort="'\+e\+'" data-tip=/);
+	});
 });
 
 describe("motion and model tags", () => {
