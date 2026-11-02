@@ -1,6 +1,8 @@
 // The kitchen's HTTP API, mounted on the board's app: orders, the scoreboard, skill sets and agent containers.
 // Everything the board owns (reading sessions, sending a message, starting an agent) comes in through KitchenCtx,
 // so this module never reaches into the board's internals and can be tested on its own.
+import { existsSync, statSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
@@ -36,19 +38,58 @@ export type KitchenCtx = {
 const body = async <T>(c: Context) => (await c.req.json().catch(() => ({}))) as T;
 /** The agent's last reply, longer than lastSaid: a spec or build summary for the next stages. */
 const handOff = (s: Session | undefined) => {
-	const m = s?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
-	return String(m?.text ?? "").trim().slice(-1800);
+	// Everything the agent said since the order was sent, not just its closing line: a spec often ends with
+	// "Spec complete" after the spec itself.
+	const feed = (s?.feed ?? []) as { who: string; text?: string }[];
+	let i = feed.length;
+	while (i > 0 && feed[i - 1].who !== "you") i--;
+	return feed
+		.slice(i)
+		.filter((x) => x.who === "agent")
+		.map((x) => String(x.text ?? "").trim())
+		.filter(Boolean)
+		.join("\n\n")
+		.slice(-3000);
 };
+
+/** The verdict a test or review agent gave: its last PASS or FAIL wins, so "FAIL … corrected verdict: PASS" passes. */
+export function verdictIn(text: string): boolean | undefined {
+	const all = [...text.matchAll(/\b(PASS|FAIL)\b/g)];
+	const last = all.at(-1)?.[1];
+	return last === "PASS" ? true : last === "FAIL" ? false : undefined;
+}
+
+const isDir = (p: string) => {
+	try {
+		return statSync(p).isDirectory();
+	} catch {
+		return false;
+	}
+};
+
+/** Where the Run My Agents board's own code lives, for orders about the board itself. */
+export const BOARD_ROOT = resolvePath(import.meta.dir, "../../../../..");
+/** Orders about the board (its kitchen, agents, orders, tabs) belong in the board's repo, whatever chat was selected. */
+const BOARD_WORDS = /\b(board|kitchen|autopilot|front desk|run[- ]my[- ]agents|crew tab|lanes|scores tab|queue tab|orders?|tickets?|idle agents?|agents? (?:without work|not picking|idle))\b/i;
+export function whereOf(title: string, cwd: string, folders: string[]): string {
+	const named = folders.find((f) => {
+		const base = f.split("/").filter(Boolean).pop() ?? "";
+		return base.length > 3 && new RegExp(`\\b${base.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")}\\b`, "i").test(title);
+	});
+	if (named) return named;
+	if (BOARD_WORDS.test(title) && existsSync(resolvePath(BOARD_ROOT, "services/app/board"))) return BOARD_ROOT;
+	return cwd;
+}
 
 /**
  * What each stage is for. The rules for Test and Review are the ones practice orders showed were missing: judge the
  * change against the spec, and never FAIL an order for being vague, since nobody is there to answer questions.
  */
 const STAGE_BRIEF = {
-	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change. Make sensible assumptions instead of asking questions: nobody will answer them. Do not change code.",
-	build: "Make the change the spec describes. Where something is unclear, take the smallest reasonable choice and say which. End with the files you changed and how to check the change.",
-	test: "Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file.",
-	review: "Read the change (git diff) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why or loose wording is not a reason to FAIL.",
+	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code.",
+	build: "Make the change the spec describes. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change.",
+	test: "Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
+	review: "Read the change (git diff) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
 } as const;
 
 const lastSaid = (s: Session | undefined) => {
@@ -182,7 +223,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const skills = kind === "question" ? [] : orderSkills(title, route);
 		const lane = kind === "task" ? laneOf(title) : undefined;
 		const card = zachman({ title, cwd: b.cwd ?? "", priority: b.priority ?? "P1", route, skills, kind, lane });
-		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route, kind, lane, zachman: card });
+		const folders = [...new Set([...k.read().map((x) => x.cwd).filter(Boolean), ...readContainers().map((x) => x.cwd)])] as string[];
+		const where = kind === "task" ? whereOf(title, b.cwd ?? "", folders) : (b.cwd ?? "");
+		if (where !== (b.cwd ?? "")) card.where = where.split("/").filter(Boolean).pop() ?? where;
+		const t = addTask({ title, cwd: where, priority: b.priority, skills, route, kind, lane, zachman: card });
 		frontDesk(t);
 		stock(skills, k.fetch);
 		return c.json(t, 201);
@@ -275,10 +319,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			.filter((st) => st !== order.stage && order.notes?.[st])
 			.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
 			.join("");
+		const fresh = order.requeued ? `\n\nThis order was requeued: treat it as new. Earlier verdicts or rejections of #${order.n} do not apply.` : "";
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}\n\nYour job: ${STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step."}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${fresh}\n\nYour job: ${STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step."}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
 		const res = k.send(s, `#${order.n} ${order.stage}: ${order.title}`, text);
 		if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
 		const crew = { ...(order.crew ?? {}), [order.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
@@ -296,6 +341,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
 			const said = handOff(k.read().find((x) => x.id === t?.assignee));
 			if (said) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: said } }) ?? t;
+			// The Spec agent can move an order to the folder its code is in.
+			const moved = t.stage === "spec" ? /^\s*Folder:\s*(\/\S+)/m.exec(said)?.[1] : undefined;
+			if (moved && moved !== t.cwd && isDir(moved)) t = updateTask(t.id, { cwd: moved }) ?? t;
 		}
 		const order = t;
 		if (pass === false && (t.stage === "test" || t.stage === "review")) {
@@ -320,10 +368,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 
 	/** An agent finished its step when it went quiet after the order was sent. */
 	const finished = (t: Task, s: Session | undefined, now: number) => !!s && t.sentAt > 0 && !k.busy(s) && s.updatedAt > t.sentAt + 1_000 && now - s.updatedAt > 3_000;
-	const verdictOf = (s: Session | undefined) => {
-		const said = lastSaid(s);
-		return /\bFAIL\b/.test(said) ? false : /\bPASS\b/.test(said) ? true : undefined;
-	};
+	const verdictOf = (s: Session | undefined) => verdictIn(handOff(s));
 
 	/**
 	 * Autopilot, run by the server loop so orders move with no board page open and no buttons: specs cross the pass,

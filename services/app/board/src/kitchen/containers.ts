@@ -116,10 +116,15 @@ export const removeContainer = (id: string) => store.update((all) => {
 	return i >= 0;
 });
 
+/** Replies that refuse the order instead of naming a mistake: never kept as lessons. */
+const REFUSAL = /\b(clarif|resubmit|too vague|vague|will not reopen|not reopen|concrete (?:test|target|spec)|awaiting approval|approve the|need(?:s)? more detail)/i;
+
 /** The lessons skill a container reads and writes: shared by key, else its own. */
 export const lessonsKeyOf = (c: Pick<Container, "slug" | "lessonsKey">) => c.lessonsKey ?? c.slug;
 /** Rewrites one lessons skill from every container that shares its key. */
 function writeShared(all: Container[], key: string, name: string) {
+	// Old refusal lessons are dropped as they are rewritten, so they stop teaching agents to refuse.
+	for (const x of all) x.lessons = x.lessons.filter((l) => !REFUSAL.test(l.reason));
 	const lessons = all.filter((x) => lessonsKeyOf(x) === key).flatMap((x) => x.lessons).sort((a, b) => a.at - b.at);
 	writeLessons(key, name, lessons);
 }
@@ -145,7 +150,9 @@ export function strike(session: string, order: string, reason: string): { contai
 			const p = c.pods.find((x) => x.session === session && x.status !== "evicted");
 			if (!p) continue;
 			p.strikes += 1;
-			c.lessons.push({ at: Date.now(), order, reason });
+			// A lesson is a mistake to avoid. Refusals ("too vague", "resubmit", "will not reopen") taught agents to
+			// refuse more, so they count as a strike but are not kept as lessons.
+			if (!REFUSAL.test(reason)) c.lessons.push({ at: Date.now(), order, reason });
 			const fired = p.strikes >= c.maxStrikes;
 			if (fired) Object.assign(p, { status: "evicted", reason: `${p.strikes} strikes. Last: ${reason}`.slice(0, 300), evictedAt: Date.now() });
 			writeShared(all, lessonsKeyOf(c), c.lessonsKey ? `${c.role} agents` : c.name);

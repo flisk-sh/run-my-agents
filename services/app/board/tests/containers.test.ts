@@ -424,3 +424,60 @@ describe("stage hand-off", () => {
 		expect(zachman({ title: "fix it", cwd: "", priority: "P1", route: "Code", skills: [], kind: "task" }).why).toBe("Inferred by the Spec agent");
 	});
 });
+
+describe("failure causes found in the agents' chats", () => {
+	it("takes the last verdict: FAIL then a corrected PASS passes (#15)", async () => {
+		const { verdictIn } = await import("../src/kitchen/routes");
+		expect(verdictIn("FAIL — eval is a regression.\n\nCorrected verdict:\n\nPASS — the 2+2 issue is fixed.")).toBe(true);
+		expect(verdictIn("PASS looks fine. Wait, FAIL: the date check returns 2013.")).toBe(false);
+		expect(verdictIn("I need a concrete deliverable.")).toBeUndefined();
+	});
+
+	it("files orders about the board in the board's repo, and a named folder in that folder (#12, #19, #21)", async () => {
+		const { whereOf, BOARD_ROOT } = await import("../src/kitchen/routes");
+		expect(whereOf("too many agents without work, fire them if idle long", "/x/flisk", [])).toBe(BOARD_ROOT);
+		expect(whereOf("seems agents not picking up orders in the inbox", "/x/flisk", [])).toBe(BOARD_ROOT);
+		expect(whereOf("fix the release script in flisk", "/x/other", ["/x/flisk", "/x/other"])).toBe("/x/flisk");
+		expect(whereOf("fix the release script", "/x/flisk", ["/x/flisk"])).toBe("/x/flisk");
+	});
+
+	it("hands on the whole spec reply, not its closing line, and lets the spec move the folder (#21)", async () => {
+		const sessions: Session[] = [];
+		const { post, sent, started } = setup(sessions);
+		await post("/api/containers", { name: "S", role: "Code", stages: ["spec", "build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		const cook = { ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 };
+		sessions.push(cook);
+		await post("/api/containers/reconcile", {});
+		order({ stage: "spec", approved: false, title: "add retries to the upload client so flaky networks recover", cwd: "/repo" });
+		await post("/api/tasks/dispatch", { id: "t" });
+		cook.feed = [...cook.feed, { who: "you", text: "Order #1 (spec)", at: Date.now() } as never, { who: "agent", text: `Goal: retry uploads 3 times.\nFolder: ${tmpdir()}`, at: Date.now() } as never, { who: "agent", text: "Spec complete.", at: Date.now() } as never];
+		const served = (await post("/api/tasks/serve", { id: "t" })).body;
+		expect(served.notes.spec).toContain("Goal: retry uploads 3 times.");
+		expect(served.notes.spec).toContain("Spec complete.");
+		expect(served.cwd).toBe(tmpdir());
+		expect(sent.at(-1)).toContain("add a line 'Folder:");
+	});
+
+	it("tells builders never to ask or wait, and requeued orders to start fresh (#12, #20)", async () => {
+		const { post, sent } = setup([{ ...session("b", "Build"), updatedAt: Date.now() - 60_000 }]);
+		order({ stage: "build", requeued: 1, cwd: "/repo" });
+		await post("/api/tasks/dispatch", { id: "t", session: "b" });
+		const msg = sent.at(-1) as string;
+		expect(msg).toContain("Never ask questions or wait for approval");
+		expect(msg).toContain("do not commit or push");
+		expect(msg).toContain("This order was requeued: treat it as new.");
+	});
+
+	it("counts a refusal as a strike but does not keep it as a lesson (#12)", async () => {
+		const { post, started } = setup([]);
+		await post("/api/containers", { name: "Cooks", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		const { strike } = await import("../src/kitchen/containers");
+		strike(started[0].id as string, "#12", "REJECT: Order #12 closed and will not reopen. Resubmit with a concrete target.");
+		strike(started[0].id as string, "#13", "FAIL: range(1,3) returned [1,2], expected [1,2,3].");
+		const box = readContainers()[0];
+		expect(box.pods[0].strikes).toBe(2);
+		expect(box.lessons.map((l) => l.order)).toEqual(["#13"]);
+	});
+});
