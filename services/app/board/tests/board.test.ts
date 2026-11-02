@@ -240,7 +240,7 @@ describe("grok", () => {
 describe("hover pop-ups", () => {
 	it("opens no pop-up when it has nothing to show, like a tool row", async () => {
 		const { PAGE } = await import("../src/page");
-		expect(PAGE).toContain('const html=popHtml(chip.dataset.pop,s,chip);if(!html)return;');
+		expect(PAGE).toContain('const v=popView(chip.dataset.pop,s);if(!v)return;');
 	});
 });
 
@@ -488,16 +488,16 @@ describe("typing box", () => {
 		expect(PAGE).toMatch(/body\.plain \.av,[^{]*\{display:none!important/);
 		// the header wraps, so the action buttons cannot squeeze the session title
 		expect(PAGE).toMatch(/body\.plain \.hd\{[^}]*flex-wrap:wrap/);
-		expect(PAGE).toContain('design==="plain"?\'<div class="pp" style="flex:1">\'+plainTune("","")');
+		expect(PAGE).toContain('design==="plain"?H("div",{class:"pp",style:"flex:1"},H(PlainTune,{cm:"",ce:""}))');
 	});
 	it("draws a plain agent panel with text controls and a tooltip on each", async () => {
 		const { PAGE } = await import("../src/page");
-		const panel = PAGE.split("function plainPanel(s){")[1].split("function tune(")[0];
-		for (const hook of ['data-model="', 'data-effort="', 'data-sw="pin"', 'data-sw="mute"', 'data-mrole="', 'data-tile="', 'data-copy="name"', 'data-copy="id"', 'data-copy="resume"', 'data-close="1"', 'data-del="1"']) {
-			expect(panel.split(hook)[1].slice(0, 200)).toContain("data-tip=");
+		const panel = PAGE.split("function ModelSeg(")[1].split("function tune(")[0];
+		for (const hook of ['"data-model":', '"data-effort":', '"data-sw":"pin"', '"data-sw":"mute"', '"data-mrole":', '"data-tile":', '"data-copy":"name"', '"data-copy":"id"', '"data-copy":"resume"', '"data-close":"1"', '"data-del":"1"']) {
+			expect(panel.split(hook)[1].slice(0, 200)).toContain('"data-tip":');
 		}
 		expect(panel).not.toContain("<svg");
-		expect(PAGE).toContain('design==="plain"?plainPanel(s):gaugePanel(s)');
+		expect(PAGE).toContain('design==="plain"?PlainPanel:GaugePanel,{s}');
 	});
 	it("offers a plain design that drops glow and animation, and remembers the choice", async () => {
 		const { PAGE } = await import("../src/page");
@@ -508,10 +508,10 @@ describe("typing box", () => {
 	});
 	it("gives every control in the agent panel a hover tooltip", async () => {
 		const { PAGE } = await import("../src/page");
-		const panel = PAGE.split("function gaugePanel(s){")[1].split("function tune(")[0];
-		for (const hook of ['data-sw="pin"', 'data-sw="mute"', 'data-tile="', 'data-copy="name"', 'data-copy="id"', 'data-copy="resume"', 'data-close="1"', 'data-del="1"', 'data-mrole=""']) {
+		const panel = PAGE.split("function GaugePanel({s}){")[1].split("function tune(")[0];
+		for (const hook of ['"data-sw":"pin"', '"data-sw":"mute"', '"data-tile":', '"data-copy":"name"', '"data-copy":"id"', '"data-copy":"resume"', '"data-close":"1"', '"data-del":"1"', '"data-mrole":""']) {
 			expect(panel).toContain(hook);
-			expect(panel.split(hook)[1].slice(0, 200)).toContain("data-tip=");
+			expect(panel.split(hook)[1].slice(0, 200)).toContain('"data-tip":');
 		}
 		expect(PAGE).toContain('id="tip"');
 		expect(PAGE).toMatch(/class="mdot" data-tip=/);
@@ -884,7 +884,7 @@ describe("right-click gauges panel and animated controls", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ['addEventListener("contextmenu"', "e.preventDefault()", "function gaugePanel(", "function dialHtml(", "function ledsHtml(", 'data-sw="pin"', 'data-tile="', ".cmenu.gp{", "function showPanel(", 'tg==="TEXTAREA"']) expect(PAGE).toContain(part);
+		for (const part of ['addEventListener("contextmenu"', "e.preventDefault()", "function GaugePanel(", "function dialHtml(", "function ledsHtml(", '"data-sw":"pin"', '"data-tile":', ".cmenu.gp{", "function showPanel(", 'tg==="TEXTAREA"']) expect(PAGE).toContain(part);
 	});
 
 	it("uses no native dropdowns, checkboxes, number boxes or datalists anywhere", async () => {
@@ -1189,7 +1189,7 @@ describe("formatted replies, close and delete in the panel, smaller gauges", () 
 
 	it("has Close and Delete in the right-click panel, a Closed group, and a smaller panel", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of ['data-close="1"', 'data-del="1"', 'class="dz2"', '["Closed",s=>s.hidden]', "fold={Closed:true}", ".tl2.red.arm", "width:min(288px,94vw)"]) expect(PAGE).toContain(part);
+		for (const part of ['"data-close":"1"', '"data-del":"1"', 'class:"dz2"', '["Closed",s=>s.hidden]', "fold={Closed:true}", ".tl2.red.arm", "width:min(288px,94vw)"]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -1310,7 +1310,7 @@ describe("class names, again", () => {
 	it("keeps the chat row classes apart from the small CLAUDE and model tags (ag, md)", async () => {
 		const { PAGE } = await import("../src/page");
 		expect(PAGE).not.toMatch(/\.msg\.(me|ag)\b/);
-		expect(PAGE).toContain('<span class="ag \'+s.agent');
+		expect(PAGE).toContain('H("span",{class:"ag "+s.agent}');
 	});
 });
 
