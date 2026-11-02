@@ -5,7 +5,7 @@ import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
-import { scoreboard } from "./scores";
+import { ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
 import { haikuFit, lessonsSkill, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
@@ -89,7 +89,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	}
 
 	// ---------- orders ----------
-	app.get("/api/scores", (c) => c.json(scoreboard(readTasks())));
+	app.get("/api/scores", (c) => {
+		const strikes: Record<string, number> = {};
+		for (const box of readContainers()) for (const p of box.pods) strikes[p.session] = (strikes[p.session] ?? 0) + p.strikes;
+		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes) });
+	});
 	app.get("/api/tasks", (c) =>
 		c.json({
 			stages: STAGES,

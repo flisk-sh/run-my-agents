@@ -143,3 +143,33 @@ describe("scoreboard", () => {
 		expect(sb.skills[0]).toMatchObject({ key: "tdd", served: 2 });
 	});
 });
+
+describe("kitchen page", () => {
+	it("has a drawing function for every tab, and its script parses", async () => {
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		const tabs = [...(KITCHEN_JS.match(/const KT=\[(.*?)\];/)?.[1] ?? "").matchAll(/\["(\w+)","\w+"\]/g)].map((m) => m[1]).filter((t) => t !== "chat");
+		expect(tabs).toEqual(["queue", "kitchen", "lanes", "scores", "crew"]);
+		for (const t of tabs) expect(KITCHEN_JS).toContain(`function k${t[0].toUpperCase()}${t.slice(1)}(`);
+		expect(() => new Function(KITCHEN_JS)).not.toThrow();
+	});
+});
+
+describe("live ratings", () => {
+	const { ratings } = require("../src/kitchen/scores") as typeof import("../src/kitchen/scores");
+	const cook = (id: string, role = "Code") => ({ id, role, name: id });
+	const base: Task = { id: "x", n: 1, title: "x", cwd: "", priority: "P1", stage: "done", assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 };
+	it("rates agents from every order, served or not", () => {
+		const rs = ratings(
+			[
+				{ ...base, crew: { spec: cook("p", "Planner"), build: cook("b") } },
+				{ ...base, id: "y", stage: "test", rounds: 2, stuck: true, assignee: "t", crew: { build: cook("b"), test: cook("t", "Bug") } },
+			],
+			{ b: 1 },
+		);
+		expect(rs.find((r) => r.id === "p")).toMatchObject({ steps: 1, served: 1, rating: 63 });
+		// b: 2 steps, 1 served, 2 fails, 1 stuck, 1 strike: 50 + 10 + 6 - 16 - 15 - 10 = 25
+		expect(rs.find((r) => r.id === "b")).toMatchObject({ steps: 2, served: 1, fails: 2, stuck: 1, strikes: 1, rating: 25 });
+		expect(rs.find((r) => r.id === "t")).toMatchObject({ steps: 0, working: 1, rating: 50 });
+		expect(rs.map((r) => r.id)).toEqual(["p", "t", "b"]);
+	});
+});

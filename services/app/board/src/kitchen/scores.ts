@@ -61,3 +61,38 @@ export function scoreboard(tasks: Task[]) {
 		skills: [...skills].map(([k, o]) => line(k, `/${k}`, `${o.length} orders`, o)).sort(rank),
 	};
 }
+
+// ---------- live ratings: every agent that touched an order, served or not ----------
+export type Rating = { id: string; label: string; role: string; steps: number; served: number; fails: number; stuck: number; strikes: number; working: number; rating: number };
+
+/**
+ * A 0-100 rating per agent from all orders so far, so agents are rated before anything is served. It starts at 50:
+ * +10 per order served, +3 per step done, -8 per FAIL on an order it built, -15 per stuck order it built, -10 per
+ * container strike. The table shows every number it is made of.
+ */
+export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Rating[] {
+	const by = new Map<string, Rating>();
+	const get = (c: { id: string; role: string; name: string }) => {
+		let r = by.get(c.id);
+		if (!r) by.set(c.id, (r = { id: c.id, label: c.name || c.role, role: c.role, steps: 0, served: 0, fails: 0, stuck: 0, strikes: strikes[c.id] ?? 0, working: 0, rating: 0 }));
+		return r;
+	};
+	for (const t of tasks) {
+		for (const [stage, c] of Object.entries(t.crew ?? {})) {
+			if (!c) continue;
+			const r = get(c);
+			const current = stage === t.stage && t.assignee === c.id;
+			if (current) r.working += 1;
+			else r.steps += 1;
+		}
+		const crew = new Set(Object.values(t.crew ?? {}).map((c) => c?.id));
+		if (t.stage === "done") for (const id of crew) if (id) by.get(id)!.served += 1;
+		const builder = t.crew?.build;
+		if (builder) {
+			get(builder).fails += t.rounds;
+			if (t.stuck) get(builder).stuck += 1;
+		}
+	}
+	for (const r of by.values()) r.rating = Math.max(0, Math.min(100, 50 + 10 * r.served + 3 * r.steps - 8 * r.fails - 15 * r.stuck - 10 * r.strikes));
+	return [...by.values()].sort((a, b) => b.rating - a.rating || b.steps - a.steps || a.label.localeCompare(b.label));
+}
