@@ -259,11 +259,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const kind = kindOf(t.title);
 		const skills = kind === "question" ? [] : orderSkills(t.title, route);
 		stock(skills, k.fetch);
+		// Requeue routes the folder again, so a board order filed under another folder lands in the board's repo.
+		const folders = [...new Set([...k.read().map((x) => x.cwd).filter(Boolean), ...readContainers().map((x) => x.cwd)])] as string[];
+		const cwd = kind === "task" ? whereOf(t.title, t.cwd, folders) : t.cwd;
 		updateTask(t.id, {
+			cwd,
 			stage: "inbox", assignee: "", sentAt: 0, approved: false, atPass: false, stuck: false, failed: false, rounds: 0,
 			missedBy: [], answer: undefined, servedAt: undefined, startedAt: undefined, crew: {}, route, kind, skills,
 			lane: kind === "task" ? laneOf(t.title) : undefined,
-			zachman: zachman({ title: t.title, cwd: t.cwd, priority: t.priority, route, skills, kind, lane: kind === "task" ? laneOf(t.title) : undefined }),
+			zachman: zachman({ title: t.title, cwd, priority: t.priority, route, skills, kind, lane: kind === "task" ? laneOf(t.title) : undefined }),
 			requeued: (t.requeued ?? 0) + 1,
 		});
 		const back = readTasks().find((x) => x.id === t.id);

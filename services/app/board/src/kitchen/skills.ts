@@ -38,7 +38,7 @@ export function skillsFor(role: string, n = 8): CatalogSkill[] {
 		.slice(0, n);
 }
 
-const STOP = new Set("the and for with from that this into your have what when where which about make need want please some more them they then than just also only very like does should would could write fix add page change update create build".split(" "));
+const STOP = new Set("the and for with from that this into your have what when where which about make need want please some more them they then than just also only very like does should would could write fix add page change update create build guide style links link tasks task show seems really agents agent order orders work".split(" "));
 /**
  * Catalog skills that fit an order's own words: a word in the skill's name counts 3, in its description 1. Only
  * words of four letters or more count, and a skill needs 3 points, so a passing mention never pulls one in.

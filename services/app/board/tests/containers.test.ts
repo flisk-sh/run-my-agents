@@ -481,3 +481,14 @@ describe("failure causes found in the agents' chats", () => {
 		expect(box.lessons.map((l) => l.order)).toEqual(["#13"]);
 	});
 });
+
+describe("requeue routing", () => {
+	it("routes a requeued board order to the board's repo, and ignores generic words for skills", async () => {
+		const { BOARD_ROOT } = await import("../src/kitchen/routes");
+		const { post } = setup([]);
+		order({ title: "seems agents not picking up orders in the inbox", stage: "done", failed: true, cwd: "/x/flisk" });
+		expect((await post("/api/tasks/requeue", { id: "t" })).body.cwd).toBe(BOARD_ROOT);
+		const { matchSkills } = await import("../src/kitchen/skills");
+		expect(matchSkills("tasks not really opening, see the Owner guide links").map((s) => s.name)).not.toContain("terraform-style-guide");
+	});
+});
