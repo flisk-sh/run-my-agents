@@ -420,7 +420,6 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 .kbox{width:min(420px,92vw);padding:18px 18px 14px;border-radius:18px;background:linear-gradient(160deg,#1d1d28,#11111a);box-shadow:inset 0 0 0 1px var(--line),0 30px 80px rgba(0,0,0,.7);animation:gpop .3s cubic-bezier(.2,1.25,.4,1) both}
 .kbox h3{margin:0 0 10px;font-size:15px}.kbox div{display:flex;align-items:center;gap:12px;padding:5px 0;font-size:13px;color:var(--muted)}.kbox kbd{min-width:92px;font:600 11px var(--mono);color:var(--text);background:rgba(255,255,255,.07);border-radius:6px;padding:3px 7px;text-align:center}.kbox p{margin:10px 0 0;font-size:11.5px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
-</style></head><body>
 #tip{position:fixed;z-index:9999;max-width:240px;padding:6px 9px;border-radius:8px;background:#0b0b10;color:var(--text);font:500 11px/1.35 var(--sans,system-ui);box-shadow:inset 0 0 0 1px var(--line),0 8px 24px rgba(0,0,0,.6);pointer-events:none;opacity:0;transform:translateY(3px);transition:opacity .12s,transform .12s}#tip.on{opacity:1;transform:none}#tip b{font-family:var(--mono);color:#6ee7a0}
 .gp .gpct{display:block;font:700 9px var(--mono);color:var(--muted);margin-top:1px}.gp .gpct.hot{color:#fb923c}.gp .gpct.over{color:#f43f5e}
 .gp .mdot{cursor:pointer;transition:r .15s}.gp .mdot:hover{r:7}.gp .led{cursor:pointer}.gp .led:hover{filter:brightness(1.35)}
