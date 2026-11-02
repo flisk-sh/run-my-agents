@@ -96,7 +96,7 @@ export const STRAY_ANSWER =
 
 /** What the orchestrator says to a builder that finished without changing anything. */
 export const NO_CHANGES =
-	"Your build step left no changes in this order's worktree, so there is nothing for Test to check. Make the change now, in this worktree. If it truly cannot be done here, reply with one line starting with FAIL that says exactly why.";
+	"Your build step left no changes in this order's worktree, so there is nothing for Test to check. Make the change now, in this worktree. Never invent a change just to have one (a version bump, a changelog line, a notes or verification file): an invented change gets shipped. If the order needs no file change (a release that CI runs, an investigation, a question) or it truly cannot be done here, reply with one line starting with FAIL that says exactly why.";
 
 /**
  * What the orchestrator says to a test or review agent that went quiet with no verdict. Order #29's Test agent ran the
@@ -258,9 +258,9 @@ export function whereOf(title: string, cwd: string, folders: string[]): string {
  * What each stage is for. The rules for Test and Review are the ones practice orders showed were missing: judge the
  * change against the spec, and never FAIL an order for being vague, since nobody is there to answer questions.
  */
-const STAGE_BRIEF = {
+export const STAGE_BRIEF = {
 	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code.",
-	build: "Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change.",
+	build: "Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change. If the order needs no file change, never invent one (a version bump, a changelog line, a notes file): reply with one line starting with FAIL that says why.",
 	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
 	review: "The change is in this order's worktree (branch kitchen/order-{n}). Read only its diff (git diff against the branch it started from) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
 } as const;
