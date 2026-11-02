@@ -128,21 +128,32 @@ export function createApp(options: AppOptions = {}) {
 	);
 	// The board preview on the home page, read once from next to this file.
 	const preview = readFileSync(join(import.meta.dir, "preview.gif"));
-	app.get("/preview.gif", (c) => c.body(preview as unknown as Uint8Array<ArrayBuffer>, 200, { "content-type": "image/gif", "cache-control": "public, max-age=86400" }));
+	app.get("/preview.gif", (c) =>
+		c.body(preview as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "image/gif",
+			"cache-control": "public, max-age=86400",
+		}),
+	);
 	// The live board demo: the real board page, answering its own API from made-up sessions (see scripts/demo.ts).
 	// It runs JavaScript, so it gets its own policy, and only this site may frame it.
-	const demoCsp = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+	const demoCsp =
+		"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 	app.get("/demo", (c) => c.redirect("/demo/", 301));
 	app.get("/demo/", (c) => {
 		c.header("content-security-policy", demoCsp);
 		c.header("x-robots-tag", "noindex");
 		return c.html(DEMO_HTML);
 	});
-	const demoFonts = Object.fromEntries(Object.entries(DEMO_FONTS).map(([k, v]) => [k, Buffer.from(v, "base64")]));
+	const demoFonts = Object.fromEntries(
+		Object.entries(DEMO_FONTS).map(([k, v]) => [k, Buffer.from(v, "base64")]),
+	);
 	app.get("/demo/fonts/:file", (c) => {
 		const font = demoFonts[c.req.param("file")];
 		if (!font) return c.notFound();
-		return c.body(font as unknown as Uint8Array<ArrayBuffer>, 200, { "content-type": "font/woff2", "cache-control": "public, max-age=31536000, immutable" });
+		return c.body(font as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "font/woff2",
+			"cache-control": "public, max-age=31536000, immutable",
+		});
 	});
 	app.get("/.well-known/security.txt", (c) => c.text(securityTxt(baseOf(c))));
 	for (const [name, file] of files)

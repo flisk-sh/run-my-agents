@@ -125,15 +125,25 @@ describe("live board demo", () => {
 	it("serves the real board page with its own script policy, framed only by this site", async () => {
 		const res = await app.request("/demo/");
 		expect(res.status).toBe(200);
-		expect(res.headers.get("content-security-policy")).toContain("script-src 'unsafe-inline'");
-		expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
+		expect(res.headers.get("content-security-policy")).toContain(
+			"script-src 'unsafe-inline'",
+		);
+		expect(res.headers.get("content-security-policy")).toContain(
+			"frame-ancestors 'self'",
+		);
 		const html = await res.text();
 		expect(html).toContain("Add dark mode to settings");
 		expect(html).toContain("This is a demo.");
-		expect((await app.request("/demo/fonts/geist.woff2")).headers.get("content-type")).toBe("font/woff2");
+		expect(
+			(await app.request("/demo/fonts/geist.woff2")).headers.get(
+				"content-type",
+			),
+		).toBe("font/woff2");
 		// the home page stays script-free and frames the demo
 		const home = await app.request("/");
-		expect(home.headers.get("content-security-policy")).not.toContain("script-src");
+		expect(home.headers.get("content-security-policy")).not.toContain(
+			"script-src",
+		);
 		expect(await home.text()).toContain('src="/demo/"');
 	});
 });

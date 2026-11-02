@@ -1,7 +1,7 @@
 // The pages, rendered on the server with no JavaScript (the Content-Security-Policy allows none): home, about with
 // the FAQ, and not found. Each one passes its own PageMeta to head(), which writes every SEO tag. The look is the
 // roadmap.flisk.si one: dark first, Satoshi and JetBrains Mono when installed, one green accent.
-import { type Agent, AGENTS, avatar } from "./avatars";
+import { AGENTS, type Agent, avatar } from "./avatars";
 import { installSteps } from "./install";
 import { esc, faqJsonLd, head, type PageMeta } from "./seo";
 import { SITE } from "./site";
@@ -125,29 +125,34 @@ const DEMO: DemoStep[] = [
 	{
 		role: "Code",
 		you: "fix the 500 on checkout",
-		agent: "Found it — `total` was undefined on an empty cart. Fixed, tests added, pushed.",
+		agent:
+			"Found it — `total` was undefined on an empty cart. Fixed, tests added, pushed.",
 		pr: 41,
 	},
 	{
 		role: "Bug",
 		you: "why does the app crash on iOS only",
-		agent: "The crash log points at a race in the auth refresh. Reproducing it now, back in a minute.",
+		agent:
+			"The crash log points at a race in the auth refresh. Reproducing it now, back in a minute.",
 	},
 	{
 		role: "Refactor",
 		you: "split payments.ts, it's 900 lines",
-		agent: "Split into charge, refund and webhooks, same tests, same behavior. Ready for a look.",
+		agent:
+			"Split into charge, refund and webhooks, same tests, same behavior. Ready for a look.",
 	},
 	{
 		role: "Feature",
 		you: "add dark mode",
-		agent: "Added a theme toggle and a prefers-color-scheme default. Screenshot in the PR.",
+		agent:
+			"Added a theme toggle and a prefers-color-scheme default. Screenshot in the PR.",
 		pr: 52,
 	},
 	{
 		role: "Design",
 		you: "the pricing page feels cramped",
-		agent: "Opened up the spacing and gave the button its own row. Diff is small, want to see it?",
+		agent:
+			"Opened up the spacing and gave the button its own row. Diff is small, want to see it?",
 	},
 ];
 
@@ -156,8 +161,16 @@ const DEMO: DemoStep[] = [
  * id. No JavaScript, so it works under the page's `default-src 'none'` CSP.
  */
 function demoBoard(): string {
-	const steps = DEMO.map((d) => ({ ...d, a: AGENTS.find((a) => a.role === d.role) as Agent }));
-	const inputs = steps.map((_, i) => `<input type="radio" name="demo" id="demo-${i}" class="dr"${i === 0 ? " checked" : ""}>`).join("");
+	const steps = DEMO.map((d) => ({
+		...d,
+		a: AGENTS.find((a) => a.role === d.role) as Agent,
+	}));
+	const inputs = steps
+		.map(
+			(_, i) =>
+				`<input type="radio" name="demo" id="demo-${i}" class="dr"${i === 0 ? " checked" : ""}>`,
+		)
+		.join("");
 	const rows = steps
 		.map(
 			(d, i) =>
