@@ -98,8 +98,8 @@ describe("full SDLC, end to end", () => {
 		}
 		const t = k.tasks()[0];
 
-		// Every stage, in order, and served.
-		expect(stages).toEqual(["spec", "build", "test", "review", "ship", "done"]);
+		// Every stage, in order, and served: the PR is opened once tests pass, then the Review agent reviews that PR.
+		expect(stages).toEqual(["spec", "build", "test", "ship", "review", "done"]);
 		// The spec crossed the pass: autopilot approved it (approved, no longer waiting at the pass).
 		expect(k.tasks()[0]).toMatchObject({ approved: true, atPass: false });
 		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/42" });
@@ -122,6 +122,7 @@ describe("full SDLC, end to end", () => {
 		// Test and Review were given the spec and the build summary.
 		const said = k.sessions.flatMap((s) => s.feed.filter((m) => m.who === "you").map((m) => String((m as { text?: string }).text)));
 		expect(said.find((m) => m.startsWith("Order #1 (review)"))).toContain("From the Build agent:\nChanged math.ts");
+		expect(said.find((m) => m.startsWith("Order #1 (review)"))).toContain("gh pr diff https://github.com/acme/demo/pull/42");
 	});
 
 	it("never hands an empty build to Test: asks again, then fails the order and opens a follow-up", async () => {
@@ -208,7 +209,7 @@ describe("full SDLC through the Flisk kitchen agent", () => {
 		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/77" });
 		expect(t.failed).toBeFalsy();
 		// Each step was one session on the agent; the builder's question went to the Spec session and back.
-		expect(turns.map((x) => x.split(":")[0])).toEqual(["order-1-spec", "order-1-build", "order-1-spec", "order-1-build", "order-1-test", "order-1-review", "order-1-ship"]);
+		expect(turns.map((x) => x.split(":")[0])).toEqual(["order-1-spec", "order-1-build", "order-1-spec", "order-1-build", "order-1-test", "order-1-ship", "order-1-review"]);
 		expect(t.talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
 		expect(t.crew.build).toMatchObject({ id: "flisk:order-1-build", name: "Build · Flisk agent" });
 		expect(readFileSync(join(r, ".kitchen", "order-1", "math.ts"), "utf8")).toContain("i <= b");

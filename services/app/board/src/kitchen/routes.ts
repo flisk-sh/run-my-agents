@@ -264,6 +264,9 @@ const STAGE_BRIEF = {
 	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
 	review: "The change is in this order's worktree (branch kitchen/order-{n}). Read only its diff (git diff against the branch it started from) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
 } as const;
+/** The review step once the change is a pull request: the Review agent reviews the pull request itself. */
+const REVIEW_PR =
+	"Review pull request {pr} (branch kitchen/order-{n}, also checked out in this order's worktree). Read its diff with `gh pr diff {pr}` against the order and the spec. Post your review on the pull request: `gh pr review {pr} --comment --body \"<your findings, or: Looks good>\"`. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks; then FAIL with what is wrong, and Build fixes it on the same pull request. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.";
 
 const lastSaid = (s: Session | undefined) => {
 	const m = s?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
@@ -549,7 +552,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 		return text;
 	}
 
@@ -684,11 +687,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		let t = readTasks().find((x) => x.id === id);
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		// The Ship step finished: keep its pull request and serve the order.
+		// The pull request is open (or updated): the Review agent reviews it next.
 		if (t.shipping) {
 			const said = replyOf(t?.assignee);
 			const pr = /https:\/\/github\.com\/[^\s)>\]]+\/pull\/\d+/.exec(said)?.[0];
-			for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
-			return { status: 200, body: { ...updateTask(t.id, { stage: "done", shipping: false, ...(pr ? { pr } : {}), assignee: "", sentAt: 0, servedAt: Date.now() }) } };
+			return { status: 200, body: { ...updateTask(t.id, { stage: "review", shipping: false, ...(pr ? { pr } : {}), assignee: "", sentAt: 0 }) } };
 		}
 		// Keep what this stage's agent handed on, so the next stages work from it instead of the title alone.
 		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
@@ -725,12 +728,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		}
 		if (t.stage === "spec" && !t.approved) return { status: 200, body: { ...updateTask(t.id, { atPass: true, assignee: "", sentAt: 0 }) } };
 		const to = nextStage(t);
-		// Ship: the last check passed, so an agent commits the Build agent's worktree, pushes and opens a pull request.
-		// Only from the order's own worktree (shipping from the shared checkout would commit everyone's edits), and only
-		// when it holds a change: an empty worktree has nothing to ship, and its agent would only ask what to do.
-		if (to === "done" && t.kind === "task" && t.notes?.build && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && !t.pr && k.ship !== false) {
+		// Ship: tests passed, so an agent commits the Build agent's worktree, pushes and opens a pull request (or pushes
+		// a fix to the one already open), and the Review agent then reviews that pull request. Only from the order's own
+		// worktree (shipping from the shared checkout would commit everyone's edits), and only when it holds a change:
+		// an empty worktree has nothing to ship, and its agent would only ask what to do.
+		if (to === "review" && t.kind === "task" && t.notes?.build && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && k.ship !== false) {
 			const branch = `kitchen/order-${t.n}`;
-			const shipText = `Ship order #${t.n}: ${t.title}\n\n${t.worktree ? `You are in this order's worktree: ${t.worktree} (branch ${branch}).` : `The Build agent's change is on branch ${branch}, in the worktree it names below.`} In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\n${ADDRESS}\n\nFrom the Build agent:\n${t.notes.build}`;
+			const how = t.pr
+				? `commit any new change with \`git commit -s\` and a short conventional message, and push the branch: pull request ${t.pr} updates by itself. Reply with its URL.`
+				: `commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".`;
+			const shipText = `Ship order #${t.n}: ${t.title}\n\nYou are in this order's worktree: ${t.worktree} (branch ${branch}). In that worktree: ${how}\n\n${ADDRESS}\n\nFrom the Build agent:\n${t.notes.build}`;
 			const call = agent();
 			if (call) {
 				const who = `flisk:order-${t.n}-ship`;

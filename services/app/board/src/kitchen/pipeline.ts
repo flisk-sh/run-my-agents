@@ -136,9 +136,11 @@ export function removeTask(id: string): boolean {
 	return left.length !== all.length;
 }
 
-/** The next stage, or the same one when the pass is waiting for your OK. */
+/**
+ * The next stage, or the same one when the pass is waiting for your OK. The fast lane skips only the spec: every
+ * change is opened as a pull request and reviewed (order #28 went build → test → served with no review).
+ */
 export function nextStage(t: Task): Stage {
-	if (t.lane === "fast" && t.stage === "test") return "done";
 	if (t.stage === "spec" && !t.approved) return "spec";
 	return STAGES[Math.min(STAGES.indexOf(t.stage) + 1, STAGES.length - 1)];
 }

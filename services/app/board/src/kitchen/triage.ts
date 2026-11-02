@@ -40,7 +40,7 @@ export function zachman(o: { title: string; cwd: string; priority: string; route
 		return { what: "An answer", how: "One short reply, no code", where: folder, who: "Front desk (any idle agent)", when: PRIORITY_WHEN[o.priority] ?? "Next in line", why: reason(o.title) || "You asked" };
 	return {
 		what,
-		how: `${o.lane === "fast" ? "fast lane: build → test" : "spec → build → test → review"}${o.skills.length ? `, with /${o.skills.slice(0, 3).join(", /")}` : ""}`,
+		how: `${o.lane === "fast" ? "fast lane: build → test → pull request → review" : "spec → build → test → pull request → review"}${o.skills.length ? `, with /${o.skills.slice(0, 3).join(", /")}` : ""}`,
 		where: folder,
 		who: `${o.route} agent (orchestrator plans on Opus, workers build on Haiku)`,
 		when: PRIORITY_WHEN[o.priority] ?? "Next in line",
@@ -100,8 +100,8 @@ const SMALL = /\b(typo|rename|bump|spelling|comment|wording|lint|format|copy ?ed
 const BIG = /\b(refactor|migrate|architecture|redesign|rewrite|new (?:service|feature|page|app)|integrate|auth|database|schema)\b/i;
 
 /**
- * The fast lane: a short, clear task skips the spec step (and the pass) and the separate review, so it goes
- * build → test → served. Anything big or long keeps the full kitchen.
+ * The fast lane: a short, clear task skips the spec step (and the pass), so it goes build → test → pull request →
+ * review. Anything big or long keeps the full kitchen.
  */
 export function laneOf(title: string): Lane {
 	const words = title.trim().split(/\s+/).length;

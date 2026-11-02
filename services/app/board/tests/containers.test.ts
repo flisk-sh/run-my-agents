@@ -275,7 +275,7 @@ describe("Zachman intake triage", () => {
 		const z = zachman({ title: "Add dark mode so night users can read it", cwd: "/work/app", priority: "P0", route: "Design", skills: ["spec-driven-workflow"], kind: "task" });
 		expect(z).toMatchObject({ what: "Add dark mode", where: "app", when: "Now, before anything else", why: "night users can read it" });
 		expect(z.who).toContain("Design agent");
-		expect(z.how).toContain("spec → build → test → review");
+		expect(z.how).toContain("spec → build → test → pull request → review");
 	});
 
 	it("answers arithmetic at once, with no agent", async () => {
@@ -326,13 +326,14 @@ describe("Zachman intake triage", () => {
 });
 
 describe("fast lane", () => {
-	it("sends small tasks build → test → served and keeps big ones in the full kitchen", async () => {
+	it("sends small tasks build → test → review (no spec) and keeps big ones in the full kitchen", async () => {
 		const { laneOf } = await import("../src/kitchen/triage");
 		for (const f of ["fix the typo in the README", "bump hono to 4.6", "rename the Crew tab", "fix login redirect"]) expect(laneOf(f)).toBe("fast");
 		for (const b of ["refactor the store into modules", "add search filters to the sessions list with saved views", "migrate the database schema"]) expect(laneOf(b)).toBe("full");
 		const { nextStage } = await import("../src/kitchen/pipeline");
 		const base = { id: "a", n: 1, title: "x", cwd: "", priority: "P1" as const, assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 };
-		expect(nextStage({ ...base, stage: "test", lane: "fast" })).toBe("done");
+		// Order #28 went build → test → served and its PR was never reviewed: the fast lane skips only the spec.
+		expect(nextStage({ ...base, stage: "test", lane: "fast" })).toBe("review");
 		expect(nextStage({ ...base, stage: "test" })).toBe("review");
 	});
 
@@ -584,24 +585,39 @@ describe("lanes, scores and crew clean-up", () => {
 });
 
 describe("ship and the skill sidecar", () => {
-	it("ships a task after its last PASS: commits in the order's worktree, opens a PR, and keeps the link", async () => {
+	it("opens a PR when tests pass, then the Review agent reviews that PR, and a fix after a FAIL goes to the same PR", async () => {
 		const sessions: Session[] = [];
-		const { post, started } = setup(sessions);
-		// No worktree (built before the board made them): served without shipping, never from the shared checkout.
-		order({ kind: "task", stage: "review", assignee: "rev", sentAt: 1, cwd: "/repo", notes: { build: "x" } });
-		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "done" });
-		order({ kind: "task", worktree: tmpdir(), stage: "review", assignee: "rev", sentAt: 1, cwd: "/repo", notes: { build: "Changed src/a.ts in /repo/.git/kitchen/order-1" }, crew: { build: { id: "b", role: "Build", name: "Build · repo b000" } } });
+		const { post, started, sent } = setup(sessions);
+		// No worktree (built before the board made them): it goes to review without shipping, never from the shared checkout.
+		order({ kind: "task", stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: { build: "x" } });
+		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "review", assignee: "" });
+		order({ kind: "task", worktree: tmpdir(), stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: { build: "Changed src/a.ts" }, crew: { build: { id: "b", role: "Build", name: "Build · repo b000" } } });
 		const r = (await post("/api/tasks/serve", { id: "t", pass: true })).body;
-		expect(r).toMatchObject({ stage: "review", shipping: true });
+		expect(r).toMatchObject({ stage: "test", shipping: true });
 		const ship = started.at(-1);
 		expect(ship).toMatchObject({ id: r.assignee, mode: "acceptEdits", model: "haiku", cwd: tmpdir() });
 		expect(ship?.text).toContain("git commit -s");
 		expect(ship?.text).toContain("gh pr create");
 		expect(ship?.text).toContain("kitchen/order-1");
-		// The ship agent replies with the PR: the order is served with the link.
-		sessions.push({ ...session(r.assignee, "Build"), feed: [{ who: "you", text: "Ship", at: 1 } as never, { who: "agent", text: "Opened https://github.com/flisk-sh/run-my-agents/pull/999.", at: 2 } as never] });
-		const done = (await post("/api/tasks/serve", { id: "t" })).body;
-		expect(done).toMatchObject({ stage: "done", shipping: false, pr: "https://github.com/flisk-sh/run-my-agents/pull/999" });
+		// The ship agent replies with the PR: the order goes to Review with the link, not straight to served.
+		const pr = "https://github.com/flisk-sh/run-my-agents/pull/999";
+		sessions.push({ ...session(r.assignee, "Build"), feed: [{ who: "you", text: "Ship", at: 1 } as never, { who: "agent", text: `Opened ${pr}.`, at: 2 } as never] });
+		const reviewing = (await post("/api/tasks/serve", { id: "t" })).body;
+		expect(reviewing).toMatchObject({ stage: "review", shipping: false, pr, assignee: "" });
+		// The Review agent is told to review the pull request itself and post its review there.
+		sessions.push({ ...session("rev", "Review"), updatedAt: Date.now() - 60_000 });
+		await post("/api/tasks/dispatch", { id: "t", session: "rev" });
+		expect(sent.at(-1)).toContain(`gh pr diff ${pr}`);
+		expect(sent.at(-1)).toContain(`gh pr review ${pr} --comment`);
+		// Review FAILs: Build fixes it, tests pass, and the fix is pushed to the same PR before Review looks again.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0], stage: "test", assignee: "tst", sentAt: 1, rounds: 1 }]));
+		const again = (await post("/api/tasks/serve", { id: "t", pass: true })).body;
+		expect(again).toMatchObject({ shipping: true, pr });
+		expect(started.at(-1)?.text).toContain(`pull request ${pr} updates by itself`);
+		expect(started.at(-1)?.text).not.toContain("gh pr create");
+		// Review passes: served, with the link kept.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0], stage: "review", shipping: false, assignee: "rev", sentAt: 1 }]));
+		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "done", pr });
 	});
 
 	it("starts kitchen agents in auto mode, and the board makes each order's worktree and starts its agent there", async () => {

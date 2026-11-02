@@ -296,7 +296,7 @@ describe("order progress estimate", () => {
 		expect(b.pct).toBe(38); // 1.5 of 4 stages
 		expect(Math.round(b.left / min)).toBe(25);
 		expect(kEst({ stage: "build", lane: "fast", stageAt: now }, 10 * min).pct).toBe(0);
-		expect(kEst({ stage: "test", lane: "fast", stageAt: now - 60 * min }, 10 * min)).toEqual({ pct: 95, left: min });
+		expect(kEst({ stage: "test", lane: "fast", stageAt: now - 60 * min }, 10 * min)).toEqual({ pct: 63, left: 11 * min }); // review still ahead
 		expect(Math.round(kEst({ stage: "build", stageAt: now - 60 * min }, 10 * min).left / min)).toBe(21); // late build, test and review still ahead
 		expect(kEst({ stage: "done" }, 10 * min).pct).toBe(100);
 		expect(KITCHEN_JS).toContain("+kEstLine(t)");
