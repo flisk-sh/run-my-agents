@@ -358,7 +358,7 @@ const BUILD = Bun.hash(PAGE).toString(36);
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
+	deps: { agent?: import("./kitchen/routes").AgentCall; fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -716,6 +716,7 @@ export function createApp(
 		close: (id) => setHidden(id, true),
 		name: (id, label) => setName(id, label),
 		type: (id, role) => setRole(id, role),
+		agent: deps.agent,
 		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd, o) => askHaiku(q, cwd, spawn, !!o?.web, o?.skills ?? "") : undefined),
 		guessRole: (title) => guessRole(title, []),
 		sameOrigin,

@@ -1,0 +1,28 @@
+{
+  "port": 4101,
+  "dependsOn": [],
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "dev": {
+    "command": "bun run dev",
+    "watch": [
+      "src/**/*"
+    ]
+  },
+  "healthCheckPath": "/health",
+  "$schema": "https://flisk.sh/schema.service.json",
+  "schemaVersion": 1,
+  "appName": "kitchen",
+  "appType": "agent",
+  "featuresEnabled": [],
+  "name": "kitchen",
+  "type": "agent",
+  "stack": "app",
+  "agent": {
+    "runtime": "custom",
+    "durability": "files"
+  },
+  "command": "bun run src/index.ts"
+}

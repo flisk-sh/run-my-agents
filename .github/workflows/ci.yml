@@ -63,6 +63,9 @@ jobs:
           bun-version: 1.4.3
       - run: bun install
       - run: bun test
+      - name: Kitchen agent (Flisk agent resource)
+        run: bun test
+        working-directory: services/app/kitchen
 
   image:
     name: Production image

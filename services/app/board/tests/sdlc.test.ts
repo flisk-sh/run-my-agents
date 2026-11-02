@@ -173,3 +173,65 @@ describe("worktree location", () => {
 		expect(existsSync(join(r, ".git", "kitchen", "order-4"))).toBe(false);
 	});
 });
+
+describe("full SDLC through the Flisk kitchen agent", () => {
+	it("serves an order with every step as one agent turn: no chats, no waiting, questions answered, PR kept", async () => {
+		const r = repo();
+		const turns: string[] = [];
+		const agent = async (session: string, t: { input: string; cwd?: string }) => {
+			turns.push(`${session}: ${t.input.split("\n")[0].slice(0, 60)}`);
+			const cwd = t.cwd as string;
+			if (session.endsWith("-spec") && t.input.startsWith("Question from the Build agent")) return "Yes: include b itself.";
+			if (session.endsWith("-spec")) return "Goal: range includes its end.\nChecks: range(1,3) is [1,2,3].";
+			if (session.endsWith("-build") && t.input.startsWith("Order #")) return "Reading the spec.\nTo Spec: should range include b itself?";
+			if (session.endsWith("-build")) {
+				writeFileSync(join(cwd, "math.ts"), readFileSync(join(cwd, "math.ts"), "utf8").replace("i < b", "i <= b"));
+				return "Changed math.ts: the loop includes b.";
+			}
+			if (session.endsWith("-test")) return "Ran it.\n\nPASS — range(1,3) is [1,2,3].";
+			if (session.endsWith("-review")) return "One-character diff, matches the spec.\n\nPASS — correct.";
+			if (session.endsWith("-ship")) {
+				execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qsam", "fix: range includes its end"], { stdio: "ignore" });
+				return "Opened https://github.com/acme/demo/pull/77";
+			}
+			return "?";
+		};
+		const app = createApp(() => [], async () => {}, { agent, fetch: (async () => new Response("x")) as unknown as typeof fetch });
+		const post = async (path: string, b: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+		const tasks = () => JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+		await post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: r });
+		for (let i = 0; i < 20 && tasks()[0].stage !== "done"; i++) {
+			await post("/api/kitchen", { auto: true });
+			await Bun.sleep(30);
+		}
+		const t = tasks()[0];
+		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/77" });
+		expect(t.failed).toBeFalsy();
+		// Each step was one session on the agent; the builder's question went to the Spec session and back.
+		expect(turns.map((x) => x.split(":")[0])).toEqual(["order-1-spec", "order-1-build", "order-1-spec", "order-1-build", "order-1-test", "order-1-review", "order-1-ship"]);
+		expect(t.talk.map((x: { from: string; to: string }) => `${x.from}→${x.to}`)).toEqual(["Build→Spec", "Spec→Build"]);
+		expect(t.crew.build).toMatchObject({ id: "flisk:order-1-build", name: "Build · Flisk agent" });
+		expect(readFileSync(join(r, ".kitchen", "order-1", "math.ts"), "utf8")).toContain("i <= b");
+		expect(readFileSync(join(r, "math.ts"), "utf8")).toContain("i < b");
+		expect(readContainers()).toEqual([]);
+	});
+
+	it("fails a test step whose agent turn crashed, instead of waiting", async () => {
+		const r = repo();
+		const agent = async (session: string, t: { cwd?: string }) => {
+			if (session.endsWith("-test")) throw new Error("claude exited with 1");
+			if (session.endsWith("-build")) writeFileSync(join(t.cwd as string, "math.ts"), "x\n");
+			return "ok";
+		};
+		const app = createApp(() => [], async () => {}, { agent });
+		const post = async (path: string, b: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ id: "t", n: 1, title: "x", cwd: r, kind: "task", priority: "P1", stage: "build", assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
+		for (let i = 0; i < 4; i++) {
+			await post("/api/kitchen", { auto: true });
+			await Bun.sleep(30);
+		}
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t.failures.some((f: string) => f.includes("the Flisk kitchen agent could not run this turn"))).toBe(true);
+		expect(t.rounds).toBeGreaterThan(0);
+	});
+});

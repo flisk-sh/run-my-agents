@@ -23,6 +23,8 @@ export type KitchenCtx = {
 	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string; mode?: string }) => void;
 	tune: (id: string, t: { model?: string; effort?: string; mode?: string }) => void;
 	close: (id: string) => void;
+	/** A Flisk kitchen agent: runs one turn of a session and returns the reply (tests inject one). */
+	agent?: AgentCall;
 	/** Ship served tasks as pull requests (default on). */
 	ship?: boolean;
 	/** The front desk: one short model call that answers a question, with no tools and no session. */
@@ -253,7 +255,18 @@ const lastSaid = (s: Session | undefined) => {
  */
 const orderSkills = (title: string, _route: string) => matchSkills(title, 3).map((s) => s.name);
 
-type Settings = { auto: boolean; idleMinutes: number };
+type Settings = { auto: boolean; idleMinutes: number; agentUrl?: string };
+/** One turn on a Flisk kitchen agent session ("order-26-build"): the agent's reply. */
+export type AgentCall = (session: string, turn: { input: string; cwd?: string; model?: string; effort?: string }) => Promise<string>;
+/** POST /turn on the Flisk kitchen agent at `url` (services/app/kitchen, a local process using your own claude). */
+export const httpAgent =
+	(url: string): AgentCall =>
+	async (session, turn) => {
+		const r = await fetch(`${url.replace(/\/$/, "")}/turn`, { method: "POST", headers: { "content-type": "application/json", "x-session-id": session }, body: JSON.stringify(turn) });
+		const j = (await r.json().catch(() => ({}))) as { reply?: string; error?: string };
+		if (!r.ok || typeof j.reply !== "string") throw new Error(j.error || `kitchen agent answered ${r.status}`);
+		return j.reply;
+	};
 const SETTINGS = new JsonStore<Partial<Settings>>("kitchen.json");
 /** Autopilot on, and idle agents let go after 10 minutes, unless kitchen.json says otherwise. */
 const settings = (): Settings => ({ auto: true, idleMinutes: 10, ...(SETTINGS.read()[0] ?? {}) });
@@ -285,6 +298,13 @@ export const FRONT_DESK = "front-desk";
 const saveSettings = (v: Partial<Settings>) => SETTINGS.write([{ ...settings(), ...v }]);
 
 export function mountKitchen(app: Hono, k: KitchenCtx) {
+	/** The Flisk kitchen agent, when one is set (KitchenCtx.agent, or agentUrl in kitchen.json). */
+	const agent = (): AgentCall | undefined => k.agent ?? (settings().agentUrl ? httpAgent(settings().agentUrl as string) : undefined);
+	/** Replies from Flisk agent turns, by assignee ("flisk:order-26-build"): what a chat's last message is for a session. */
+	const fliskReplies = new Map<string, string>();
+	/** Flisk turns this board is running; one missing after a restart means the order is sent again. */
+	const inFlight = new Set<string>();
+	const replyOf = (id: string | undefined) => (id && fliskReplies.has(id) ? (fliskReplies.get(id) as string) : handOff(k.read().find((x) => x.id === id)));
 	const guard = (c: Context) => (k.sameOrigin(c) ? undefined : c.json({ error: "Send JSON from the board." }, 403));
 	const tick = () => {
 		missed();
@@ -491,6 +511,26 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * Hands an order to an agent: the session you pick, else a free pod of a container that cooks this stage, else
 	 * an idle agent (see pick). The step runs on the model policy (the container's own model if it set one).
 	 */
+	/** The message an order's stage agent gets: the order, its card, what earlier stages handed on, its job, its skills. */
+	function orderText(order: Task, use: string[], wt: string | undefined): string {
+		const verdict = order.stage === "test" || order.stage === "review";
+		const card = order.zachman ? `\n\n${zachmanLines(order.zachman)}` : "";
+		const handed = (["spec", "build", "test"] as const)
+			.filter((st) => st !== order.stage && order.notes?.[st])
+			.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
+			.join("");
+		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
+		const lastTime = order.retryOf
+			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
+			: "";
+		const fresh = order.requeued ? `\n\nThis order was requeued: treat it as new. Earlier verdicts or rejections of #${order.n} do not apply.` : "";
+		const text =
+			order.kind === "question"
+				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+		return text;
+	}
+
 	function dispatch(id: string, session?: string, podsOnly = false): Out {
 		let t = readTasks().find((x) => x.id === id);
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
@@ -505,6 +545,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			return { status: 409, body: { error: "Its skills are still installing." } };
 		}
 		const order = t;
+		if (agent() && order.kind === "task" && !session) return fliskDispatch(order);
 		const chosen = session ? { session: k.read().find((x) => x.id === session), why: "That agent is gone." } : pick(order, podsOnly);
 		const s = chosen.session;
 		if (!s) return { status: 409, body: { error: chosen.why } };
@@ -513,24 +554,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const policy = policyFor(order.kind === "question" ? "build" : order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, { ...policy, mode: KITCHEN_MODE });
 		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(lessonsKeyOf(box))] : [])]);
-		const verdict = order.stage === "test" || order.stage === "review";
-		const card = order.zachman ? `\n\n${zachmanLines(order.zachman)}` : "";
-		const handed = (["spec", "build", "test"] as const)
-			.filter((st) => st !== order.stage && order.notes?.[st])
-			.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
-			.join("");
 		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it.
 		const wt = order.kind === "task" && ["build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
-		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
-		const lastTime = order.retryOf
-			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
-			: "";
-		const fresh = order.requeued ? `\n\nThis order was requeued: treat it as new. Earlier verdicts or rejections of #${order.n} do not apply.` : "";
-		const text =
-			order.kind === "question"
-				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${lastTime}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+		const text = orderText(order, use, wt);
 		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
 		if (box && order.skills.length) injectSkills(box.id, order.skills);
 		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
@@ -553,6 +580,81 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	}
 
 	/**
+	 * Flisk path: the order's step is one turn on the Flisk kitchen agent (session "order-<n>-<stage>"), whose reply
+	 * comes back as the HTTP response. No pods, no waiting for an agent to go quiet, nobody left unanswered.
+	 */
+	function fliskDispatch(order: Task): Out {
+		const stage = order.stage;
+		const sid = `order-${order.n}-${stage}`;
+		const who = `flisk:${sid}`;
+		const wt = ["build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
+		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
+		const policy = policyFor(stage);
+		const text = orderText(order, skillset(stage, order.skills), wt);
+		const type = STAGE_TYPE[stage as keyof typeof STAGE_TYPE] ?? stage;
+		const crew = { ...(order.crew ?? {}), [stage]: { id: who, role: type, name: `${type} · Flisk agent` } };
+		const t = updateTask(order.id, { assignee: who, sentAt: Date.now(), crew, startedAt: order.startedAt ?? Date.now() });
+		inFlight.add(who);
+		void fliskTurn(order.id, sid, who, text, wt ?? order.cwd, policy).finally(() => inFlight.delete(who));
+		return { status: 202, body: { ...t, model: policy.model, effort: policy.effort, via: "flisk" } };
+	}
+
+	/** Runs one Flisk turn for an order's step, answers its "To Spec:" questions, checks the build, then moves the order on. */
+	async function fliskTurn(id: string, sid: string, who: string, text: string, cwd: string, policy: { model: string; effort: string }) {
+		const call = agent();
+		const t0 = readTasks().find((x) => x.id === id);
+		if (!call || !t0) return;
+		const stage = t0.stage;
+		const asker = STAGE_TYPE[stage as keyof typeof STAGE_TYPE] ?? stage;
+		const turn = (session: string, input: string) => call(session, { input, cwd, model: policy.model, effort: policy.effort });
+		let reply: string;
+		try {
+			reply = await turn(sid, text);
+			// Agent to agent: a "To Spec: …" line is a turn on that stage's session for this order; its answer goes back.
+			for (let i = 0; i < MAX_ASKS; i++) {
+				const q = questionsIn(reply).find((x) => x.stage !== stage);
+				if (!q) break;
+				const to = STAGE_TYPE[q.stage];
+				let answer: string;
+				try {
+					answer = await turn(`order-${t0.n}-${q.stage}`, `Question from the ${asker} agent on order #${t0.n}: ${q.question}\n\nAnswer it in a few lines from what you know about this order. Your reply goes back to the ${asker} agent through the kitchen's orchestrator; do not change any files.`);
+				} catch {
+					answer = `(no answer: the ${to} agent could not be reached; decide yourself from the spec)`;
+				}
+				const cur = readTasks().find((x) => x.id === id);
+				updateTask(id, { asked: (cur?.asked ?? 0) + 1, talk: [...(cur?.talk ?? []), { at: Date.now(), from: asker, to, text: q.question.slice(0, 300) }, { at: Date.now(), from: to, to: asker, text: answer.slice(0, 300) }].slice(-10) });
+				reply = await turn(sid, `Answer from the ${to} agent on order #${t0.n} (to your question: ${q.question}):\n${answer}\n\nContinue your step.`);
+			}
+			// A build that changed nothing is asked once more, then fails; Test never gets an empty branch.
+			const wt = readTasks().find((x) => x.id === id)?.worktree;
+			if (stage === "build" && wt && isDir(wt) && !worktreeChanged(wt, readTasks().find((x) => x.id === id)?.base)) {
+				reply = await turn(sid, NO_CHANGES);
+				if (!worktreeChanged(wt, readTasks().find((x) => x.id === id)?.base)) {
+					const cur = readTasks().find((x) => x.id === id);
+					const why = `build: no changes made in the worktree. ${failLine(reply) || reply.split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
+					fliskReplies.set(who, reply);
+					updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur?.failures ?? []), why].slice(-6), notes: { ...(cur?.notes ?? {}), [stage]: reply.slice(-3000) } });
+					return;
+				}
+			}
+		} catch (e) {
+			// The agent could not run the turn: a test or review counts as FAIL, a spec or build goes back on the belt.
+			const msg = `FAIL: the Flisk kitchen agent could not run this turn: ${String((e as Error).message ?? e).slice(0, 200)}`;
+			const cur = readTasks().find((x) => x.id === id);
+			if (!cur || cur.assignee !== who) return;
+			if (stage === "test" || stage === "review") {
+				fliskReplies.set(who, msg);
+				serve(id, false);
+			} else updateTask(id, { assignee: "", sentAt: 0, failures: [...(cur.failures ?? []), `${stage}: ${msg}`].slice(-6) });
+			return;
+		}
+		fliskReplies.set(who, reply);
+		const cur = readTasks().find((x) => x.id === id);
+		if (!cur || cur.assignee !== who) return;
+		serve(id, stage === "test" || stage === "review" ? (verdictIn(reply) ?? false) : true);
+	}
+
+	/**
 	 * The agent is done. A finished spec waits at the pass. A FAIL in test or review strikes the pod that built it
 	 * and sends the order back to build.
 	 */
@@ -561,14 +663,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		// The Ship step finished: keep its pull request and serve the order.
 		if (t.shipping) {
-			const said = handOff(k.read().find((x) => x.id === t?.assignee));
+			const said = replyOf(t?.assignee);
 			const pr = /https:\/\/github\.com\/[^\s)>\]]+\/pull\/\d+/.exec(said)?.[0];
 			for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
 			return { status: 200, body: { ...updateTask(t.id, { stage: "done", shipping: false, ...(pr ? { pr } : {}), assignee: "", sentAt: 0, servedAt: Date.now() }) } };
 		}
 		// Keep what this stage's agent handed on, so the next stages work from it instead of the title alone.
 		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
-			const said = handOff(k.read().find((x) => x.id === t?.assignee));
+			const said = replyOf(t?.assignee);
 			if (said) t = updateTask(t.id, { notes: { ...(t.notes ?? {}), [t.stage]: said } }) ?? t;
 			// The Spec agent can move an order to the folder its code is in.
 			const moved = t.stage === "spec" ? folderHint(said) : t.stage === "build" ? elsewhere(said) : undefined;
@@ -582,7 +684,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (pass === false && (t.stage === "test" || t.stage === "review")) {
 			const builder = t.crew?.build?.id;
 			// The lesson is the agent's FAIL line, not the tail of its reply.
-			const why = failLine(handOff(k.read().find((x) => x.id === t.assignee))) || `FAIL in ${t.stage} (no reason given)`;
+			const why = failLine(replyOf(t.assignee)) || `FAIL in ${t.stage} (no reason given)`;
 			updateTask(t.id, { failures: [...(t.failures ?? []), `${t.stage}: ${why}`].slice(-6) });
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
 			if (hit?.fired && builder) k.close(builder);
@@ -601,8 +703,24 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// Only from the order's own worktree (shipping from the shared checkout would commit everyone's edits), and only
 		// when it holds a change: an empty worktree has nothing to ship, and its agent would only ask what to do.
 		if (to === "done" && t.kind === "task" && t.notes?.build && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && !t.pr && k.ship !== false) {
-			const id = randomUUID();
 			const branch = `kitchen/order-${t.n}`;
+			const shipText = `Ship order #${t.n}: ${t.title}\n\n${t.worktree ? `You are in this order's worktree: ${t.worktree} (branch ${branch}).` : `The Build agent's change is on branch ${branch}, in the worktree it names below.`} In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\n${ADDRESS}\n\nFrom the Build agent:\n${t.notes.build}`;
+			const call = agent();
+			if (call) {
+				const who = `flisk:order-${t.n}-ship`;
+				const shipped = updateTask(t.id, { shipping: true, assignee: who, sentAt: Date.now() });
+				inFlight.add(who);
+				const order = t;
+				void call(`order-${order.n}-ship`, { input: shipText, cwd: order.worktree, model: "haiku", effort: "low" })
+					.then((r) => fliskReplies.set(who, r))
+					.catch((e) => fliskReplies.set(who, `Ship failed: ${String((e as Error).message ?? e)}`))
+					.finally(() => {
+						inFlight.delete(who);
+						if (readTasks().find((x) => x.id === order.id)?.assignee === who) serve(order.id);
+					});
+				return { status: 200, body: { ...shipped } };
+			}
+			const id = randomUUID();
 			k.start({
 				agent: "claude",
 				cwd: t.worktree,
@@ -611,7 +729,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				mode: KITCHEN_MODE,
 				model: "haiku",
 				effort: "low",
-				text: `Ship order #${t.n}: ${t.title}\n\n${t.worktree ? `You are in this order's worktree: ${t.worktree} (branch ${branch}).` : `The Build agent's change is on branch ${branch}, in the worktree it names below.`} In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\n${ADDRESS}\n\nFrom the Build agent:\n${t.notes.build}`,
+				text: shipText,
 			});
 			k.name?.(id, `Ship · #${t.n}`);
 			return { status: 200, body: { ...updateTask(t.id, { shipping: true, assignee: id, sentAt: Date.now() }) } };
@@ -649,7 +767,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				if (next) did.push(`#${t.n} followed up as #${next.n}`);
 			}
 		}
-		did.push(...autoscale(), ...retireMixed(), ...sidecar());
+		// With a Flisk kitchen agent there are no container agents to size.
+		did.push(...(agent() ? [] : autoscale()), ...retireMixed(), ...sidecar());
+		for (const t of readTasks()) {
+			if (t.assignee?.startsWith("flisk:") && !inFlight.has(t.assignee)) {
+				updateTask(t.id, { assignee: "", sentAt: 0, shipping: false });
+				did.push(`#${t.n} sent again: its Flisk turn was lost`);
+			}
+		}
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
@@ -921,7 +1046,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.post("/api/kitchen", async (c) => {
 		const no = guard(c);
 		if (no) return no;
-		const { auto: on, idleMinutes } = await body<{ auto?: boolean; idleMinutes?: number }>(c);
+		const { auto: on, idleMinutes, agentUrl } = await body<{ auto?: boolean; idleMinutes?: number; agentUrl?: string }>(c);
+		if (agentUrl !== undefined) {
+			// Loopback only: the kitchen agent runs your own claude with edit rights.
+			if (agentUrl && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(agentUrl)) return c.json({ error: "The kitchen agent must be on this computer (http://127.0.0.1:<port>)." }, 400);
+			saveSettings({ agentUrl: agentUrl || undefined });
+			if (on === undefined && idleMinutes === undefined) return c.json({ ...settings(), did: [] });
+		}
 		if (idleMinutes !== undefined) {
 			if (!Number.isFinite(idleMinutes) || idleMinutes < 1 || idleMinutes > 24 * 60) return c.json({ error: "Pick 1 to 1440 idle minutes." }, 400);
 			saveSettings({ idleMinutes: Math.round(idleMinutes) });
