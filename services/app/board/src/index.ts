@@ -32,6 +32,9 @@ const ROLE_CATS: Record<string, string[]> = {
 	Video: ["frontend", "docs"],
 	Calls: ["docs", "plan"],
 	Calendar: ["plan"],
+	Bug: ["debug", "test", "code"],
+	Refactor: ["code", "test"],
+	Feature: ["code", "frontend", "test"],
 };
 
 /** Up to `n` skills for a role, Flisk's own first. */

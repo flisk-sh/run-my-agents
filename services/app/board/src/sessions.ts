@@ -96,6 +96,9 @@ export function guessRole(title: string, files: string[]): string {
 		["Design", /design|\.css|style|layout|ui\b|avatar|figma|logo|icon/],
 		["Calendar", /calendar|schedule|meeting|week plan/],
 		["Calls", /\bcall\b|transcript|interview|notes\//],
+		["Bug", /\bfix(es|ed|ing)?\b|\bbugs?\b|broken|crash|\bfail(s|ing|ed)?\b|regression|hotfix/],
+		["Refactor", /refactor|\brename|\bextract|\bsplit\b|\bmove\b|tidy|clean ?up|dedupe/],
+		["Feature", /\bfeat\b|feat\(|\badd\b|implement|\bsupport\b|\bnew\b/],
 		["Planner", /plan|roadmap|prd|spec|todo|review/],
 		["Chores", /bump|dependenc|lint|format|cleanup|rename|upgrade|ci\b/],
 	];

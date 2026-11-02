@@ -117,6 +117,36 @@ export const AGENTS: Agent[] = [
 		file: "notes/week.md",
 		state: "waiting",
 	},
+	{
+		role: "Bug",
+		color: "#f87171",
+		shape: "blob",
+		eyes: "squint",
+		look: "down",
+		task: "Find why checkout crashes",
+		file: "src/cart.ts",
+		state: "editing",
+	},
+	{
+		role: "Refactor",
+		color: "#f59e0b",
+		shape: "square",
+		eyes: "sleepy",
+		look: "left",
+		task: "Split the payments module",
+		file: "src/payments/",
+		state: "waiting",
+	},
+	{
+		role: "Feature",
+		color: "#6ee7a0",
+		shape: "pill",
+		eyes: "wide",
+		look: "up",
+		task: "Add dark mode",
+		file: "src/theme.ts",
+		state: "done",
+	},
 ];
 
 const OFFSET: Record<Look, [number, number]> = {

@@ -16,8 +16,8 @@ const ask = (text: string) => line({ type: "user", cwd: "/repo", message: { cont
 
 describe("sessions", () => {
 	it("reads the title, last words, last tool and edited files", () => {
-		const s = parseSession("abc", [ask("fix the login bug"), "not json", edit("/repo/src/api.ts")], now);
-		expect(s?.title).toBe("fix the login bug");
+		const s = parseSession("abc", [ask("tune the login query"), "not json", edit("/repo/src/api.ts")], now);
+		expect(s?.title).toBe("tune the login query");
 		expect(s?.said).toBe("Fixing it.");
 		expect(s?.doing).toBe("Edit api.ts");
 		expect(s?.edits.map((e) => e.file)).toEqual(["/repo/src/api.ts"]);
@@ -198,10 +198,19 @@ describe("page", () => {
 	});
 });
 
+describe("roles", () => {
+	it("guesses Bug, Refactor and Feature from the title", () => {
+		expect(guessRole("fix the login crash", [])).toBe("Bug");
+		expect(guessRole("refactor the payments module", [])).toBe("Refactor");
+		expect(guessRole("add dark mode", [])).toBe("Feature");
+		expect(guessRole("tune the parser", ["/repo/src/a.ts"])).toBe("Code");
+	});
+});
+
 describe("faces", () => {
 	it("gives every session of a role the same face and color, Code blue and Design purple", async () => {
 		const { faceOf } = await import("../src/index");
-		const code = [parseSession("a", [ask("fix the bug")], now), parseSession("b", [ask("add a test")], now)].filter((s) => s !== undefined);
+		const code = [parseSession("a", [ask("tune the parser")], now), parseSession("b", [ask("write a test")], now)].filter((s) => s !== undefined);
 		expect(faceOf(code[0])).toEqual(faceOf(code[1]));
 		expect(faceOf(code[0]).color).toBe("#38bdf8");
 		const design = parseSession("c", [ask("redesign the pricing page")], now);
@@ -329,7 +338,7 @@ describe("new sessions and agent types", () => {
 		const { join } = await import("node:path");
 		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-prefs-"));
 		const { applyRoles } = await import("../src/prefs");
-		const fresh = () => [parseSession("s1", [ask("fix the bug")], now)].filter((s) => s !== undefined);
+		const fresh = () => [parseSession("s1", [ask("tune the parser")], now)].filter((s) => s !== undefined);
 		const app = createApp(() => applyRoles(fresh()));
 		expect((await post(app, "/api/role", { id: "s1", role: "Design" })).status).toBe(200);
 		let s = (await (await app.request("/api/sessions")).json()).sessions[0];
