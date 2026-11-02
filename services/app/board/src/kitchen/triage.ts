@@ -1,0 +1,52 @@
+// Intake triage on the Zachman Framework's six questions. Every new order is sorted before it reaches the kitchen:
+// a question gets one short answer and is served at once; a task gets a Zachman card (What, How, Where, Who, When,
+// Why) that travels with it and goes into every agent's instructions. Rules only, no model call, so it is instant
+// and the same order is always sorted the same way.
+
+export type Kind = "question" | "task";
+export type Zachman = { what: string; how: string; where: string; who: string; when: string; why: string };
+
+/** Words that ask for work on code or files. An order with one is a task even when it ends with "?". */
+const WORK = /\b(add|build|fix|make|create|implement|write|refactor|remove|delete|rename|update|upgrade|migrate|deploy|test|review|debug|change|move|support|improve|optimi[sz]e|ship|merge|release|document|install|configure|set ?up|bump|port|convert|replace|split|clean)\b/i;
+/** How questions open, in English. */
+const ASKS = /^(what|why|how|who|when|where|which|is|are|can|could|does|do|did|should|will|would|was|were|explain|tell me)\b/i;
+/** Plain arithmetic like "2+2 =?". */
+const MATH = /^[\d\s+\-*/^().,=x×÷%?]+$/i;
+
+export function kindOf(title: string): Kind {
+	const t = title.trim();
+	if (MATH.test(t)) return "question";
+	if (WORK.test(t)) return "task";
+	if (t.endsWith("?") || ASKS.test(t)) return "question";
+	// Short greetings and chat with no work in them.
+	if (t.split(/\s+/).length <= 4) return "question";
+	return "task";
+}
+
+/** The "why" of an order: what follows "so that", "because" or "to", when the order says. */
+function reason(title: string): string {
+	const m = /\b(?:so that|so|because|in order to)\b\s+(.+)$/i.exec(title);
+	return m ? m[1].trim().replace(/[.!]+$/, "") : "";
+}
+
+const PRIORITY_WHEN: Record<string, string> = { P0: "Now, before anything else", P1: "Next in line", P2: "When the belt is free" };
+
+/** Fills the Zachman card for an order from its words and where it runs. */
+export function zachman(o: { title: string; cwd: string; priority: string; route: string; skills: string[]; kind: Kind }): Zachman {
+	const folder = o.cwd ? o.cwd.split("/").filter(Boolean).pop() ?? o.cwd : "any folder";
+	const what = o.title.replace(/\b(?:so that|so|because|in order to)\b.+$/i, "").trim() || o.title;
+	if (o.kind === "question")
+		return { what: "An answer", how: "One short reply, no code", where: folder, who: "Front desk (any idle agent)", when: PRIORITY_WHEN[o.priority] ?? "Next in line", why: reason(o.title) || "You asked" };
+	return {
+		what,
+		how: `spec → build → test → review${o.skills.length ? `, with /${o.skills.slice(0, 3).join(", /")}` : ""}`,
+		where: folder,
+		who: `${o.route} agent (orchestrator plans on Opus, workers build on Haiku)`,
+		when: PRIORITY_WHEN[o.priority] ?? "Next in line",
+		why: reason(o.title) || "Not stated: the spec step writes it down",
+	};
+}
+
+/** The card as a few lines for an agent's instructions. */
+export const zachmanLines = (z: Zachman) =>
+	`Zachman card:\n- What: ${z.what}\n- How: ${z.how}\n- Where: ${z.where}\n- Who: ${z.who}\n- When: ${z.when}\n- Why: ${z.why}`;

@@ -235,3 +235,42 @@ describe("flow times", () => {
 		expect(f).toMatchObject({ served: 3, failed: 1, wip: 1, leadMedian: 120_000, leadP85: 600_000, cycleMedian: 60_000, throughput24h: 3 });
 	});
 });
+
+describe("Zachman intake triage", () => {
+	it("sorts questions from tasks", async () => {
+		const { kindOf } = await import("../src/kitchen/triage");
+		for (const q of ["2+2 =?", "how are you", "How are you?", "are you stuck?", "what does the pass do?", "hello there"]) expect(kindOf(q)).toBe("question");
+		for (const t of ["fix the login redirect", "Add dark mode to the settings page so night users can read it", "can you add a retry to the upload?", "Refactor the store into modules"]) expect(kindOf(t)).toBe("task");
+	});
+
+	it("fills a Zachman card for a task, with the reason when the order gives one", async () => {
+		const { zachman } = await import("../src/kitchen/triage");
+		const z = zachman({ title: "Add dark mode so night users can read it", cwd: "/work/app", priority: "P0", route: "Design", skills: ["spec-driven-workflow"], kind: "task" });
+		expect(z).toMatchObject({ what: "Add dark mode", where: "app", when: "Now, before anything else", why: "night users can read it" });
+		expect(z.who).toContain("Design agent");
+		expect(z.how).toContain("spec → build → test → review");
+	});
+
+	it("answers a question in one step on haiku and serves it with the answer", async () => {
+		const sessions: Session[] = [];
+		const { post, sent, started } = setup(sessions);
+		const q = (await post("/api/tasks", { title: "2+2 =?", cwd: "/repo" })).body;
+		expect(q).toMatchObject({ kind: "question", skills: [], stage: "inbox" });
+		// Autopilot makes a container for the folder; its agent answers.
+		await post("/api/kitchen", { auto: true });
+		await post("/api/containers/reconcile", {});
+		const cook = { ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 };
+		sessions.push(cook);
+		await post("/api/containers/reconcile", {});
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 sent");
+		expect(sent.at(-1)).toContain("Question #1 from the board: 2+2 =?");
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t).toMatchObject({ stage: "inbox", assignee: cook.id });
+		// It replies and goes quiet: served with its answer, no spec, build, test or review.
+		cook.feed = [...cook.feed, { who: "agent", text: "4", at: Date.now() - 20_000 } as never];
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, sentAt: Date.now() - 60_000 }]));
+		cook.updatedAt = Date.now() - 20_000;
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 inbox done");
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "done", answer: "4" });
+	});
+});

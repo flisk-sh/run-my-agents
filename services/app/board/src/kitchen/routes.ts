@@ -7,6 +7,7 @@ import { createContainer, type Container, patchContainer, podOf, readContainers,
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
+import { kindOf, zachman, zachmanLines } from "./triage";
 import { haikuFit, lessonsSkill, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
 export type KitchenCtx = {
@@ -73,7 +74,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const busy = new Set(readTasks().filter((x) => x.assignee && x.id !== order.id).map((x) => x.assignee));
 		const all = k.read();
 		const free = (x: Session) => !x.hidden && !busy.has(x.id) && !order.missedBy?.includes(x.id) && !k.busy(x) && (!order.cwd || x.cwd === order.cwd);
-		const boxes = readContainers().filter((x) => x.stages.includes(order.stage));
+		const key = order.stage === "inbox" ? "spec" : order.stage;
+		const boxes = readContainers().filter((x) => order.kind === "question" || x.stages.includes(key));
 		const pod = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
 		const stage = order.stage === "inbox" ? "spec" : order.stage;
 		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
@@ -118,9 +120,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (title.length > k.promptLimit) return c.json({ error: "That order is too long." }, 400);
 		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
 		const route = k.guessRole(title);
-		// Ingredients: the planner's skill set plus the top skills of the type that builds it.
-		const skills = [...new Set([...STAGE_SKILLS.spec.slice(0, 1), ...skillsFor(route, 2).map((s) => s.name)])];
-		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route });
+		// Zachman triage: a question needs no skills and skips the kitchen; a task gets its ingredients and a card.
+		const kind = kindOf(title);
+		const skills = kind === "question" ? [] : [...new Set([...STAGE_SKILLS.spec.slice(0, 1), ...skillsFor(route, 2).map((s) => s.name)])];
+		const card = zachman({ title, cwd: b.cwd ?? "", priority: b.priority ?? "P1", route, skills, kind });
+		const t = addTask({ title, cwd: b.cwd, priority: b.priority, skills, route, kind, zachman: card });
 		stock(skills, k.fetch);
 		return c.json(t, 201);
 	});
@@ -163,7 +167,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		if (t.stage === "done") return { status: 400, body: { error: "That order is already served." } };
 		if (t.atPass) return { status: 409, body: { error: `#${t.n} waits at the pass for your approval.` } };
-		if (t.stage === "inbox") t = updateTask(t.id, { stage: "spec" }) ?? t;
+		if (t.stage === "inbox" && t.kind !== "question") t = updateTask(t.id, { stage: "spec" }) ?? t;
 		if (t.stuck) return { status: 409, body: { error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` } };
 		// Never hand the same step to two agents: the first one still has it.
 		if (t.assignee && t.assignee !== session) return { status: 409, body: { error: `#${t.n} is already with ${k.read().find((x) => x.id === t.assignee)?.role ?? "an agent"}.` } };
@@ -176,11 +180,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const s = chosen.session;
 		if (!s) return { status: 409, body: { error: chosen.why } };
 		const box = podOf(s.id)?.container;
-		const policy = policyFor(order.stage, box ? { model: box.model, effort: box.effort } : undefined);
+		// A question is a worker's job (Haiku, low); only planning a task is the orchestrator's.
+		const policy = policyFor(order.kind === "question" ? "build" : order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, policy);
 		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(box.slug)] : [])]);
 		const verdict = order.stage === "test" || order.stage === "review";
-		const text = `Order #${order.n} (${order.stage}): ${order.title}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+		const card = order.zachman ? `\n\n${zachmanLines(order.zachman)}` : "";
+		const text =
+			order.kind === "question"
+				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
 		const res = k.send(s, `#${order.n} ${order.stage}: ${order.title}`, text);
 		if (res.status >= 400) return { status: res.status, body: { error: `${s.role} could not take it right now.` } };
 		const crew = { ...(order.crew ?? {}), [order.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
@@ -202,6 +211,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const back = sendBack(t);
 			if (back.stuck && builder) strike(builder, `#${t.n} ${t.title}`, `Stuck after ${back.rounds} rounds.`);
 			return { status: 200, body: { ...updateTask(t.id, { ...back, assignee: "", sentAt: 0 }), fired: !!hit?.fired } };
+		}
+		if (t.kind === "question") {
+			const answer = lastSaid(k.read().find((x) => x.id === t.assignee)) || "(no answer)";
+			for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
+			return { status: 200, body: { ...updateTask(t.id, { stage: "done", answer, assignee: "", sentAt: 0, servedAt: Date.now() }) } };
 		}
 		if (t.stage === "spec" && !t.approved) return { status: 200, body: { ...updateTask(t.id, { atPass: true, assignee: "", sentAt: 0 }) } };
 		const to = nextStage(t);
