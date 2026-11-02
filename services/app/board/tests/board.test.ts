@@ -135,12 +135,33 @@ describe("send", () => {
 			app.request("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 		expect((await post({ id: "a", text: "  " })).status).toBe(400);
 		expect((await post({ id: "a", text: "add tests" })).status).toBe(202);
-		expect((await post({ id: "a", text: "again" })).status).toBe(409);
+		// a busy session queues the message and sends it when the reply ends
+		const queued = await post({ id: "a", text: "again" });
+		expect(queued.status).toBe(202);
+		expect(await queued.json()).toMatchObject({ queued: true });
+		expect(sent).toEqual(["add tests"]);
 		finish();
-		await Bun.sleep(1);
-		expect((await post({ id: "a", text: "again" })).status).toBe(202);
+		await Bun.sleep(5);
 		expect(sent).toEqual(["add tests", "again"]);
 		expect((await post({ id: "nope", text: "x" })).status).toBe(404);
+	});
+
+	it("sends a queued message now, or drops it", async () => {
+		const s = parseSession("q", [ask("hi"), edit("/repo/x.ts")], now);
+		const sent: string[] = [];
+		const app = createApp(() => (s ? [s] : []), async (_, text) => {
+			sent.push(text);
+			await new Promise(() => {});
+		});
+		const post = async (path: string, body: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+		await post("/api/send", { id: "q", text: "first" });
+		const a = await post("/api/send", { id: "q", text: "second" });
+		const b = await post("/api/send", { id: "q", text: "third" });
+		expect((await (await app.request("/api/sessions")).json()).sessions[0].queue.map((x: { text: string }) => x.text)).toEqual(["second", "third"]);
+		expect(await post("/api/queue/now", { id: "q", qid: b.qid })).toMatchObject({ sent: true });
+		expect(sent).toEqual(["first", "third"]);
+		await post("/api/queue/drop", { id: "q", qid: a.qid });
+		expect((await (await app.request("/api/sessions")).json()).sessions[0].queue).toEqual([]);
 	});
 
 	it("puts the prompt on stdin, not in the command line", async () => {
@@ -721,7 +742,8 @@ describe("chat layout, bigger text and avatar motion", () => {
 		const fresh = parseSession("x1", [ask("hi")], Date.now() - 2_000);
 		const stale = parseSession("x2", [ask("hi")], Date.now() - 600_000);
 		const app = createApp(() => [fresh && { ...fresh, viaApp: true }, stale && { ...stale, viaApp: true }, fresh && { ...fresh, id: "x3", viaApp: false }].filter((x) => x !== undefined) as never, async () => {});
-		expect((await post(app, "/api/send", { id: "x1", text: "go" })).status).toBe(409);
+		expect(await (await post(app, "/api/send", { id: "x1", text: "go" })).json()).toMatchObject({ queued: true });
+		expect(await (await post(app, "/api/send", { id: "x1", text: "go", now: true })).json()).toMatchObject({ error: expect.stringContaining("Claude app") });
 		expect((await post(app, "/api/send", { id: "x2", text: "go" })).status).toBe(202);
 		expect((await post(app, "/api/send", { id: "x3", text: "go" })).status).toBe(202);
 		// a session the board has just started is busy until its first turn ends
@@ -743,10 +765,10 @@ describe("chat layout, bigger text and avatar motion", () => {
 		expect((await post(app2, "/api/new", { agent: "claude", cwd: dir, text: "go" })).status).toBe(202);
 		const s = parseSession(started, [ask("go")], Date.now() - 600_000);
 		if (s) list.push(s);
-		expect((await post(app2, "/api/send", { id: started, text: "more" })).status).toBe(409);
+		expect(await (await post(app2, "/api/send", { id: started, text: "more" })).json()).toMatchObject({ queued: true });
 		finish();
 		await Bun.sleep(5);
-		expect((await post(app2, "/api/send", { id: started, text: "more" })).status).toBe(202);
+		expect(await (await post(app2, "/api/send", { id: started, text: "more" })).json()).toMatchObject({ sent: true });
 	});
 });
 
@@ -953,7 +975,7 @@ describe("choices an agent offers", () => {
 		const app = createApp(() => [waiting && { ...waiting, viaApp: true }, busy && { ...busy, viaApp: true }].filter((x) => x !== undefined) as never, async () => {});
 		const send = (id: string) => app.request("/api/send", { method: "POST", headers: J, body: JSON.stringify({ id, text: "Yes, release" }) });
 		expect((await send("w1")).status).toBe(202);
-		expect((await send("w2")).status).toBe(409);
+		expect(await (await send("w2")).json()).toMatchObject({ queued: true });
 	});
 
 	it("shows the buttons in the page, answers with a click or Cmd+Enter, scrolls after 5 seconds without stealing your place, and drags the window", async () => {

@@ -73,6 +73,8 @@ export interface FeedItem {
 	text: string;
 	tools: string[];
 	options?: Options;
+	/** When this reply started; stays the same while it grows, so the page can remember if you collapsed it. */
+	t0?: number;
 }
 
 const FEED_SIZE = 16;
@@ -181,7 +183,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			if (words) s.said = words.replace(/\s+/g, " ").slice(0, 160);
 			const last = s.feed[s.feed.length - 1];
 			const item =
-				last?.who === "agent" ? last : { at, who: "agent" as const, text: "", tools: [] as string[] };
+				last?.who === "agent" ? last : { at, t0: at, who: "agent" as const, text: "", tools: [] as string[] };
 			if (item !== last) s.feed.push(item);
 			// A turn can hold several text blocks between its tool calls; show all of them, newest last.
 			if (words) item.text = item.text ? `${item.text}\n\n${words}`.slice(-8000) : words.slice(0, 8000);
@@ -245,7 +247,7 @@ export function parseCodexSession(lines: string[], updatedAt: number): Session |
 				s.feed.push({ at, who: "you", text: text.slice(0, 2000), tools: [] });
 			} else {
 				s.said = text.replace(/\s+/g, " ").slice(0, 160);
-				s.feed.push({ at, who: "agent", text: text.slice(0, 5000), tools: [] });
+				s.feed.push({ at, t0: at, who: "agent", text: text.slice(0, 5000), tools: [] });
 			}
 		}
 		if (e.type === "response_item" && (p.type === "custom_tool_call" || p.type === "function_call")) {

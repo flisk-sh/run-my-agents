@@ -1,6 +1,6 @@
 // The agents board: every Claude Code and Codex session on this computer as an agent with a face, its channel,
 // its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pr } from "./desktop";
 import { mkdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -202,6 +202,47 @@ export function createApp(
 	const open = deps.open ?? openIn;
 	const prsFor = deps.prs ?? ghPrs;
 	const app = new Hono();
+	type Queued = { qid: string; text: string; body: string; dirs: string[] };
+	/** Messages waiting for a busy session, oldest first. */
+	const queues = new Map<string, Queued[]>();
+	/** The reply the board is running for each session, so Send now can stop it. */
+	const running = new Map<string, ChildProcess>();
+	// A message from here starts a second copy of the session. If the Claude app is working in it right now, the
+	// two would run on the same conversation at once, so wait for it to settle.
+	const appBusy = (s: Session) => s.viaApp === true && !s.awaiting && Date.now() - s.updatedAt < 20_000;
+	const sendNow = (s: Session, item: Queued) => {
+		if (appBusy(s)) return new Response(JSON.stringify({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }), { status: 409, headers: { "content-type": "application/json" } });
+		running.get(s.id)?.kill("SIGINT");
+		const run = ((cmd: string, args: string[], opts: object) => {
+			const child = spawn(cmd, args, opts);
+			running.set(s.id, child);
+			return child;
+		}) as typeof spawn;
+		const turn = Symbol();
+		turns.set(s.id, turn);
+		sending.add(s.id);
+		send(s, item.body, run, item.dirs)
+			.catch((e) => console.error(`send to ${s.id} failed:`, e))
+			.finally(() => {
+				if (turns.get(s.id) !== turn) return;
+				sending.delete(s.id);
+				running.delete(s.id);
+				drain(s.id);
+			});
+		return new Response(JSON.stringify({ sent: true }), { status: 202, headers: { "content-type": "application/json" } });
+	};
+	const turns = new Map<string, symbol>();
+	const drain = (id: string) => {
+		const q = queues.get(id);
+		const s = q?.length && !sending.has(id) ? read().find((x) => x.id === id) : undefined;
+		if (!s || !q || appBusy(s)) return;
+		queues.set(id, q.slice(1));
+		sendNow(s, q[0]);
+	};
+	// A queue that waits on the Claude app has nothing to wake it, so look again every few seconds.
+	setInterval(() => {
+		for (const id of queues.keys()) drain(id);
+	}, 3_000).unref?.();
 	app.use("*", async (c, next) => {
 		if (!LOCAL_HOST.test(c.req.header("host") ?? new URL(c.req.url).host)) return c.text("Open the board at http://localhost.", 403);
 		await next();
@@ -218,6 +259,7 @@ export function createApp(
 				lower: s.agent === "claude" ? lowerModel(s.model) : null,
 				skills: skillsFor(s.role),
 				sending: sending.has(s.id),
+				queue: (queues.get(s.id) ?? []).map(({ qid, text }) => ({ qid, text })),
 			})),
 			clashes: findClashes(sessions),
 			limits,
@@ -241,16 +283,12 @@ export function createApp(
 	});
 	app.post("/api/send", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const { id, text, files } = (await c.req.json().catch(() => ({}))) as { id?: string; text?: string; files?: unknown };
+		const { id, text, files, now } = (await c.req.json().catch(() => ({}))) as { id?: string; text?: string; files?: unknown; now?: boolean };
 		const message = String(text ?? "").trim();
 		if (!message && !(Array.isArray(files) && files.length)) return c.json({ error: "Type a message first." }, 400);
 		if (message.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
 		const s = read().find((x) => x.id === id);
 		if (!s) return c.json({ error: "That session is gone." }, 404);
-		if (sending.has(s.id)) return c.json({ error: `${s.role} is still answering your last message.` }, 409);
-		// A message from here starts a second copy of the session. If the Claude app is working in it right now, the
-		// two would run on the same conversation at once, so wait for it to settle.
-		if (s.viaApp === true && !s.awaiting && Date.now() - s.updatedAt < 20_000) return c.json({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }, 409);
 		// Only files this board saved for this session can be attached, however the request names them.
 		const dir = join(dataDir(), "uploads", s.id);
 		const attached = (Array.isArray(files) ? files : []).slice(0, 10).map(String).filter((f) => {
@@ -262,11 +300,30 @@ export function createApp(
 			}
 		});
 		const body = `${message || (attached.length ? "Please look at the attached files." : "")}${attached.length ? `\n\nAttached files (saved on this computer, read them with your tools):\n${attached.map((f) => `- ${f}`).join("\n")}` : ""}`;
-		sending.add(s.id);
-		send(s, body, undefined, attached.length ? [dir] : [])
-			.catch((e) => console.error(`send to ${s.id} failed:`, e))
-			.finally(() => sending.delete(s.id));
-		return c.json({ sent: true }, 202);
+		const item = { qid: randomUUID(), text: message || "(attached files)", body, dirs: attached.length ? [dir] : [] };
+		// Like Claude: a message to a busy session waits in its queue, unless you ask to send it now.
+		if (!now && (sending.has(s.id) || appBusy(s))) {
+			queues.set(s.id, [...(queues.get(s.id) ?? []), item]);
+			return c.json({ queued: true, qid: item.qid }, 202);
+		}
+		return sendNow(s, item);
+	});
+	// Sends a queued message at once, stopping the reply the board is running for that session.
+	app.post("/api/queue/now", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, qid } = (await c.req.json().catch(() => ({}))) as { id?: string; qid?: string };
+		const s = read().find((x) => x.id === id);
+		const item = queues.get(String(id))?.find((q) => q.qid === qid);
+		if (!s || !item) return c.json({ error: "That message is gone." }, 404);
+		const res = sendNow(s, item);
+		if (res.status === 202) queues.set(s.id, (queues.get(s.id) ?? []).filter((q) => q.qid !== qid));
+		return res;
+	});
+	app.post("/api/queue/drop", async (c) => {
+		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
+		const { id, qid } = (await c.req.json().catch(() => ({}))) as { id?: string; qid?: string };
+		queues.set(String(id), (queues.get(String(id)) ?? []).filter((q) => q.qid !== qid));
+		return c.json({ dropped: true });
 	});
 	// What the New session dialog and the type picker need: installed agents, recent folders, the types and faces.
 	app.get("/api/options", (c) => {

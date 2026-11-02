@@ -2,6 +2,8 @@
 
 Run many Claude Code sessions on one repo, and stop them overwriting each other.
 
+![Run My Agents board: every Claude Code session on one screen](docs/preview.gif)
+
 When one session is about to edit a file that another session on your computer edited in the last 10 minutes, the edit is stopped once with a note:
 
 > Run My Agents: another Claude session (9d5f2846 on branch fix-login, in ~/code/app) edited api.ts 2 min ago. Your edit could overwrite its work. Read the file again first, or work on a different file. If you are sure, make the edit again and it will go through.
