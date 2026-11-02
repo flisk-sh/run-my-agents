@@ -57,4 +57,27 @@ out=$(symhook sym2222 "$real-link/sym.ts"); echo "$out" | grep -q '"deny"' || fa
 [ -z "$(symhook sym1111 "$real/new.ts")" ] || fail "a new file should be allowed for its first session"
 out=$(symhook sym2222 "$real-link/new.ts"); echo "$out" | grep -q '"deny"' || fail "a new file through a symlink should warn"
 
-echo "PASS: 22 checks"
+# Token limit: a session over its limit is stopped once, never moved up, and no project settings are written
+# unless "move new sessions to a cheaper model" (autoDowngrade) is on. A second session on the repo is untouched.
+export RUN_MY_AGENTS_DIR=$(mktemp -d)
+repo=$(mktemp -d)
+printf '{"sessionTokens":100,"autoDowngrade":false}' > "$RUN_MY_AGENTS_DIR/limits.json"
+turn() { printf '{"type":"assistant","message":{"model":"%s","usage":{"input_tokens":%s,"output_tokens":0}}}\n' "$1" "$2"; }
+big="$RUN_MY_AGENTS_DIR/big.jsonl"; small="$RUN_MY_AGENTS_DIR/small.jsonl"
+turn claude-opus-4-5 200 > "$big"; turn claude-opus-4-5 10 > "$small"
+limit() { printf '{"session_id":"%s","cwd":"%s","transcript_path":"%s","tool_name":"Bash"}' "$1" "$repo" "$2" | node "$here/hooks/limit.mjs"; }
+out=$(limit over1111 "$big")
+[ "$out" = '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Run My Agents: this session used 200 tokens, over its limit of 100. Tell the user to run /model sonnet to continue on a cheaper model, then stop and wait."}}' ] || fail "over the limit: exact stop message, got $out"
+[ -z "$(limit over1111 "$big")" ] || fail "the same session is stopped only once"
+turn claude-sonnet-4-5 50 >> "$big"
+[ -z "$(limit over1111 "$big")" ] || fail "moving to a cheaper model must not stop the session a second time"
+[ -z "$(limit under222 "$small")" ] || fail "a second session under the limit on the same repo is not stopped"
+[ ! -e "$repo/.claude/settings.local.json" ] || fail "no project settings are written while autoDowngrade is off"
+# With autoDowngrade on, only new sessions move down a step (never up), and only the session over the limit is stopped.
+printf '{"sessionTokens":100,"autoDowngrade":true}' > "$RUN_MY_AGENTS_DIR/limits.json"
+turn claude-opus-4-5 200 > "$RUN_MY_AGENTS_DIR/big2.jsonl"
+limit over3333 "$RUN_MY_AGENTS_DIR/big2.jsonl" | grep -q 'New sessions in this project now start on sonnet' || fail "autoDowngrade on: says new sessions move to sonnet"
+grep -q '"model": "sonnet"' "$repo/.claude/settings.local.json" || fail "autoDowngrade on: project settings move one step down to sonnet"
+[ -z "$(limit under222 "$small")" ] || fail "autoDowngrade on: the second session is still not stopped"
+
+echo "PASS: 30 checks"

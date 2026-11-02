@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Run My Agents: stops a Claude Code session once when it passes its token limit, and tells it to move to the
-// next cheaper model. With autoDowngrade on, it also sets that model for the project's new sessions. It never
+// next cheaper model. It cannot change a running session's model; only the user's /model can. With autoDowngrade on, it also sets that model for the project's new sessions. It never
 // suggests a more expensive model.
 
 import { readFileSync } from "node:fs";
@@ -27,10 +27,11 @@ function main() {
   const usage = transcriptUsage(session, input.transcript_path);
   if (usage.used < limits.sessionTokens) return;
 
-  // One stop per session per model: after the first, the agent carries on until the model changes.
+  // One stop per session: a running session cannot change model from outside, so after the stop it carries on
+  // (on whatever model the user picked with /model) and is never stopped again for the same limit.
   const warnedFile = join(DIR, "usage", "warned.json");
   const warned = readJson(warnedFile, {});
-  const key = `${session}|${usage.model}`;
+  const key = session;
   if (warned[key]) return;
   warned[key] = Date.now();
   mkdirSync(join(DIR, "usage"), { recursive: true });
