@@ -704,7 +704,8 @@ export function readAllSessions(now = Date.now()): Session[] {
 	}
 	const codex = readCodexSessions(undefined, undefined, now);
 	for (const s of codex) s.pinned = isPinned(s.id, false);
-	const grok = readGrokSessions(undefined, undefined, now);
+	// Grok sessions are usually run by hand and come back days later, so keep them on the board for a week.
+	const grok = readGrokSessions(undefined, 7 * 86_400_000, now);
 	for (const s of grok) s.pinned = isPinned(s.id, false);
 	return [...claude, ...codex, ...grok].sort((a, b) => b.updatedAt - a.updatedAt);
 }
