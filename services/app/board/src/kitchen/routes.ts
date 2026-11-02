@@ -316,6 +316,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		let sessions: Session[] | undefined;
 		const getAssigneeLabel = (t: Task): string => {
 			if (!t.assignee) return "";
+			if (t.assignee === FRONT_DESK) return "Orchestrator";
 			const crewEntry = t.crew?.[t.stage];
 			if (crewEntry?.name) return crewEntry.name;
 			sessions ??= k.read();
