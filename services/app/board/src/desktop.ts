@@ -19,6 +19,12 @@ export interface Pr {
 	repo: string;
 	branch: string;
 	draft: boolean;
+	/** CI on GitHub: every check passed, one failed, or some still running. Empty when unknown. */
+	checks?: "pass" | "fail" | "pending" | "";
+	/** GitHub's review state, like APPROVED or CHANGES_REQUESTED. */
+	review?: string;
+	/** GitHub's merge state, like CLEAN, BLOCKED, BEHIND or DIRTY (conflicts). */
+	merge?: string;
 }
 
 export interface DesktopMeta {

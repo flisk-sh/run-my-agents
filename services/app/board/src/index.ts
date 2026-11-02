@@ -173,7 +173,38 @@ export function openIn(target: string, cwd: string, run = spawn): Promise<boolea
 	});
 }
 
-const prCache = new Map<string, { at: number; prs: Pr[] }>();
+const prCache = new Map<string, { at: number; prs: Pr[]; asking?: boolean }>();
+
+/** One word for a PR's CI: fail if any check failed, pending if any is still running, pass when all passed. */
+export function checksOf(rollup: { conclusion?: string; state?: string; status?: string }[] | undefined): Pr["checks"] {
+	if (!Array.isArray(rollup) || !rollup.length) return "";
+	const word = (c: { conclusion?: string; state?: string; status?: string }) => String(c.conclusion || c.state || c.status || "").toUpperCase();
+	const all = rollup.map(word);
+	if (all.some((w) => /FAILURE|ERROR|TIMED_OUT|CANCELLED|ACTION_REQUIRED|STARTUP_FAILURE/.test(w))) return "fail";
+	if (all.some((w) => /PENDING|QUEUED|IN_PROGRESS|EXPECTED|WAITING|^$/.test(w))) return "pending";
+	return "pass";
+}
+
+/** The Claude app's PRs for a session merged with GitHub's, GitHub's fields winning; newest first. */
+export function mergePrs(...lists: Pr[][]): Pr[] {
+	const byUrl = new Map<string, Pr>();
+	for (const p of lists.flat()) {
+		const old = byUrl.get(p.url);
+		byUrl.set(p.url, old ? { ...old, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== "")) } : p);
+	}
+	return [...byUrl.values()].sort((a, b) => b.number - a.number);
+}
+
+/** What GitHub last said for a session's branch, without waiting; a stale answer is refreshed in the background. */
+function cachedPrs(s: Session, get: typeof ghPrs): Pr[] {
+	const hit = s.branch && s.cwd ? prCache.get(`${s.cwd}\u0000${s.branch}`) : undefined;
+	if (s.branch && s.cwd && (!hit || Date.now() - hit.at > 60_000)) {
+		// hold the old answer while asking, so 3-second polls do not start a gh call each
+		prCache.set(`${s.cwd}\u0000${s.branch}`, { at: Date.now(), prs: hit?.prs ?? [], asking: true });
+		get(s).catch(() => {});
+	}
+	return hit?.prs ?? [];
+}
 
 /** The pull requests GitHub has for a session's branch, asked of `gh` in the session's folder (cached for a minute). */
 export async function ghPrs(s: Session, run = spawn): Promise<Pr[]> {
@@ -181,12 +212,12 @@ export async function ghPrs(s: Session, run = spawn): Promise<Pr[]> {
 	if (!branch || !/^\w[\w./-]{0,199}$/.test(branch) || branch === "main" || branch === "master" || !s.cwd) return [];
 	const key = `${s.cwd}\u0000${branch}`;
 	const hit = prCache.get(key);
-	if (hit && Date.now() - hit.at < 60_000) return hit.prs;
+	if (hit && !hit.asking && Date.now() - hit.at < 60_000) return hit.prs;
 	const prs = await new Promise<Pr[]>((done) => {
 		let out = "";
 		let child: ReturnType<typeof spawn>;
 		try {
-			child = run("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "6", "--json", "number,title,state,url,isDraft"], { cwd: s.cwd, stdio: ["ignore", "pipe", "ignore"] });
+			child = run("gh", ["pr", "list", "--head", branch, "--state", "all", "--limit", "6", "--json", "number,title,state,url,isDraft,statusCheckRollup,reviewDecision,mergeStateStatus"], { cwd: s.cwd, stdio: ["ignore", "pipe", "ignore"] });
 		} catch {
 			return done([]);
 		}
@@ -204,11 +235,11 @@ export async function ghPrs(s: Session, run = spawn): Promise<Pr[]> {
 		child.on("close", () => {
 			clearTimeout(timer);
 			try {
-				const rows = JSON.parse(out) as { number: number; title: string; state: string; url: string; isDraft?: boolean }[];
+				const rows = JSON.parse(out) as { number: number; title: string; state: string; url: string; isDraft?: boolean; statusCheckRollup?: { conclusion?: string; state?: string; status?: string }[]; reviewDecision?: string; mergeStateStatus?: string }[];
 				done(
 					rows.flatMap((r) =>
 						Number.isInteger(r.number) && /^https:\/\//.test(String(r.url))
-							? [{ number: r.number, title: String(r.title ?? ""), state: String(r.state ?? "").toUpperCase(), url: r.url, repo: /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(r.url)?.[1] ?? "", branch, draft: r.isDraft === true }]
+							? [{ number: r.number, title: String(r.title ?? ""), state: String(r.state ?? "").toUpperCase(), url: r.url, repo: /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(r.url)?.[1] ?? "", branch, draft: r.isDraft === true, checks: checksOf(r.statusCheckRollup), review: String(r.reviewDecision ?? ""), merge: String(r.mergeStateStatus ?? "") }]
 							: [],
 					),
 				);
@@ -319,6 +350,7 @@ export function createApp(
 				lower: s.agent === "claude" ? lowerModel(s.tune?.model || s.model) : null,
 				skills: skillsFor(s.role),
 				sending: sending.has(s.id),
+				prs: mergePrs(s.prs ?? [], cachedPrs(s, prsFor)),
 				queue: (queues.get(s.id) ?? []).map(({ qid, text }) => ({ qid, text })),
 			})),
 			clashes: findClashes(sessions),
@@ -450,12 +482,7 @@ export function createApp(
 	app.get("/api/prs", async (c) => {
 		const s = read().find((x) => x.id === c.req.query("id"));
 		if (!s) return c.json({ error: "That session is gone." }, 404);
-		const byUrl = new Map<string, Pr>();
-		for (const p of [...(s.prs ?? []), ...(await prsFor(s))]) {
-			const old = byUrl.get(p.url);
-			byUrl.set(p.url, old ? { ...old, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== "")) } : p);
-		}
-		return c.json({ branch: s.branch, prs: [...byUrl.values()].sort((a, b) => b.number - a.number) });
+		return c.json({ branch: s.branch, prs: mergePrs(s.prs ?? [], await prsFor(s)) });
 	});
 	// Close: hides a session from the list (it stays under Closed). Nothing is deleted.
 	app.post("/api/hide", async (c) => {

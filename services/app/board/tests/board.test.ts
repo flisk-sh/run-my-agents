@@ -201,6 +201,14 @@ describe("send", () => {
 		expect(s && workDirs(s)).toEqual([other]);
 	});
 
+	it("sums up a PR's checks as pass, fail or pending", async () => {
+		const { checksOf } = await import("../src/index");
+		expect(checksOf([])).toBe("");
+		expect(checksOf([{ conclusion: "SUCCESS" }, { state: "SUCCESS" }])).toBe("pass");
+		expect(checksOf([{ conclusion: "SUCCESS" }, { status: "IN_PROGRESS" }])).toBe("pending");
+		expect(checksOf([{ conclusion: "FAILURE" }, { status: "IN_PROGRESS" }])).toBe("fail");
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
@@ -965,7 +973,7 @@ describe("pull requests on the branch chip", () => {
 		for (const branch of ["main", "master", "", "-rf", "a b", "../x"]) expect(await ghPrs({ ...(base as object), branch } as never, fake)).toEqual([]);
 		expect(calls).toHaveLength(0);
 		const prs = await ghPrs({ ...(base as object), branch: "fix/ok-1" } as never, fake);
-		expect(prs).toEqual([{ number: 3, title: "T", state: "OPEN", url: "https://github.com/flisk-sh/x/pull/3", repo: "flisk-sh/x", branch: "fix/ok-1", draft: true }]);
+		expect(prs).toEqual([{ number: 3, title: "T", state: "OPEN", url: "https://github.com/flisk-sh/x/pull/3", repo: "flisk-sh/x", branch: "fix/ok-1", draft: true, checks: "", review: "", merge: "" }]);
 		expect(calls[0]).toContain("fix/ok-1");
 	});
 });
