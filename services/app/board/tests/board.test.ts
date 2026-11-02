@@ -291,6 +291,15 @@ describe("typing box", () => {
 		// the dots keep their own .typing rule
 		expect(PAGE).toContain(".typing{display:flex");
 	});
+	it("draws a plain agent panel with text controls and a tooltip on each", async () => {
+		const { PAGE } = await import("../src/page");
+		const panel = PAGE.split("function plainPanel(s){")[1].split("function tune(")[0];
+		for (const hook of ['data-model="', 'data-effort="', 'data-sw="pin"', 'data-sw="mute"', 'data-mrole="', 'data-tile="', 'data-copy="name"', 'data-copy="id"', 'data-copy="resume"', 'data-close="1"', 'data-del="1"']) {
+			expect(panel.split(hook)[1].slice(0, 200)).toContain("data-tip=");
+		}
+		expect(panel).not.toContain("<svg");
+		expect(PAGE).toContain('design==="plain"?plainPanel(s):gaugePanel(s)');
+	});
 	it("offers a plain design that drops glow and animation, and remembers the choice", async () => {
 		const { PAGE } = await import("../src/page");
 		expect(PAGE).toContain('data-design="\'+k+\'"');
