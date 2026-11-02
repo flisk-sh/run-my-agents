@@ -220,6 +220,25 @@ describe("send", () => {
 		expect(toolLabel("Bash")).toBe("Bash");
 	});
 
+	it("follows the agent's plan, subagents, background commands, hooks and permission mode", () => {
+		const tool = (name: string, input: object, id = "t") => line({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+		const s = parseSession("act", [
+			line({ type: "user", permissionMode: "auto", message: { content: "go" } }),
+			tool("mcp__ccd_turn__update_plan", { items: [{ content: "a", status: "in_progress" }, { content: "b", status: "pending" }, { content: "c", status: "pending" }] }),
+			tool("mcp__ccd_turn__update_plan", { advance: true }),
+			tool("Agent", { description: "Look around", subagent_type: "Explore" }, "ag1"),
+			tool("Agent", { description: "Write tests" }, "ag2"),
+			line({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "ag1", content: "ok" }] } }),
+			tool("Bash", { command: "bun dev", description: "Start dev server", run_in_background: true }),
+			line({ type: "system", subtype: "stop_hook_summary", hookCount: 1, hookErrors: ["x"], hookInfos: [{ command: "'/a b/notify.sh' stop" }] }),
+		], now);
+		expect(s?.mode).toBe("auto");
+		expect(s?.plan?.map((x) => x.status)).toEqual(["completed", "in_progress", "pending"]);
+		expect(s?.agents?.map((a) => [a.what, a.done])).toEqual([["Look around", true], ["Write tests", false]]);
+		expect(s?.bg?.[0].what).toBe("Start dev server");
+		expect(s?.hooks).toEqual({ runs: 1, errors: 1, last: "notify.sh" });
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

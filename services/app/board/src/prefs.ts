@@ -108,9 +108,12 @@ export function isPinned(id: string, inApp: boolean): boolean {
 /** The model and effort chosen in the board for an agent. Used for every message the board sends to it. */
 export const TUNE_MODELS = ["haiku", "sonnet", "opus"];
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+/** Permission modes a message from the board can run in (`claude -p --permission-mode`). */
+export const MODES = ["default", "acceptEdits", "auto", "bypassPermissions"];
 export interface Tune {
 	model?: string;
 	effort?: string;
+	mode?: string;
 }
 const tuneFile = () => join(dir(), "tune.json");
 
@@ -122,7 +125,8 @@ export function readTune(): Record<string, Tune> {
 			const clean: Tune = {};
 			if (t?.model && TUNE_MODELS.includes(t.model)) clean.model = t.model;
 			if (t?.effort && EFFORTS.includes(t.effort)) clean.effort = t.effort;
-			if (clean.model || clean.effort) out[id] = clean;
+			if (t?.mode && MODES.includes(t.mode)) clean.mode = t.mode;
+			if (clean.model || clean.effort || clean.mode) out[id] = clean;
 		}
 		return out;
 	} catch {
@@ -142,7 +146,11 @@ export function setTune(id: string, patch: Tune): Tune {
 		if (patch.effort && EFFORTS.includes(patch.effort)) next.effort = patch.effort;
 		else delete next.effort;
 	}
-	if (next.model || next.effort) all[id] = next;
+	if (patch.mode !== undefined) {
+		if (patch.mode && MODES.includes(patch.mode)) next.mode = patch.mode;
+		else delete next.mode;
+	}
+	if (next.model || next.effort || next.mode) all[id] = next;
 	else delete all[id];
 	mkdirSync(dirname(tuneFile()), { recursive: true });
 	const tmp = `${tuneFile()}.${process.pid}.tmp`;

@@ -52,7 +52,17 @@ export interface Session {
 	/** The transcript file. Only the server uses it; it is never sent to the page. */
 	file?: string;
 	/** The model and effort chosen in the board for this agent. */
-	tune?: { model?: string; effort?: string };
+	tune?: { model?: string; effort?: string; mode?: string };
+	/** The agent's task plan (TodoWrite, the app's plan list, Codex update_plan), newest version. */
+	plan?: { text: string; status: "pending" | "in_progress" | "completed" }[];
+	/** The permission mode the session last ran in: default, acceptEdits, auto, plan or bypassPermissions. */
+	mode?: string;
+	/** Subagents it started, newest last; `done` once their result came back. */
+	agents?: { what: string; kind: string; at: number; done: boolean }[];
+	/** Commands it left running in the background, newest last. */
+	bg?: { what: string; at: number }[];
+	/** Hook runs at the end of its turns, and how many reported an error. */
+	hooks?: { runs: number; errors: number; last?: string };
 	/** The effort level the Claude desktop app has for this session. */
 	effort?: string;
 	/** Whether the Claude desktop app lists this session; undefined when that app's files aren't there. */
@@ -165,6 +175,28 @@ export function readOptions(name: string, input?: Record<string, unknown>): Opti
 	return undefined;
 }
 
+type Step = NonNullable<Session["plan"]>[number];
+const STATUS = (v: unknown): Step["status"] => (v === "completed" || v === "in_progress" ? v : "pending");
+/** Applies one plan tool call to the plan so far: a full list replaces it, `advance`/`done`/`start` move it on. */
+export function applyPlan(plan: Step[] | undefined, name: string, input: Record<string, unknown> | undefined): Step[] | undefined {
+	const list = (input?.todos ?? input?.items ?? input?.plan) as { content?: unknown; step?: unknown; status?: unknown }[] | undefined;
+	if (Array.isArray(list)) return list.slice(0, 20).map((x) => ({ text: String(x?.content ?? x?.step ?? "").slice(0, 160), status: STATUS(x?.status) })).filter((x) => x.text);
+	if (!plan || !name.endsWith("update_plan")) return plan;
+	const next = plan.map((x) => ({ ...x }));
+	if (input?.advance) {
+		const i = next.findIndex((x) => x.status === "in_progress");
+		if (i >= 0) next[i].status = "completed";
+		const j = next.findIndex((x, k) => k > i && x.status === "pending");
+		if (j >= 0) next[j].status = "in_progress";
+	}
+	for (const n of Array.isArray(input?.done) ? (input.done as number[]) : []) if (next[n - 1]) next[n - 1].status = "completed";
+	if (typeof input?.start === "number" && next[input.start - 1]) {
+		for (const x of next) if (x.status === "in_progress") x.status = "completed";
+		next[input.start - 1].status = "in_progress";
+	}
+	return next;
+}
+
 /** One transcript to a Session, or undefined when it has no conversation in it. */
 /** Session ids are UUID-like. Anything else is dropped: ids go into the page's HTML and into `claude --resume <id>`. */
 export const SESSION_ID = /^[\w-]{1,128}$/;
@@ -174,6 +206,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 	const s: Session = { id, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: "", branch: "", title: "", said: "", doing: "", edits: [], updatedAt, role: "Code", pinned: false, feed: [] };
 	let optItem: FeedItem | undefined;
 	let optToolId = "";
+	const running = new Map<string, NonNullable<Session["agents"]>[number]>();
 	for (const line of lines) {
 		let e: {
 			type?: string;
@@ -181,6 +214,11 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			gitBranch?: string;
 			timestamp?: string;
 			isMeta?: boolean;
+			permissionMode?: string;
+			subtype?: string;
+			hookCount?: number;
+			hookErrors?: unknown[];
+			hookInfos?: { command?: string }[];
 			message?: { content?: unknown; model?: string; usage?: Record<string, number> };
 		};
 		try {
@@ -191,6 +229,23 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 		if (e.cwd) s.cwd = e.cwd;
 		if (e.gitBranch) s.branch = e.gitBranch;
 		const at = e.timestamp ? Date.parse(e.timestamp) : updatedAt;
+		if (e.permissionMode) s.mode = e.permissionMode;
+		if (e.subtype === "stop_hook_summary") {
+			const h = (s.hooks ??= { runs: 0, errors: 0 });
+			h.runs++;
+			if (Array.isArray(e.hookErrors) && e.hookErrors.length) h.errors++;
+			const cmd = e.hookInfos?.find((x) => x?.command && x.command !== "callback")?.command;
+			if (cmd) h.last = basename((/^\s*(?:'([^']+)'|"([^"]+)"|(\S+))/.exec(cmd) ?? []).slice(1).find(Boolean) ?? cmd);
+		}
+		// a subagent is done once its result comes back
+		if (e.type === "user" && Array.isArray(e.message?.content) && running.size)
+			for (const x of e.message.content as { type?: string; tool_use_id?: string }[]) {
+				const a = x?.type === "tool_result" && x.tool_use_id ? running.get(x.tool_use_id) : undefined;
+				if (a) {
+					a.done = true;
+					running.delete(x.tool_use_id as string);
+				}
+			}
 		// An answer to a question call arrives as its tool result; a typed answer arrives as a user message.
 		if (optToolId && e.type === "user" && Array.isArray(e.message?.content) && (e.message.content as { type?: string; tool_use_id?: string }[]).some((x) => x?.type === "tool_result" && x.tool_use_id === optToolId)) {
 			if (optItem) delete optItem.options;
@@ -249,10 +304,19 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 					}
 				}
 				if (item.tools.length < 6) item.tools.push(s.doing);
+				if (c.name === "TodoWrite" || c.name.endsWith("update_plan")) s.plan = applyPlan(s.plan, c.name, c.input);
+				if ((c.name === "Agent" || c.name === "Task") && c.id) {
+					const a = { what: String(c.input?.description ?? "Subagent").slice(0, 80), kind: String(c.input?.subagent_type ?? "general-purpose"), at, done: false };
+					(s.agents ??= []).push(a);
+					running.set(String(c.id), a);
+				}
+				if (c.input?.run_in_background === true) (s.bg ??= []).push({ what: String(c.input?.description ?? c.input?.command ?? c.name).slice(0, 80), at });
 			}
 		}
 	}
 	if (!s.title && !s.said) return undefined;
+	if (s.agents) s.agents = s.agents.slice(-8);
+	if (s.bg) s.bg = s.bg.slice(-6);
 	s.awaiting = !!optItem;
 	s.feed = s.feed.filter((f) => f.text || f.tools.length).slice(-FEED_SIZE);
 	s.role = guessRole(s.title, s.edits.map((x) => x.file));
@@ -295,6 +359,11 @@ export function parseCodexSession(lines: string[], updatedAt: number): Session |
 		}
 		if (e.type === "response_item" && (p.type === "custom_tool_call" || p.type === "function_call")) {
 			s.doing = toolLabel(String(p.name ?? "tool"));
+			if (p.name === "update_plan") {
+				try {
+					s.plan = applyPlan(s.plan, "update_plan", typeof p.arguments === "string" ? JSON.parse(p.arguments) : (p.arguments as Record<string, unknown>));
+				} catch {}
+			}
 			const last = s.feed[s.feed.length - 1];
 			if (last?.who === "agent" && last.tools.length < 6) last.tools.push(s.doing);
 		}

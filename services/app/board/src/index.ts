@@ -11,7 +11,7 @@ import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../.
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
 import { GEIST, GEIST_MONO } from "./fonts.generated";
-import { addPending, applyHidden, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, readOrder, ROLES, setHidden, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
+import { addPending, applyHidden, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
 
@@ -116,7 +116,7 @@ export function sendToSession(s: Session, text: string, run = spawn, dirs: strin
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
-			: ["claude", ["-p", "--resume", s.id, "--permission-mode", "acceptEdits", ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d])]];
+			: ["claude", ["-p", "--resume", s.id, "--permission-mode", s.tune?.mode || "acceptEdits", ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d])]];
 	return new Promise((resolve, reject) => {
 		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);
@@ -538,14 +538,15 @@ export function createApp(
 	// The model and effort the board uses for messages it sends to a Claude Code agent. "" clears one.
 	app.post("/api/tune", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const { id, model, effort } = (await c.req.json().catch(() => ({}))) as { id?: string; model?: string; effort?: string };
+		const { id, model, effort, mode } = (await c.req.json().catch(() => ({}))) as { id?: string; model?: string; effort?: string; mode?: string };
 		const s = read().find((x) => x.id === id);
 		if (!s) return c.json({ error: "That session is gone." }, 404);
 		if (s.agent !== "claude") return c.json({ error: "Model and effort apply to Claude Code agents." }, 400);
-		if (model === undefined && effort === undefined) return c.json({ error: "Pick a model or an effort level." }, 400);
+		if (model === undefined && effort === undefined && mode === undefined) return c.json({ error: "Pick a model, an effort level or a mode." }, 400);
+		if (mode && !MODES.includes(mode)) return c.json({ error: "Pick Supervised, Auto-accept edits, Auto or Full access." }, 400);
 		if (model && !TUNE_MODELS.includes(model)) return c.json({ error: "Pick haiku, sonnet or opus." }, 400);
 		if (effort && !EFFORTS.includes(effort)) return c.json({ error: "Pick low, medium, high, xhigh or max." }, 400);
-		return c.json(setTune(s.id, { model, effort }));
+		return c.json(setTune(s.id, { model, effort, mode }));
 	});
 	app.post("/api/new", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
