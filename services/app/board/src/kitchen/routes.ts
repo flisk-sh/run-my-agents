@@ -65,6 +65,25 @@ export function failLine(text: string): string {
 	return line.slice(0, 300);
 }
 
+/** How many times the orchestrator answers one step's agent before the step moves on without it. */
+export const MAX_ANSWERS = 2;
+/** What the orchestrator says to an agent that stopped to ask the user. */
+export const ORCHESTRATOR_ANSWER =
+	"Yes, go ahead. This is the kitchen's orchestrator answering for the user: nobody else will reply. Make the most reasonable choice yourself, do it, and finish this step. Do not ask again.";
+
+/**
+ * Did the agent end its turn by asking instead of finishing? A question at the end ("Would you like me to proceed?",
+ * "Should I…", "Let me know"), with no verdict, no pull request link and no "finished" line.
+ */
+export function asksBack(text: string, t: Pick<Task, "stage" | "shipping">): boolean {
+	const tail = text.trim().slice(-400);
+	if (!tail) return false;
+	if ((t.stage === "test" || t.stage === "review") && !t.shipping && verdictIn(tail) !== undefined) return false;
+	if (t.shipping && /https:\/\/github\.com\/\S+\/pull\/\d+/.test(tail)) return false;
+	const last = tail.split("\n").map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
+	return /\?\s*\**\s*$/.test(last) || /\b(would you like|should i|shall i|do you want|want me to|let me know|awaiting (?:your )?(?:approval|confirmation)|please confirm|confirm (?:that|before)|approve the)\b/i.test(last);
+}
+
 /** The verdict a test or review agent gave: its last PASS or FAIL wins, so "FAIL … corrected verdict: PASS" passes. */
 export function verdictIn(text: string): boolean | undefined {
 	const all = [...text.matchAll(/\b(PASS|FAIL)\b/g)];
@@ -568,6 +587,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
 			if (!finished(t, s, now)) continue;
+			// The orchestrator answers an agent that stopped to ask (nobody else will), at most twice per step.
+			if (s && asksBack(handOff(s), t) && (t.answered ?? 0) < MAX_ANSWERS) {
+				const res = k.send(s, `#${t.n}: orchestrator's answer`, ORCHESTRATOR_ANSWER);
+				if (res.status < 400) {
+					updateTask(t.id, { answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
+					did.push(`#${t.n} answered ${t.stage} agent's question`);
+					continue;
+				}
+			}
 			// A test or review reply with no PASS or FAIL line counts as FAIL, so the order never waits forever.
 			const v = t.shipping ? true : t.stage === "test" || t.stage === "review" ? (verdictOf(s) ?? false) : true;
 			serve(t.id, v);

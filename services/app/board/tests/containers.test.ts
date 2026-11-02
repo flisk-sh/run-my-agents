@@ -708,3 +708,34 @@ describe("follow-up on failure", () => {
 		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))).toHaveLength(1);
 	});
 });
+
+describe("the orchestrator answers agents", () => {
+	it("spots an agent that stopped to ask, and not one that finished", async () => {
+		const { asksBack } = await import("../src/kitchen/routes");
+		const build = { stage: "build" as const };
+		expect(asksBack("I'll ship order #12.\n\nWould you like me to proceed with creating the branch and shipping order #12?", build)).toBe(true);
+		expect(asksBack("Changed src/a.ts. Should I also update the docs", build)).toBe(true);
+		expect(asksBack("Done. Changed src/a.ts; run bun test to check.", build)).toBe(false);
+		expect(asksBack("Is this right?\n\n**PASS** — all checks hold.", { stage: "test" })).toBe(false);
+		expect(asksBack("Opened https://github.com/a/b/pull/7. Anything else?", { stage: "review", shipping: true })).toBe(false);
+	});
+
+	it("answers a waiting agent for the user, twice at most, then moves the step on", async () => {
+		const agent = { ...session("ask1", "Build"), updatedAt: Date.now() - 20_000, feed: [{ who: "you", text: "Order #1", at: 1 } as never, { who: "agent", text: "Would you like me to proceed?", at: 2 } as never] };
+		const { post, sent } = setup([agent]);
+		const due = () => {
+			const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+			writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ ...t, sentAt: Date.now() - 60_000 }]));
+		};
+		order({ kind: "task", stage: "build", assignee: "ask1", sentAt: Date.now() - 60_000, cwd: "/repo" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 answered build agent's question");
+		expect(sent.at(-1)).toContain("This is the kitchen's orchestrator answering for the user");
+		due();
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 answered build agent's question");
+		due();
+		const did = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(did).toContain("#1 build done");
+		expect(sent.filter((m) => m.includes("orchestrator answering"))).toHaveLength(2);
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "test", answered: 0 });
+	});
+});

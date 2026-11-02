@@ -60,6 +60,8 @@ export type Task = {
 	worktree?: string;
 	/** Why its test or review said FAIL, one line per round, so a follow-up can learn from it. */
 	failures?: string[];
+	/** How many times the orchestrator answered a question from this step's agent (reset each step). */
+	answered?: number;
 	/** This order is the follow-up of failed order #retryOf. */
 	retryOf?: number;
 	/** The failed order was followed up as #followUp. */
@@ -106,12 +108,12 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp" | "answered">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
 	const now = Date.now();
-	if (patch.stage && patch.stage !== t.stage) patch = { ...patch, stageAt: now };
+	if (patch.stage && patch.stage !== t.stage) patch = { ...patch, stageAt: now, answered: 0 };
 	Object.assign(t, patch, { updated: now });
 	write(all);
 	return t;
