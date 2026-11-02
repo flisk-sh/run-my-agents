@@ -355,6 +355,75 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 /** Changes whenever the page changes, so an open page knows to reload itself (hot reload under `bun run dev`). */
 const BUILD = Bun.hash(PAGE).toString(36);
 
+/** The http(s) links in a transcript's messages, newest first, each once. Tool calls and their output are left out. */
+export function chatLinks(file: string): { url: string; host: string; who: "you" | "agent"; at?: string }[] {
+	let raw = "";
+	try {
+		raw = readFileSync(file, "utf8");
+	} catch {
+		return [];
+	}
+	const seen = new Map<string, { url: string; host: string; who: "you" | "agent"; at?: string }>();
+	for (const line of raw.split("\n")) {
+		if (!line.includes("http")) continue;
+		let j: { type?: string; timestamp?: string; message?: { role?: string; content?: unknown } };
+		try {
+			j = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		const role = j.message?.role ?? j.type;
+		if (role !== "user" && role !== "assistant") continue;
+		const content = j.message?.content;
+		const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === "text").map((b) => String(b.text ?? "")) : [];
+		for (const t of texts)
+			for (const m of t.matchAll(/https?:\/\/[^\s<>"'`)\]}|]+/g)) {
+				const url = m[0].replace(/[.,;:!?*_]+$/, "");
+				let host = "";
+				try {
+					host = new URL(url).host;
+				} catch {
+					continue;
+				}
+				seen.delete(url);
+				seen.set(url, { url, host, who: role === "user" ? "you" : "agent", at: j.timestamp });
+			}
+	}
+	return [...seen.values()].reverse().slice(0, 60);
+}
+
+const previewCache = new Map<string, { at: number; card: LinkCard }>();
+type LinkCard = { url: string; title?: string; description?: string; image?: string; site?: string; error?: string };
+/** Reads a page's title, description and image from its meta tags. Cached for 10 minutes; gives up after 6 seconds. */
+export async function linkPreview(url: string, get: typeof fetch = fetch): Promise<LinkCard> {
+	const hit = previewCache.get(url);
+	if (hit && Date.now() - hit.at < 600_000) return hit.card;
+	let card: LinkCard;
+	try {
+		const r = await get(url, { redirect: "follow", signal: AbortSignal.timeout(6000), headers: { "user-agent": "Mozilla/5.0 (run-my-agents link preview)", accept: "text/html" } });
+		const html = (await r.text()).slice(0, 400_000);
+		const meta = (k: string) => {
+			const re = new RegExp(`<meta[^>]+(?:property|name)=["']${k}["'][^>]*>`, "i");
+			const tag = html.match(re)?.[0];
+			return tag?.match(/content=["']([^"']*)["']/i)?.[1];
+		};
+		const un = (x?: string) => x?.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim() || undefined;
+		let image = un(meta("og:image") ?? meta("twitter:image"));
+		if (image) image = new URL(image, r.url || url).href;
+		card = {
+			url,
+			title: un(meta("og:title") ?? meta("twitter:title") ?? html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]),
+			description: un(meta("og:description") ?? meta("twitter:description") ?? meta("description"))?.slice(0, 300),
+			image,
+			site: un(meta("og:site_name")) ?? new URL(url).host,
+		};
+	} catch {
+		card = { url, site: new URL(url).host, error: "Could not load this page." };
+	}
+	previewCache.set(url, { at: Date.now(), card });
+	return card;
+}
+
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
@@ -594,6 +663,18 @@ export function createApp(
 		const s = read().find((x) => x.id === c.req.query("id"));
 		if (!s) return c.json({ error: "That session is gone." }, 404);
 		return c.json({ branch: s.branch, prs: mergePrs(s.prs ?? [], await prsFor(s)) });
+	});
+	// The web links said in a session's chat (yours and the agent's messages, not tool output), newest first.
+	app.get("/api/links", (c) => {
+		const s = read().find((x) => x.id === c.req.query("id"));
+		if (!s) return c.json({ error: "That session is gone." }, 404);
+		return c.json({ links: s.file ? chatLinks(s.file) : [] });
+	});
+	// A small card for a link: the page's title, description and image, read from its meta tags.
+	app.get("/api/preview", async (c) => {
+		const url = c.req.query("url") ?? "";
+		if (!/^https?:\/\//i.test(url)) return c.json({ error: "Only web links have a preview." }, 400);
+		return c.json(await linkPreview(url, deps.fetch ?? fetch));
 	});
 	// Close: hides a session from the list (it stays under Closed). Nothing is deleted.
 	app.post("/api/hide", async (c) => {

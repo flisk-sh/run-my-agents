@@ -1393,6 +1393,41 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 		expect(PAGE).toContain("e.stopImmediatePropagation()");
 	});
 
+	it("lists the links said in a chat and previews each one", async () => {
+		const { chatLinks, linkPreview } = await import("../src/index");
+		const { mkdtempSync, writeFileSync } = await import("node:fs");
+		const { join } = await import("node:path");
+		const { tmpdir } = await import("node:os");
+		const dir = mkdtempSync(join(tmpdir(), "links-"));
+		const file = join(dir, "t.jsonl");
+		const line = (o: object) => JSON.stringify(o);
+		writeFileSync(
+			file,
+			[
+				line({ type: "user", message: { role: "user", content: "see https://github.com/flisk-sh/run-my-agents." } }),
+				line({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Opened (https://flisk.sh/docs) and https://github.com/flisk-sh/run-my-agents" }, { type: "tool_use", input: { url: "https://tool.example" } }] } }),
+				line({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "https://output.example" }] } }),
+			].join("\n"),
+		);
+		const links = chatLinks(file);
+		expect(links.map((l) => l.url)).toEqual(["https://github.com/flisk-sh/run-my-agents", "https://flisk.sh/docs"]);
+		expect(links[0]).toMatchObject({ host: "github.com", who: "agent" });
+		expect(chatLinks(join(dir, "missing.jsonl"))).toEqual([]);
+		const html = '<html><head><title>Fallback</title><meta property="og:title" content="Run my agents &amp; more"><meta name="description" content="A board"><meta property="og:image" content="/card.png"></head></html>';
+		const fake = (async () => new Response(html, { headers: { "content-type": "text/html" } })) as unknown as typeof fetch;
+		expect(await linkPreview("https://preview.example/a", fake)).toMatchObject({ title: "Run my agents & more", description: "A board", image: "https://preview.example/card.png", site: "preview.example" });
+		const broken = (async () => {
+			throw new Error("down");
+		}) as unknown as typeof fetch;
+		expect((await linkPreview("https://down.example/", broken)).error).toBeTruthy();
+		const app = createApp(() => [{ id: "ln1", cwd: "/repo", agent: "claude", file } as never], undefined, { fetch: fake });
+		expect((await (await app.request("/api/links?id=ln1")).json()).links).toHaveLength(2);
+		expect((await app.request("/api/links?id=nope")).status).toBe(404);
+		expect((await app.request("/api/preview?url=file:///etc/passwd")).status).toBe(400);
+		const { PAGE } = await import("../src/page");
+		for (const part of ["data-links=", "function showLinks(", "function showPv(", 'fetch("api/links?id="', 'fetch("api/preview?url="', ".lnpv{"]) expect(PAGE).toContain(part);
+	});
+
 	it("lists pull requests when you hover the branch", async () => {
 		const { PAGE } = await import("../src/page");
 		for (const part of ["data-prs=", "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class="prn"']) expect(PAGE).toContain(part);
