@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/index";
 import { parseSession, type Session } from "../src/sessions";
-import { beltOrder, MAX_ROUNDS, nextStage, sendBack, type Task } from "../src/tasks";
+import { beltOrder, bowl, MAX_ROUNDS, nextStage, scoreboard, sendBack, type Task } from "../src/tasks";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
 const line = (o: object) => JSON.stringify(o);
@@ -72,6 +72,7 @@ describe("orders", () => {
 		await post("/api/tasks/move", { id: t.id, approved: true, stage: "build" });
 		const b = await post("/api/tasks/dispatch", { id: t.id });
 		expect(b.body).toMatchObject({ stage: "build", assignee: "c" });
+		expect(b.body.crew).toMatchObject({ spec: { id: "p", role: "Planner" }, build: { id: "c", role: "Code" } });
 	});
 
 	it("says when no agent fits, and waits for skills still installing", async () => {
@@ -107,5 +108,33 @@ describe("order rules", () => {
 	});
 	it("marks an order stuck after MAX_ROUNDS fails", () => {
 		expect(sendBack({ ...base, rounds: MAX_ROUNDS - 1 })).toEqual({ stage: "test", rounds: MAX_ROUNDS, stuck: true });
+	});
+});
+
+describe("scoreboard", () => {
+	const cook = (id: string) => ({ id, role: id === "a" ? "Planner" : "Code", name: id.toUpperCase() });
+	const served = (n: number, rounds: number, crew: string[], extra: Partial<Task> = {}): Task => ({
+		id: `t${n}`, n, title: `order ${n}`, cwd: "", priority: "P1", stage: "done", assignee: "", sentAt: 0, approved: true,
+		skills: ["tdd"], route: "Code", rounds, stuck: false, created: n, updated: n, servedAt: n,
+		crew: { spec: cook(crew[0]), build: cook(crew[1] ?? crew[0]) }, ...extra,
+	});
+	it("scores a perfect game as 300", () => {
+		const game = Array.from({ length: 10 }, (_, i) => served(i + 1, 0, ["a"]));
+		expect(bowl(game).at(-1)?.total).toBe(300);
+	});
+	it("adds bonus pins for strikes and spares, nothing for a gutter", () => {
+		const f = bowl([served(1, 0, ["a"]), served(2, 1, ["a"]), served(3, 2, ["a"]), served(4, 3, ["a"], { stuck: true })]);
+		expect(f.map((x) => x.mark)).toEqual(["X", "/", "4", "-"]);
+		// X: 10 + 10 + 4 = 24; /: 10 + 4 = 14; 4; gutter 0
+		expect(f.map((x) => x.total)).toEqual([24, 38, 42, 42]);
+	});
+	it("ranks agents, pairs and skills from served orders only", () => {
+		const open = { ...served(9, 0, ["a", "b"]), stage: "build" as const };
+		const sb = scoreboard([served(1, 0, ["a", "b"]), served(2, 1, ["b"]), open]);
+		expect(sb.served).toBe(2);
+		expect(sb.agents.map((r) => r.label)).toEqual(["B", "A"]);
+		expect(sb.pairs).toHaveLength(1);
+		expect(sb.pairs[0]).toMatchObject({ label: "A + B", served: 1, score: 10 });
+		expect(sb.skills[0]).toMatchObject({ key: "tdd", served: 2 });
 	});
 });

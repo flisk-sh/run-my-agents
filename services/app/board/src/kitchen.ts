@@ -52,6 +52,20 @@ export const KITCHEN_CSS = String.raw`
 .idle{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted)}
 .kgame{border-radius:var(--r-panel);overflow:hidden;box-shadow:0 0 0 1px var(--line)}.kgame canvas{display:block;width:100%;height:auto}
 .khud{display:flex;justify-content:space-between;font:600 18px var(--mono)}.khud span{background:#15151f;border-radius:var(--r-row);padding:4px 12px}
+/* Scores: bowling sheets ranking agents, pairs and skills by served orders */
+.sctabs{display:flex;gap:4px}.sctab{background:#15151f;color:var(--muted);border:0;border-radius:var(--r-row);padding:5px 12px;font:600 12px var(--body);cursor:pointer}.sctab.on{background:#26263a;color:var(--text);box-shadow:inset 0 -2px 0 #fbbf24}
+.sheet{display:grid;gap:6px;overflow-x:auto;align-content:start;grid-auto-rows:min-content;flex:none}
+.srow{display:grid;grid-template-columns:34px minmax(110px,1.4fr) repeat(10,minmax(30px,1fr)) 54px;gap:3px;align-items:stretch;min-width:560px;height:44px}.srow.head{height:auto}
+.srow.head{font:600 10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.srow.head>*{padding:0 4px;text-align:center}.srow.head>:nth-child(2){text-align:left}
+.srank{display:grid;place-items:center;font:800 15px var(--mono);border-radius:var(--r-row);background:#15151f}
+.srow:nth-child(2) .srank{background:linear-gradient(#fde68a,#f59e0b);color:#3b2400}.srow:nth-child(3) .srank{background:linear-gradient(#e5e7eb,#9ca3af);color:#111}.srow:nth-child(4) .srank{background:linear-gradient(#fdba74,#c2410c);color:#2a1000}
+.swho{background:#15151f;border-radius:var(--r-row);padding:4px 8px;min-width:0}.swho small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.swho b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}.swho small{color:var(--muted);font:10px var(--mono)}
+.sfr{background:#f6f1e7;color:#22180e;border-radius:4px;display:grid;grid-template-rows:18px 22px;overflow:hidden}
+.sfr .mk{justify-self:end;width:18px;height:18px;display:grid;place-items:center;font:800 12px var(--mono);border-left:1.5px solid #cdbb9c;border-bottom:1.5px solid #cdbb9c}
+.sfr .mk.X{background:#16a34a;color:#fff}.sfr .mk.s{background:#f59e0b;color:#22180e}.sfr .mk.g{background:#ef4444;color:#fff}
+.sfr .tt{display:grid;place-items:center;font:700 13px var(--mono)}.sfr.empty{background:#1a1a24}
+.stot{display:grid;place-items:center;border-radius:var(--r-row);background:#26263a;font:800 18px var(--mono);color:#fbbf24}
+.slegend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}.slegend b{font:800 11px var(--mono);border-radius:3px;padding:0 5px;color:#fff}
 /* Lanes */
 .lanes{display:grid;grid-template-columns:repeat(6,minmax(140px,1fr));gap:8px;overflow-x:auto}
 .lane{background:#12121a;border-radius:var(--r-row);padding:8px;display:flex;flex-direction:column;gap:6px;min-height:220px;box-shadow:inset 0 0 0 1px var(--line)}
@@ -66,7 +80,8 @@ export const KITCHEN_CSS = String.raw`
 export const KITCHEN_HTML = String.raw`<div class="ktabs" id="ktabs"></div><div id="kview" hidden></div>`;
 
 export const KITCHEN_JS = String.raw`
-const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lanes"]];
+const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lanes"],["scores","Scores"]];
+let SC=null,scBy=(()=>{try{return localStorage.getItem("rma-scby")||"agents"}catch(e){return"agents"}})();
 let ktab=(()=>{try{return localStorage.getItem("rma-ktab")||"chat"}catch(e){return"chat"}})();
 let kpri="P1",KD={stages:[],roles:{},tasks:[]},kauto=(()=>{try{return localStorage.getItem("rma-kauto")==="1"}catch(e){return false}})(),kdrag="",kbusy=false;
 const STN={inbox:"Inbox",spec:"Spec",build:"Build",test:"Test",review:"Review",done:"Served"};
@@ -205,9 +220,16 @@ document.addEventListener("click",e=>{const cv=e.target.closest&&e.target.closes
  if(h.act==="approve"){post("api/tasks/move",{id:h.id,approved:true,stage:"build"}).then(()=>{setPass(h.id,false);toast("Approved: it crosses the pass");kLoad()})}
  else{sel=h.id;try{localStorage.setItem("rma-sel",sel);localStorage.setItem("rma-ktab","chat")}catch(_){}ktab="chat";last="";kDraw();render()}});
 document.addEventListener("mousemove",e=>{const cv=e.target.closest&&e.target.closest("#kcv");if(!cv)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*1000/r.width,y=(e.clientY-r.top)*580/r.height;cv.style.cursor=KG.hits.some(h=>Math.hypot(h.x-x,h.y-y)<h.r)?"pointer":"default"});
-function kDraw(){kTabs();if(ktab==="chat")return;const v=$("kview");if(ktab==="kitchen"&&$("kcv")){const f=$("kform");if(f&&!f.contains(document.activeElement))f.outerHTML=kAdd();kStart();return}if(v.contains(document.activeElement)&&document.activeElement.id==="ktitle"){const keep=$("ktitle").value;v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():kLanes();const i=$("ktitle");i.value=keep;i.focus();return}
- v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():kLanes();kStart()}
-async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();kDraw();if(kauto)kTick()}catch(e){}}
+function kScores(){if(!SC)return '<p class="knote">Loading scores…</p>';
+ const tabs='<div class="kbar"><div class="sctabs">'+[["agents","Agents"],["pairs","Pairs"],["skills","Skills"]].map(([k,l])=>'<button class="sctab'+(scBy===k?" on":"")+'" data-scby="'+k+'">'+l+" <i>"+SC[k].length+"</i></button>").join("")+'</div><span class="kstats"><span>served <b>'+SC.served+"</b></span></span></div>";
+ const rows=SC[scBy];if(!rows.length)return tabs+'<p class="knote">No served orders yet. Only orders that reach Served are scored: an order served with no FAIL is a strike.</p>';
+ const fr=f=>{if(!f)return '<div class="sfr empty"></div>';const c=f.mark==="X"?"X":f.mark==="/"?"s":f.mark==="-"?"g":"";return '<div class="sfr" title="#'+f.n+" "+esc(f.title)+'"><span class="mk '+c+'">'+f.mark+'</span><span class="tt">'+f.total+"</span></div>"};
+ return tabs+'<div class="sheet"><div class="srow head"><span>#</span><span>'+(scBy==="agents"?"Agent":scBy==="pairs"?"Pair":"Skill")+"</span>"+[1,2,3,4,5,6,7,8,9,10].map(i=>"<span>"+i+"</span>").join("")+"<span>Score</span></div>"+rows.map((r,i)=>'<div class="srow"><span class="srank">'+(i+1)+'</span><div class="swho"><b title="'+esc(r.label)+'">'+esc(r.label)+"</b><small>"+esc(r.sub)+" · "+r.strikes+"X "+r.spares+"/ · "+r.served+" served</small></div>"+Array.from({length:10},(_,j)=>fr(r.frames[j])).join("")+'<span class="stot">'+r.score+"</span></div>").join("")+'</div><div class="slegend"><span><b style="background:#16a34a">X</b> strike: served with no FAIL, 10 + next two frames</span><span><b style="background:#f59e0b;color:#22180e">/</b> spare: one FAIL, 10 + next frame</span><span><b style="background:#64748b">4</b> two FAILs</span><span><b style="background:#ef4444">-</b> gutter: served while stuck</span><span>Last 10 served orders make a game. 300 is perfect.</span></div>'}
+async function kScoreLoad(){try{SC=await (await fetch("api/scores")).json();if(ktab==="scores")kDraw()}catch(e){}}
+document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("[data-scby]");if(!b)return;scBy=b.dataset.scby;try{localStorage.setItem("rma-scby",scBy)}catch(_){}kDraw()});
+function kDraw(){kTabs();if(ktab==="chat")return;const v=$("kview");if(ktab==="kitchen"&&$("kcv")){const f=$("kform");if(f&&!f.contains(document.activeElement))f.outerHTML=kAdd();kStart();return}if(v.contains(document.activeElement)&&document.activeElement.id==="ktitle"){const keep=$("ktitle").value;v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():kLanes();const i=$("ktitle");i.value=keep;i.focus();return}
+ v.innerHTML=ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():kLanes();kStart()}
+async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();if(ktab==="scores")await kScoreLoad();kDraw();if(kauto)kTick()}catch(e){}}
 /* Remembered per order on this computer: a spec the agent finished, waiting at the pass. */
 function markPass(){let m={};try{m=JSON.parse(localStorage.getItem("rma-kpass")||"{}")}catch(e){}for(const t of KD.tasks)t._atPass=t.stage==="spec"&&!t.approved&&!t.assignee&&!!m[t.id]}
 function setPass(id,on){let m={};try{m=JSON.parse(localStorage.getItem("rma-kpass")||"{}")}catch(e){}if(on)m[id]=1;else delete m[id];try{localStorage.setItem("rma-kpass",JSON.stringify(m))}catch(e){}}
@@ -222,7 +244,7 @@ async function kTick(){if(kbusy)return;kbusy=true;try{
  if(next){const r=await post("api/tasks/dispatch",{id:next.id});if(!r.error){toast("#"+next.n+" dispatched");kLoad()}}
  }finally{kbusy=false}}
 document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
- if(d.ktab){ktab=d.ktab;try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}
+ if(d.ktab){ktab=d.ktab;if(ktab==="scores")kScoreLoad();try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}
  if(d.kgo)return kGo(d.kgo);
  if(d.kserve){const t=find(d.kserve);if(t)return kServe(t,true)}
  if(d.kfail){const t=find(d.kfail);if(t)return kServe(t,false)}

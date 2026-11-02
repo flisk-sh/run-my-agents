@@ -14,7 +14,7 @@ import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import SKILLS from "./skills.json";
-import { addTask, beltOrder, sendBack, installSkill, nextStage, PRIORITIES, readTasks, removeTask, STAGE_ROLES, STAGES, type Stage, skillState, updateTask } from "./tasks";
+import { addTask, beltOrder, scoreboard, sendBack, installSkill, nextStage, PRIORITIES, readTasks, removeTask, STAGE_ROLES, STAGES, type Stage, skillState, updateTask } from "./tasks";
 
 /** The avatar for a session: always its role's own face and color (Code is blue, Design purple, ...). */
 export function faceOf(s: Session) {
@@ -695,6 +695,7 @@ export function createApp(
 			if (k) void installSkill(k, deps.fetch);
 		}
 	};
+	app.get("/api/scores", (c) => c.json(scoreboard(readTasks())));
 	app.get("/api/tasks", (c) =>
 		c.json({
 			stages: STAGES,
@@ -765,7 +766,8 @@ export function createApp(
 		const body = `Order #${t.n} (${t.stage}): ${t.title}${skillLine}\n\n${t.stage === "test" || t.stage === "review" ? "End with one line: PASS or FAIL and why." : `When this ${t.stage} step is finished, say so in one line.`}`;
 		const res = sendNow(s, { qid: randomUUID(), text: `#${t.n} ${t.stage}: ${t.title}`, body, dirs: [] });
 		if (res.status >= 400) return res;
-		return c.json(updateTask(t.id, { assignee: s.id, sentAt: Date.now() }), 202);
+		const crew = { ...(t.crew ?? {}), [t.stage]: { id: s.id, role: s.role, name: s.title || s.role } };
+		return c.json(updateTask(t.id, { assignee: s.id, sentAt: Date.now(), crew }), 202);
 	});
 	// The agent said it is done: the order moves on, and waits at the pass when it leaves Discovery.
 	app.post("/api/tasks/serve", async (c) => {
@@ -774,7 +776,8 @@ export function createApp(
 		const t = readTasks().find((x) => x.id === id);
 		if (!t) return c.json({ error: "That order is gone." }, 404);
 		if (pass === false && (t.stage === "test" || t.stage === "review")) return c.json(updateTask(t.id, { ...sendBack(t), assignee: "", sentAt: 0 }));
-		return c.json(updateTask(t.id, { stage: nextStage(t), assignee: "", sentAt: 0, stuck: false }));
+		const to = nextStage(t);
+		return c.json(updateTask(t.id, { stage: to, assignee: "", sentAt: 0, stuck: false, ...(to === "done" ? { servedAt: Date.now() } : {}) }));
 	});
 	app.get("/", (c) => c.html(PAGE));
 	return app;
