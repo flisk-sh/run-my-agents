@@ -787,6 +787,22 @@ describe("dispatch to agents in a worktree", () => {
 		const { sameRepo } = await import("../src/kitchen/routes");
 		expect(sameRepo("/repo/.git/kitchen/order-3", "/repo")).toBe(true);
 		expect(sameRepo("/repo2", "/repo")).toBe(false);
+		// An order filed from a subfolder goes to the repo's agents, wherever their last worktree left them.
+		expect(sameRepo("/repo/.kitchen/order-25/services/app/board", "/repo/services/app/board/src/kitchen")).toBe(true);
+		expect(sameRepo("/repo", "/repo/services/app")).toBe(true);
+		expect(sameRepo("/repo2/.kitchen/order-1", "/repo/sub")).toBe(false);
+		expect(sameRepo("/repo/sub", "/repo")).toBe(false);
+	});
+
+	it("sends an order filed from a subfolder to a ready pod of that repo", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		sessions.push({ ...session(started[0].id as string, "Build"), cwd: "/repo/.kitchen/order-25/services/app/board", updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
+		order({ n: 12, stage: "build", cwd: "/repo/services/app/board/src/kitchen", kind: "task" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#12 sent");
 	});
 });
 

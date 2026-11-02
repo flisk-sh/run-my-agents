@@ -211,12 +211,19 @@ export function worktreeChanged(wt: string, base?: string): boolean {
 	}
 }
 
+/** The folder an order worktree (<repo>/.kitchen/order-<n>, or .git/kitchen before it moved) stands for: its repo. */
+const homeOf = (p: string) => p.replace(/\/(?:\.kitchen|\.git\/kitchen)\/order-\d+(?:\/.*)?$/, "");
 /**
- * An agent works in a repo when its chat is in the repo folder or in one of the repo's order worktrees
- * (<repo>/.kitchen/order-<n>, or .git/kitchen before it moved): agents start each order's chat inside its worktree, so after their first order
- * their folder is a worktree, and a plain equality check called every one of them busy elsewhere.
+ * An agent works in a repo when its chat is in the repo folder or in one of the repo's order worktrees: agents start
+ * each order's chat inside its worktree, so after their first order their folder is a worktree, and a plain equality
+ * check called every one of them busy elsewhere. An order filed from a subfolder of the repo
+ * (<repo>/services/app/board/src/kitchen) is the same repo too: order #12 waited with three ready Build agents.
  */
-export const sameRepo = (agentCwd: string | undefined, repo: string) => !!agentCwd && (agentCwd === repo || agentCwd.startsWith(`${repo}/.kitchen/`) || agentCwd.startsWith(`${repo}/.git/kitchen/`));
+export const sameRepo = (agentCwd: string | undefined, repo: string) => {
+	if (!agentCwd) return false;
+	const [a, r] = [homeOf(agentCwd), homeOf(repo)];
+	return a === r || r.startsWith(`${a}/`);
+};
 
 /** Where the Run My Agents board's own code lives, for orders about the board itself. */
 export const BOARD_ROOT = resolvePath(import.meta.dir, "../../../../..");
