@@ -283,6 +283,30 @@ describe("send", () => {
 		expect(boardMode({ mode: "bypassPermissions", tune: { mode: "default" } })).toBe("default");
 	});
 
+	it("reads Grok CLI sessions", async () => {
+		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { readGrokSessions } = await import("../src/sessions");
+		const root = mkdtempSync(`${tmpdir()}/rma-grok-`);
+		const dir = `${root}/%2Frepo/01a0d892-323a-78c2-b0c6-7f654f5657af`;
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(`${dir}/summary.json`, JSON.stringify({ info: { id: "01a0d892-323a-78c2-b0c6-7f654f5657af", cwd: "/repo" }, session_summary: "Raise the manifest limit", updated_at: new Date().toISOString(), current_model_id: "grok-4.5" }));
+		writeFileSync(`${dir}/usage.json`, JSON.stringify({ session: { inputTokens: 1000, cachedReadTokens: 600, outputTokens: 50 } }));
+		writeFileSync(`${dir}/chat_history.jsonl`, [
+			{ type: "system", content: "You are Grok" },
+			{ type: "user", content: [{ type: "text", text: "<user_info>x</user_info>" }] },
+			{ type: "user", content: [{ type: "text", text: "<user_query>\nmake max 110\n</user_query>" }] },
+			{ type: "assistant", content: "", tool_calls: [{ name: "run_terminal_command", arguments: JSON.stringify({ command: "rg max" }) }, { name: "edit_file", arguments: JSON.stringify({ target_file: "/repo/a.star" }) }] },
+			{ type: "assistant", content: "Raised it to 110." },
+		].map((x) => JSON.stringify(x)).join("\n"));
+		const [s] = readGrokSessions(root);
+		expect([s.agent, s.title, s.model, s.cwd, s.said]).toEqual(["grok", "Raise the manifest limit", "grok-4.5", "/repo", "Raised it to 110."]);
+		expect(s.tokens).toEqual({ used: 450, cached: 600 });
+		expect(s.feed.map((f) => f.who)).toEqual(["you", "agent"]);
+		expect(s.feed[1].calls?.map((c) => c.detail)).toEqual(["rg max", "/repo/a.star"]);
+		expect(s.edits.map((e) => e.file)).toEqual(["/repo/a.star"]);
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

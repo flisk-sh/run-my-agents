@@ -417,6 +417,7 @@ export function createApp(
 		if (message.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
 		const s = read().find((x) => x.id === id);
 		if (!s) return c.json({ error: "That session is gone." }, 404);
+		if (s.agent === "grok") return c.json({ error: "The board shows Grok sessions but cannot message them yet. Reply in Grok." }, 400);
 		// Only files this board saved for this session can be attached, however the request names them.
 		const dir = join(dataDir(), "uploads", s.id);
 		const attached = (Array.isArray(files) ? files : []).slice(0, 10).map(String).filter((f) => {
@@ -458,7 +459,7 @@ export function createApp(
 		const have = which();
 		const sessions = read();
 		const latest = sessions[0]?.agent;
-		const defaultAgent = latest && have[latest] ? latest : have.claude ? "claude" : have.codex ? "codex" : "claude";
+		const defaultAgent = latest && latest !== "grok" && have[latest] ? latest : have.claude ? "claude" : have.codex ? "codex" : "claude";
 		return c.json({
 			agents: have,
 			defaultAgent,
@@ -544,6 +545,7 @@ export function createApp(
 		const s = read().find((x) => x.id === id);
 		if (!s) return c.json({ error: "That session is gone." }, 404);
 		if (s.viaApp === true) return c.json({ error: "This session is in the Claude app. Delete it there." }, 400);
+		if (s.agent === "grok") return c.json({ error: "Delete Grok sessions in Grok." }, 400);
 		if (Date.now() - s.updatedAt < 60_000) return c.json({ error: `${s.role} is working right now. Try again in a minute.` }, 409);
 		const base = resolve(s.agent === "codex" ? process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions") : process.env.CLAUDE_PROJECTS_DIR || join(homedir(), ".claude", "projects"));
 		const file = s.file ? resolve(s.file) : "";

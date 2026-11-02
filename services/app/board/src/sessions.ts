@@ -20,7 +20,7 @@ export interface Tokens {
 export interface Session {
 	id: string;
 	/** Which coding agent wrote the session. */
-	agent: "claude" | "codex";
+	agent: "claude" | "codex" | "grok";
 	/** The model of the last reply, like claude-opus-5-5 or gpt-6. */
 	model: string;
 	tokens: Tokens;
@@ -219,7 +219,7 @@ export function applyPlan(plan: Step[] | undefined, name: string, input: Record<
 export function callDetail(name: string, input?: Record<string, unknown>): { what?: string; detail: string } {
 	const str = (v: unknown) => (typeof v === "string" ? v : "");
 	const cut = (v: string, n: number) => (v.length > n ? `${v.slice(0, n)}…` : v);
-	if (name === "Bash" || name === "shell" || name === "exec_command") {
+	if (name === "Bash" || name === "shell" || name === "exec_command" || name === "run_terminal_command") {
 		const cmd = Array.isArray(input?.command) ? (input.command as unknown[]).map(String).join(" ") : str(input?.command ?? input?.cmd);
 		return { what: str(input?.description) || undefined, detail: cut(cmd, 800) };
 	}
@@ -509,6 +509,110 @@ export function readSessions(
  * Every agent's sessions on this computer, newest first: Claude Code sessions with the names, pins and archive
  * state from the Claude desktop app (pinned ones show whatever their age), plus Codex sessions.
  */
+/**
+ * One Grok CLI session (~/.grok/sessions/<folder>/<id>/) to a Session: summary.json names it, chat_history.jsonl
+ * holds your messages (inside <user_query>), the replies and their tool calls, usage.json the tokens.
+ */
+export function parseGrokSession(dir: string, updatedAt: number): Session | undefined {
+	const read = (f: string) => {
+		try {
+			return readFileSync(join(dir, f), "utf8");
+		} catch {
+			return "";
+		}
+	};
+	let sum: { info?: { id?: string; cwd?: string }; session_summary?: string; updated_at?: string; current_model_id?: string } = {};
+	try {
+		sum = JSON.parse(read("summary.json"));
+	} catch {}
+	const id = String(sum.info?.id ?? basename(dir));
+	if (!SESSION_ID.test(id)) return undefined;
+	const s: Session = { id, agent: "grok", model: String(sum.current_model_id ?? ""), tokens: { used: 0, cached: 0 }, cwd: String(sum.info?.cwd ?? ""), branch: "", title: String(sum.session_summary ?? "").slice(0, 120), said: "", doing: "", edits: [], updatedAt: sum.updated_at ? Date.parse(sum.updated_at) || updatedAt : updatedAt, role: "Code", pinned: false, feed: [] };
+	try {
+		const u = JSON.parse(read("usage.json")).session ?? {};
+		s.tokens = { used: (u.inputTokens ?? 0) - (u.cachedReadTokens ?? 0) + (u.outputTokens ?? 0), cached: u.cachedReadTokens ?? 0 };
+	} catch {}
+	let at = s.updatedAt;
+	for (const line of read("chat_history.jsonl").split("\n")) {
+		let e: { type?: string; content?: unknown; tool_calls?: { name?: string; arguments?: string }[] };
+		try {
+			e = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (e.type === "user") {
+			const q = /<user_query>\s*([\s\S]*?)\s*<\/user_query>/.exec(textOf(e.content));
+			if (!q) continue;
+			if (!s.title) s.title = q[1].replace(/\s+/g, " ").slice(0, 120);
+			s.feed.push({ at, who: "you", text: q[1].slice(0, 2000), tools: [] });
+			s.asked = at;
+		}
+		if (e.type === "assistant") {
+			const text = typeof e.content === "string" ? e.content : textOf(e.content);
+			const last = s.feed[s.feed.length - 1];
+			const item = last?.who === "agent" ? last : { at, t0: at, who: "agent" as const, text: "", tools: [] as string[] };
+			if (item !== last) s.feed.push(item);
+			if (text.trim()) {
+				item.text = item.text ? `${item.text}\n\n${text.trim()}`.slice(-8000) : text.trim().slice(0, 8000);
+				s.said = text.replace(/\s+/g, " ").slice(0, 160);
+			}
+			for (const c of e.tool_calls ?? []) {
+				let args: Record<string, unknown> = {};
+				try {
+					args = JSON.parse(c.arguments ?? "{}");
+				} catch {}
+				const name = String(c.name ?? "tool");
+				const file = String(args.target_file ?? args.file_path ?? "");
+				s.doing = file ? `${name} ${basename(file)}` : name;
+				if (file && /edit|write|replace/i.test(name)) s.edits.push({ file, at });
+				if (name === "todo_write") s.plan = applyPlan(s.plan, name, args);
+				if (item.tools.length < 6) item.tools.push(s.doing);
+				if ((item.calls ??= []).length < 40) item.calls.push({ label: s.doing, ...callDetail(name, { ...args, command: args.command ?? args.cmd, file_path: file || undefined }) });
+			}
+		}
+	}
+	if (!s.title && !s.said) return undefined;
+	s.feed = s.feed.filter((f) => f.text || f.tools.length).slice(-FEED_SIZE);
+	s.role = guessRole(s.title, s.edits.map((x) => x.file));
+	return s;
+}
+
+/** Grok sessions changed within maxAgeMs. */
+export function readGrokSessions(root = process.env.GROK_SESSIONS_DIR || join(homedir(), ".grok", "sessions"), maxAgeMs = 60 * 60_000, now = Date.now()): Session[] {
+	const out: Session[] = [];
+	let folders: string[] = [];
+	try {
+		folders = readdirSync(root);
+	} catch {
+		return out;
+	}
+	for (const folder of folders) {
+		if (folder.includes("grok-cred-probe")) continue;
+		let ids: string[] = [];
+		try {
+			ids = readdirSync(join(root, folder));
+		} catch {
+			continue;
+		}
+		for (const id of ids) {
+			const dir = join(root, folder, id);
+			let mtime = 0;
+			try {
+				mtime = statSync(join(dir, "chat_history.jsonl")).mtimeMs;
+			} catch {
+				continue;
+			}
+			if (now - mtime > maxAgeMs) continue;
+			const s = parseGrokSession(dir, mtime);
+			if (s) {
+				s.file = join(dir, "chat_history.jsonl");
+				out.push(s);
+			}
+		}
+	}
+	return out;
+}
+
 export function readAllSessions(now = Date.now()): Session[] {
 	const meta = readDesktopMeta();
 	// Like the Claude app: every unarchived session it lists (the 30 most recent) shows up whatever its age, so
@@ -530,5 +634,7 @@ export function readAllSessions(now = Date.now()): Session[] {
 	}
 	const codex = readCodexSessions(undefined, undefined, now);
 	for (const s of codex) s.pinned = isPinned(s.id, false);
-	return [...claude, ...codex].sort((a, b) => b.updatedAt - a.updatedAt);
+	const grok = readGrokSessions(undefined, undefined, now);
+	for (const s of grok) s.pinned = isPinned(s.id, false);
+	return [...claude, ...codex, ...grok].sort((a, b) => b.updatedAt - a.updatedAt);
 }
