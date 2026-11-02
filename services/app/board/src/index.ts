@@ -300,6 +300,8 @@ export interface NewSession {
 	effort?: string;
 	/** Claude and Grok let the caller choose the session id, so the board knows it at once. */
 	id?: string;
+	/** Claude permission mode; kitchen agents use "auto" so git and gh are not blocked. */
+	mode?: string;
 }
 const MODELS = ["opus", "sonnet", "haiku"];
 
@@ -310,11 +312,11 @@ const MODELS = ["opus", "sonnet", "haiku"];
  */
 const FRONT_DESK_PROMPT = "You are the front desk of a team of coding agents. Answer the user's question in one or two short sentences. When you have web search, use it for anything that needs live information and name the source. If it needs code changes, say it should be sent as a task.";
 
-export function askHaiku(question: string, cwd: string, run = spawn, web = false): Promise<string> {
+export function askHaiku(question: string, cwd: string, run = spawn, web = false, skills = ""): Promise<string> {
 	return new Promise((resolveAsk, reject) => {
 		// A clean, light start: no project folder, settings, MCP servers or skills, and its own short system prompt,
 		// so it answers in seconds as the front desk instead of as whatever agent the folder describes.
-		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] });
+		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT, ...(skills ? ["--append-system-prompt", skills] : [])], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] });
 		let out = "";
 		const timer = setTimeout(() => child.kill("SIGTERM"), web ? 120_000 : 90_000);
 		child.stdout?.on("data", (d) => {
@@ -338,7 +340,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 	const [cmd, args] =
 		n.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
-			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : [])]];
+			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : [])]];
 	return new Promise((resolveStart, reject) => {
 		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);
@@ -353,7 +355,7 @@ const BUILD = Bun.hash(PAGE).toString(36);
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
+	deps: { fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -703,7 +705,7 @@ export function createApp(
 		start: (n) => {
 			setRole(n.id, n.role);
 			sending.add(n.id);
-			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id })
+			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode })
 				.catch((e) => console.error("container start failed:", e))
 				.finally(() => sending.delete(n.id));
 		},
@@ -711,7 +713,7 @@ export function createApp(
 		close: (id) => setHidden(id, true),
 		name: (id, label) => setName(id, label),
 		type: (id, role) => setRole(id, role),
-		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd, o) => askHaiku(q, cwd, spawn, !!o?.web) : undefined),
+		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd, o) => askHaiku(q, cwd, spawn, !!o?.web, o?.skills ?? "") : undefined),
 		guessRole: (title) => guessRole(title, []),
 		sameOrigin,
 		fetch: deps.fetch,

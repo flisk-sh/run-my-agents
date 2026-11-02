@@ -566,3 +566,71 @@ describe("lanes, scores and crew clean-up", () => {
 		expect(readContainers().find((x) => x.name === "Kitchen cooks")).toMatchObject({ replicas: 0, downReason: "Replaced by stage agents" });
 	});
 });
+
+describe("ship and the skill sidecar", () => {
+	it("ships a task after its last PASS: commits in the order's worktree, opens a PR, and keeps the link", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		order({ kind: "task", stage: "review", assignee: "rev", sentAt: 1, cwd: "/repo", notes: { build: "Changed src/a.ts in /repo/.git/kitchen/order-1" }, crew: { build: { id: "b", role: "Build", name: "Build · repo b000" } } });
+		const r = (await post("/api/tasks/serve", { id: "t", pass: true })).body;
+		expect(r).toMatchObject({ stage: "review", shipping: true });
+		const ship = started.at(-1);
+		expect(ship).toMatchObject({ id: r.assignee, mode: "auto", model: "haiku" });
+		expect(ship?.text).toContain("git commit -s");
+		expect(ship?.text).toContain("gh pr create");
+		expect(ship?.text).toContain("kitchen/order-1");
+		// The ship agent replies with the PR: the order is served with the link.
+		sessions.push({ ...session(r.assignee, "Build"), feed: [{ who: "you", text: "Ship", at: 1 } as never, { who: "agent", text: "Opened https://github.com/flisk-sh/run-my-agents/pull/999.", at: 2 } as never] });
+		const done = (await post("/api/tasks/serve", { id: "t" })).body;
+		expect(done).toMatchObject({ stage: "done", shipping: false, pr: "https://github.com/flisk-sh/run-my-agents/pull/999" });
+	});
+
+	it("starts kitchen agents in auto mode and tells builders to use a worktree per order", async () => {
+		const sessions: Session[] = [];
+		const { post, sent, started } = setup(sessions);
+		await post("/api/containers", { name: "B", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		expect(started[0]).toMatchObject({ mode: "auto" });
+		sessions.push({ ...session(started[0].id as string, "Build"), updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
+		order({ n: 7, stage: "build", cwd: "/repo" });
+		await post("/api/tasks/dispatch", { id: "t" });
+		expect(sent.at(-1)).toContain("kitchen/order-7");
+	});
+
+	it("injects an order's skills into its container, then drops a skill whose orders keep failing", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		sessions.push({ ...session(started[0].id as string, "Build"), updatedAt: Date.now() - 60_000 });
+		await post("/api/containers/reconcile", {});
+		order({ stage: "build", cwd: "/repo", skills: ["playwright-expert"] });
+		await post("/api/tasks/dispatch", { id: "t" });
+		await Bun.sleep(20);
+		await post("/api/tasks/dispatch", { id: "t" });
+		expect(readContainers()[0].skills).toContain("playwright-expert");
+		// Two failed orders that carried it: the sidecar drops it, and keeps the stage's own set.
+		const crew = { build: { id: "x", role: "Build", name: "Build · repo abcd" } };
+		const failed = (id: string) => ({ id, n: 2, title: "x", cwd: "/repo", priority: "P1", stage: "done", failed: true, kind: "task", assignee: "", sentAt: 0, approved: true, skills: ["playwright-expert"], route: "Code", rounds: 3, stuck: false, created: 1, updated: 1, crew });
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([failed("a"), failed("b")]));
+		const did = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(did).toContain("Build · repo: sidecar dropped /playwright-expert");
+		const box = readContainers()[0];
+		expect(box.skills).not.toContain("playwright-expert");
+		expect(box.skills).toContain("focused-fix");
+	});
+
+	it("gives the front desk the skills that fit the question", async () => {
+		const asked: { skills?: string }[] = [];
+		writeFileSync(join(skills, "x.txt"), "");
+		const { mkdirSync } = await import("node:fs");
+		mkdirSync(join(skills, "playwright-expert"), { recursive: true });
+		writeFileSync(join(skills, "playwright-expert", "SKILL.md"), "Use page.getByRole.");
+		const app = createApp(() => [], async () => {}, { ask: async (_q, _c, o) => (asked.push({ skills: o?.skills }), "Use getByRole."), fetch: (async () => new Response("x")) as unknown as typeof fetch });
+		await app.request("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "how do I select a button in playwright?", cwd: "/repo" }) });
+		await Bun.sleep(5);
+		expect(asked[0].skills).toContain("## /playwright-expert");
+		expect(asked[0].skills).toContain("Use page.getByRole.");
+	});
+});

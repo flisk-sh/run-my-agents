@@ -8,6 +8,9 @@ import type { Stage } from "./pipeline";
 import { lessonsSkill, writeLessons } from "./skills";
 import { JsonStore } from "./store";
 
+/** Kitchen agents run in auto mode: edits, git and gh go through without a prompt nobody would answer. */
+export const KITCHEN_MODE = "auto";
+
 export type Pod = {
 	session: string;
 	status: "starting" | "ready" | "evicted";
@@ -187,6 +190,14 @@ export function freshChat(oldSession: string, newSession: string, order: string)
 	});
 }
 
+/** The sidecar's injection: adds an order's skills to a container's set (the sidecar trims it later). */
+export function injectSkills(id: string, skills: string[]) {
+	store.update((all) => {
+		const c = all.find((x) => x.id === id);
+		if (c) c.skills = [...new Set([...c.skills, ...skills])];
+	});
+}
+
 /** Records which order a pod is on. */
 export function podOrder(session: string, order: string) {
 	store.update((all) => {
@@ -204,7 +215,7 @@ export type ReconcileCtx = {
 	/** Sessions the board can see now: id, and whether it is closed. */
 	sessions: { id: string; hidden?: boolean }[];
 	/** Starts an agent; resolves when its first turn ends. */
-	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string }) => void;
+	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string; mode?: string }) => void;
 	/** Moves a fired agent to Closed on the board. */
 	close: (id: string) => void;
 	/** Names a pod on the board, so a container's agents are told apart from your own chats. */
@@ -258,7 +269,7 @@ export function reconcile(ctx: ReconcileCtx) {
 				const id = randomUUID();
 				c.pods.push({ session: id, status: "starting", strikes: 0, served: 0, started: now });
 				ctx.name?.(id, podName(c, id));
-				ctx.start({ agent: "claude", cwd: c.cwd, text: bootPrompt(c), model: c.model || "haiku", effort: c.effort || "low", id, role: c.role });
+				ctx.start({ agent: "claude", cwd: c.cwd, text: bootPrompt(c), model: c.model || "haiku", effort: c.effort || "low", id, role: c.role, mode: KITCHEN_MODE });
 				did.push(`${c.name}: started ${id.slice(0, 8)}`);
 			}
 			// Keep the last 20 tombstones.

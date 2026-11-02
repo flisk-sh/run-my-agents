@@ -1,7 +1,7 @@
 // Skill sets and the model policy. Skills come from the DevEx Roadmap catalog (roadmap.flisk.si/skills, built into
 // ../skills.json). Each stage of an order has a hand-picked set; the ones marked haiku are short, step-by-step skills
 // that a small model follows well, so workers run on Haiku at low effort and only the orchestrator thinks harder.
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import CATALOG from "../skills.json";
@@ -100,6 +100,14 @@ export const policyFor = (stage: Stage, override?: { model?: string; effort?: st
 // ---------- the pantry: installing skills ----------
 const skillsDir = () => process.env.RUN_MY_AGENTS_SKILLS_DIR || join(homedir(), ".claude", "skills");
 export const skillInstalled = (name: string) => existsSync(join(skillsDir(), name, "SKILL.md"));
+/** An installed skill's text, for injecting it into a prompt; empty if it is not installed. */
+export function readSkill(name: string): string {
+	try {
+		return readFileSync(join(skillsDir(), name, "SKILL.md"), "utf8");
+	} catch {
+		return "";
+	}
+}
 const installing = new Set<string>();
 export const skillState = (name: string) => (skillInstalled(name) ? "ok" : installing.has(name) ? "get" : "miss");
 

@@ -7,23 +7,25 @@ import { resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
-import { clearLessons, freshChat, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
+import { clearLessons, injectSkills, KITCHEN_MODE, freshChat, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike } from "./containers";
 import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
-import { flow, ratings, scoreboard } from "./scores";
+import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { JsonStore } from "./store";
 import { kindOf, laneOf, needsWeb, quickMath, zachman, zachmanLines } from "./triage";
-import { haikuFit, lessonsSkill, matchSkills, POLICY, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
+import { haikuFit, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
 export type KitchenCtx = {
 	read: () => Session[];
 	/** Sends one message to a session; a Response with status >= 400 means it was refused. */
 	send: (s: Session, text: string, body: string) => Response;
 	busy: (s: Session) => boolean;
-	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string }) => void;
-	tune: (id: string, t: { model?: string; effort?: string }) => void;
+	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string; mode?: string }) => void;
+	tune: (id: string, t: { model?: string; effort?: string; mode?: string }) => void;
 	close: (id: string) => void;
+	/** Ship served tasks as pull requests (default on). */
+	ship?: boolean;
 	/** The front desk: one short model call that answers a question, with no tools and no session. */
-	ask?: (question: string, cwd: string, opts?: { web?: boolean }) => Promise<string>;
+	ask?: (question: string, cwd: string, opts?: { web?: boolean; skills?: string }) => Promise<string>;
 	/** Names a session on the board (container agents get their container's name). */
 	name?: (id: string, label: string) => void;
 	/** Sets a session's agent type on the board (container agents get their stage's type). */
@@ -110,9 +112,9 @@ export function whereOf(title: string, cwd: string, folders: string[]): string {
  */
 const STAGE_BRIEF = {
 	spec: "Write a short spec the next agents will follow: Goal; Why (infer it if the order does not say); 3 to 5 acceptance checks someone can run or read; the files likely to change. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. Do not change code.",
-	build: "Make the change the spec describes. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change.",
-	test: "Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
-	review: "Read the change (git diff) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
+	build: "First make your own git worktree for this order so you never touch the shared checkout: run `git fetch -q origin && git worktree add \"$(git rev-parse --git-common-dir)/kitchen/order-{n}\" -b kitchen/order-{n} origin/main` (if it already exists, keep using it), work only in it, and name its path. Make the change the spec describes. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. End with the files you changed and how to check the change.",
+	test: "The change is in the git worktree the Build agent named (branch kitchen/order-{n}); work there. Check the change against the spec's acceptance checks: run the tests that exist, add a small one if there is none, or run or read the code. PASS when the checks hold. FAIL only for a concrete defect: say what you ran, what you expected and what you got. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval.",
+	review: "The change is in the git worktree the Build agent named (branch kitchen/order-{n}). Read it (git diff origin/main) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. A missing Why, loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
 } as const;
 
 const lastSaid = (s: Session | undefined) => {
@@ -131,6 +133,25 @@ type Settings = { auto: boolean; idleMinutes: number };
 const SETTINGS = new JsonStore<Partial<Settings>>("kitchen.json");
 /** Autopilot on, and idle agents let go after 10 minutes, unless kitchen.json says otherwise. */
 const settings = (): Settings => ({ auto: true, idleMinutes: 10, ...(SETTINGS.read()[0] ?? {}) });
+/** How many learned skills the sidecar keeps per container. */
+const SIDECAR_KEEP = 6;
+
+/** How the orders that carried each of a container's skills ended: served +1, failed or stuck -1. */
+export function skillStats(box: Pick<Container, "name" | "skills">, tasks: Task[]) {
+	const stats: Record<string, { score: number; uses: number }> = {};
+	for (const t of tasks) {
+		if (t.kind !== "task" || !Object.values(t.crew ?? {}).some((c) => c && crewKey(c).label === box.name)) continue;
+		const outcome = t.failed || t.stuck ? -1 : t.stage === "done" ? 1 : 0;
+		for (const n of t.skills) {
+			if (!box.skills.includes(n)) continue;
+			const x = (stats[n] ??= { score: 0, uses: 0 });
+			x.uses += 1;
+			x.score += outcome;
+		}
+	}
+	return stats;
+}
+
 /** The most agents the autoscaler runs per folder. */
 export const MAX_AGENTS = 3;
 /** The stage that has to staff an order next: an inbox task goes to spec, or straight to build on the fast lane. */
@@ -210,7 +231,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		}
 		if (!k.ask) return;
 		updateTask(t.id, { assignee: FRONT_DESK, sentAt: now, startedAt: now });
-		k.ask(t.title, t.cwd, { web: needsWeb(t.title) })
+		// The front desk gets the skills that fit the question too: installed, and their text in its prompt.
+		const picks = matchSkills(t.title, 2).map((x) => x.name);
+		if (picks.length) {
+			stock(picks, k.fetch);
+			updateTask(t.id, { skills: picks });
+		}
+		const texts = picks.map((n) => [n, readSkill(n)] as const).filter(([, body]) => body);
+		const skills = texts.length ? `Skills you can use:\n\n${texts.map(([n, body]) => `## /${n}\n${body.slice(0, 3000)}`).join("\n\n")}` : "";
+		k.ask(t.title, t.cwd, { web: needsWeb(t.title), ...(skills ? { skills } : {}) })
 			.then((answer) => updateTask(t.id, { stage: "done", answer: answer.trim() || "(no answer)", servedAt: Date.now(), assignee: "", sentAt: 0 }))
 			.catch(() => updateTask(t.id, { assignee: "", sentAt: 0 }));
 	}
@@ -340,7 +369,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const box = podOf(s.id)?.container;
 		// A question is a worker's job (Haiku, low); only planning a task is the orchestrator's.
 		const policy = policyFor(order.kind === "question" ? "build" : order.stage, box ? { model: box.model, effort: box.effort } : undefined);
-		if (s.agent === "claude") k.tune(s.id, policy);
+		if (s.agent === "claude") k.tune(s.id, { ...policy, mode: KITCHEN_MODE });
 		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(lessonsKeyOf(box))] : [])]);
 		const verdict = order.stage === "test" || order.stage === "review";
 		const card = order.zachman ? `\n\n${zachmanLines(order.zachman)}` : "";
@@ -352,14 +381,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${fresh}\n\nYour job: ${STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step."}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${fresh}\n\nYour job: ${(STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.").replaceAll("{n}", String(order.n))}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "End with one line: PASS or FAIL and why." : `When this ${order.stage} step is finished, say so in one line.`}`;
+		// Sidecar: the skills this order matched join its container's set, so the container learns what its folder needs.
+		if (box && order.skills.length) injectSkills(box.id, order.skills);
 		// A container agent that last worked on another order gets a fresh chat, so orders never bleed into each other.
 		// The same order (another round, the next stage in an all-stage container) keeps its chat.
 		const pod = box?.pods.find((p) => p.session === s.id && p.status !== "evicted");
 		let who = s.id;
 		if (box && pod?.lastOrder && pod.lastOrder !== order.id && s.agent === "claude") {
 			who = randomUUID();
-			k.start({ agent: "claude", cwd: order.cwd || box.cwd, text, model: policy.model, effort: policy.effort, id: who, role: box.role });
+			k.start({ agent: "claude", cwd: order.cwd || box.cwd, text, model: policy.model, effort: policy.effort, id: who, role: box.role, mode: KITCHEN_MODE });
 			freshChat(s.id, who, order.id);
 			k.name?.(who, podName(box, who));
 			k.close(s.id);
@@ -379,6 +410,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	function serve(id: string, pass?: boolean): Out {
 		let t = readTasks().find((x) => x.id === id);
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
+		// The Ship step finished: keep its pull request and serve the order.
+		if (t.shipping) {
+			const said = handOff(k.read().find((x) => x.id === t?.assignee));
+			const pr = /https:\/\/github\.com\/[^\s)>\]]+\/pull\/\d+/.exec(said)?.[0];
+			for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
+			return { status: 200, body: { ...updateTask(t.id, { stage: "done", shipping: false, ...(pr ? { pr } : {}), assignee: "", sentAt: 0, servedAt: Date.now() }) } };
+		}
 		// Keep what this stage's agent handed on, so the next stages work from it instead of the title alone.
 		if (t.assignee && t.kind !== "question" && t.stage !== "inbox" && t.stage !== "done") {
 			const said = handOff(k.read().find((x) => x.id === t?.assignee));
@@ -405,6 +443,23 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		}
 		if (t.stage === "spec" && !t.approved) return { status: 200, body: { ...updateTask(t.id, { atPass: true, assignee: "", sentAt: 0 }) } };
 		const to = nextStage(t);
+		// Ship: the last check passed, so an agent commits the Build agent's worktree, pushes and opens a pull request.
+		if (to === "done" && t.kind === "task" && t.notes?.build && !t.pr && k.ship !== false) {
+			const id = randomUUID();
+			const branch = `kitchen/order-${t.n}`;
+			k.start({
+				agent: "claude",
+				cwd: t.cwd,
+				id,
+				role: "Build",
+				mode: KITCHEN_MODE,
+				model: "haiku",
+				effort: "low",
+				text: `Ship order #${t.n}: ${t.title}\n\nThe Build agent's change is in the git worktree for this order (branch ${branch}, normally at "$(git rev-parse --git-common-dir)/kitchen/order-${t.n}", or the path it names below). In that worktree: commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".\n\nFrom the Build agent:\n${t.notes.build}`,
+			});
+			k.name?.(id, `Ship · #${t.n}`);
+			return { status: 200, body: { ...updateTask(t.id, { shipping: true, assignee: id, sentAt: Date.now() }) } };
+		}
 		if (to === "done") for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
 		return { status: 200, body: { ...updateTask(t.id, { stage: to, assignee: "", sentAt: 0, stuck: false, ...(to === "done" ? { servedAt: Date.now() } : {}) }) } };
 	}
@@ -433,14 +488,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				did.push(`#${t.n} closed as failed`);
 			}
 		}
-		did.push(...autoscale(), ...retireMixed(), ...letIdleGo(now));
+		did.push(...autoscale(), ...retireMixed(), ...letIdleGo(now), ...sidecar());
 		const all = k.read();
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
 			const s = all.find((x) => x.id === t.assignee);
 			if (!finished(t, s, now)) continue;
 			// A test or review reply with no PASS or FAIL line counts as FAIL, so the order never waits forever.
-			const v = t.stage === "test" || t.stage === "review" ? (verdictOf(s) ?? false) : true;
+			const v = t.shipping ? true : t.stage === "test" || t.stage === "review" ? (verdictOf(s) ?? false) : true;
 			serve(t.id, v);
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
 		}
@@ -497,6 +552,33 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					patchContainer(box.id, { replicas: want, downReason: undefined });
 					did.push(`${box.name}: ${box.replicas} → ${want} agents`);
 				}
+			}
+		}
+		return did;
+	}
+
+	/**
+	 * The skill sidecar, like a sidecar next to each container: it scores every skill a container picked up from its
+	 * orders by how those orders ended (served +1, failed or stuck -1), drops a skill at -2 or below, and keeps the best
+	 * SIDECAR_KEEP. The stage's own skill set is never dropped.
+	 */
+	function sidecar() {
+		const did: string[] = [];
+		const tasks = readTasks();
+		for (const box of readContainers()) {
+			const own = new Set(box.stages.flatMap((st) => STAGE_SKILLS[st]));
+			const stats = skillStats(box, tasks);
+			const learned = box.skills.filter((n) => !own.has(n));
+			const keep = learned
+				.filter((n) => (stats[n]?.score ?? 0) > -2)
+				.sort((a, b) => (stats[b]?.score ?? 0) - (stats[a]?.score ?? 0))
+				.slice(0, SIDECAR_KEEP);
+			// Every container carries its stages' own skill set, then the learned skills that are earning their place.
+			const next = [...own, ...keep];
+			if (next.length !== box.skills.length || next.some((n, i) => n !== box.skills[i])) {
+				patchContainer(box.id, { skills: next });
+				const gone = learned.filter((n) => !keep.includes(n));
+				if (gone.length) did.push(`${box.name}: sidecar dropped /${gone.join(", /")}`);
 			}
 		}
 		return did;
@@ -586,7 +668,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	);
 
 	// ---------- agent containers ----------
-	const view = (x: Container) => ({ ...x, lessonsSkill: lessonsSkill(lessonsKeyOf(x)), ready: x.pods.filter((p) => p.status === "ready").length, skills: x.skills.map((n) => ({ name: n, haiku: haikuFit(n), state: skillState(n) })) });
+	const view = (x: Container) => ({ ...x, lessonsSkill: lessonsSkill(lessonsKeyOf(x)), ready: x.pods.filter((p) => p.status === "ready").length, skills: x.skills.map((n) => ({ name: n, haiku: haikuFit(n), state: skillState(n), learned: !x.stages.some((st) => STAGE_SKILLS[st].includes(n)), ...(skillStats(x, readTasks())[n] ?? { score: 0, uses: 0 }) })) });
 	app.get("/api/containers", (c) => c.json({ containers: readContainers().map(view), roles: Object.keys(STAGE_ROLES) }));
 	app.post("/api/containers", async (c) => {
 		const no = guard(c);
