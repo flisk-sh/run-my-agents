@@ -367,7 +367,7 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 @media (max-width:720px){.app{grid-template-columns:1fr}.side{max-height:40vh}}
 
 /* Chat text reads like the Claude app: system font, larger, airy. */
-.msg .rich{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:15px;line-height:1.4;color:#e4e4e9;letter-spacing:0}.msg .rich p{margin:0 0 6px}.msg .rich ul,.msg .rich ol{margin:2px 0 6px;padding-left:24px}.msg .rich li{margin:2px 0}.msg .rich li::marker{color:#e4e4e9}.msg .rich strong,.msg .rich b{font-weight:600;color:#f2f2f5}.msg .rich :not(pre)>code{font-size:.9em;padding:1px 6px}.msg .rich .mh1,.msg .rich .mh2,.msg .rich .mh3,.msg .rich .mh4{font-size:16px;font-weight:500;margin:10px 0 4px}
+.msg .rich{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:13px;line-height:1.4;color:#e4e4e9;letter-spacing:0}.msg .rich p{margin:0 0 6px}.msg .rich ul,.msg .rich ol{margin:2px 0 6px;padding-left:24px}.msg .rich li{margin:2px 0}.msg .rich li::marker{color:#e4e4e9}.msg .rich strong,.msg .rich b{font-weight:600;color:#f2f2f5}.msg .rich :not(pre)>code{font-size:.9em;padding:1px 6px}.msg .rich .mh1,.msg .rich .mh2,.msg .rich .mh3,.msg .rich .mh4{font-size:14px;font-weight:500;margin:10px 0 4px}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>
 <radialGradient id="sh" cx="35%" cy="28%" r="75%"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>
