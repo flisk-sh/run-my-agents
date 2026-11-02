@@ -259,7 +259,7 @@ export function createApp(
 			sessions: sessions.map(({ file: _file, ...s }) => ({
 				...s,
 				face: faceOf(s),
-				lower: s.agent === "claude" ? lowerModel(s.model) : null,
+				lower: s.agent === "claude" ? lowerModel(s.tune?.model || s.model) : null,
 				skills: skillsFor(s.role),
 				sending: sending.has(s.id),
 				queue: (queues.get(s.id) ?? []).map(({ qid, text }) => ({ qid, text })),
@@ -280,11 +280,13 @@ export function createApp(
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
 		const { id } = (await c.req.json().catch(() => ({}))) as { id?: string };
 		const s = read().find((x) => x.id === id && x.agent === "claude");
-		const lower = s ? lowerModel(s.model) : null;
+		const lower = s ? lowerModel(s.tune?.model || s.model) : null;
 		if (!s || !s.cwd || !lower) return c.json({ error: "No cheaper model for this session." }, 400);
 		const file = setProjectModel(s.cwd, lower);
 		if (!file) return c.json({ error: "That session's folder is gone." }, 400);
-		return c.json({ model: lower, file });
+		// This session too: the board's next message to it runs on the cheaper model.
+		setTune(s.id, { model: lower });
+		return c.json({ model: lower, file, next: lowerModel(lower) });
 	});
 	app.post("/api/send", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);

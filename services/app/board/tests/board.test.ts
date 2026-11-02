@@ -110,6 +110,20 @@ describe("codex, limits and skills", () => {
 		expect(res.status).toBe(400);
 	});
 
+	it("moves the session itself to the cheaper model, so the button steps down again", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { applyTune } = await import("../src/prefs");
+		const dir = mkdtempSync(`${tmpdir()}/rma-down-`);
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(`${tmpdir()}/rma-prefs-`);
+		const s = parseSession("d1", [ask("x"), line({ type: "assistant", cwd: dir, message: { model: "claude-opus-5-5", content: [{ type: "text", text: "hi" }] } })], now);
+		const app = createApp(() => applyTune(s ? [s] : []));
+		const res = await app.request("/api/downgrade", { method: "POST", headers: { "content-type": "application/json" }, body: '{"id":"d1"}' });
+		expect(await res.json()).toMatchObject({ model: "sonnet", next: "haiku" });
+		const after = (await (await app.request("/api/sessions")).json()).sessions[0];
+		expect([after.tune?.model, after.lower]).toEqual(["sonnet", "haiku"]);
+	});
+
 	it("will not write settings into a folder that does not exist", async () => {
 		const s = parseSession("o", [ask("x"), line({ type: "assistant", cwd: "/no/such/folder", message: { model: "claude-opus-5-5", content: [{ type: "text", text: "hi" }] } })], now);
 		const app = createApp(() => (s ? [s] : []));
