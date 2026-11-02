@@ -52,6 +52,12 @@ export function zachman(o: { title: string; cwd: string; priority: string; route
 export const zachmanLines = (z: Zachman) =>
 	`Zachman card:\n- What: ${z.what}\n- How: ${z.how}\n- Where: ${z.where}\n- Who: ${z.who}\n- When: ${z.when}\n- Why: ${z.why}`;
 
+// Dates and phone numbers are digits joined by "-" or "/", so the evaluator would read them as subtraction or
+// division and answer "2026-11-02" with 2013. They are never arithmetic, so they never reach it.
+const NOT_MATH = /^(?:\d{1,4}([-/])\d{1,2}\1\d{1,4}|\d{3}-\d{4}|1-\d{3}-\d{3}-\d{4})$/;
+
+const mathCache = new Map<string, ((...args: unknown[]) => number) | null>();
+
 /**
  * Answers plain arithmetic on the spot ("2+2 =?" is 4), so it never waits for an agent. Only digits, operators,
  * dots and brackets reach the evaluator, so nothing else can run.
@@ -67,8 +73,21 @@ export function quickMath(title: string): string | undefined {
 		.replace(/,/g, ".")
 		.trim();
 	if (!expr || !/^[\d\s+\-*/().%]+$/.test(expr) || !/\d/.test(expr) || !/[+\-*/%]/.test(expr)) return undefined;
+	if (NOT_MATH.test(expr)) return undefined;
 	try {
-		const v = Function(`"use strict"; return (${expr});`)() as unknown;
+		let fn = mathCache.get(expr);
+		if (fn === undefined) {
+			try {
+				fn = Function(`"use strict"; return (${expr});`) as ((...args: unknown[]) => number);
+				if (mathCache.size > 500) mathCache.clear();
+				mathCache.set(expr, fn);
+			} catch {
+				mathCache.set(expr, null);
+				return undefined;
+			}
+		}
+		if (fn === null) return undefined;
+		const v = fn() as unknown;
 		if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
 		return String(Number.isInteger(v) ? v : Number(v.toPrecision(12)));
 	} catch {

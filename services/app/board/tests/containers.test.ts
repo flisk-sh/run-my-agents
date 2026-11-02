@@ -275,6 +275,9 @@ describe("Zachman intake triage", () => {
 		const { quickMath } = await import("../src/kitchen/triage");
 		expect(["2+2 =?", "2 + 2 = ?", "(3+4)*2", "10/4", "2^10", "7 x 6?"].map(quickMath)).toEqual(["4", "4", "14", "2.5", "1024", "42"]);
 		for (const no of ["how are you", "2", "rm -rf /", "1+alert(1)", "Math.max(1,2)"]) expect(quickMath(no)).toBeUndefined();
+		// Dates and phone numbers read as subtraction or division, so they must not be answered as sums.
+		for (const no of ["2026-11-02", "11/02/2026", "555-1234", "1-800-555-0199"]) expect(quickMath(no)).toBeUndefined();
+		expect(["10-4", "10/4", "100 - 2"].map(quickMath)).toEqual(["6", "2.5", "98"]);
 		const { post, sent } = setup([]);
 		const q = (await post("/api/tasks", { title: "2+2 =?", cwd: "/repo" })).body;
 		expect(q).toMatchObject({ kind: "question", skills: [] });

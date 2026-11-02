@@ -291,17 +291,34 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		for (const box of readContainers()) strikes[box.name] = (strikes[box.name] ?? 0) + box.pods.reduce((a, p) => a + p.strikes, 0);
 		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes), flow: flow(readTasks()) });
 	});
-	app.get("/api/tasks", (c) =>
-		c.json({
+	app.get("/api/tasks", (c) => {
+		const now = Date.now();
+		// Read the sessions once per request, not once per order.
+		let sessions: Session[] | undefined;
+		const getAssigneeLabel = (t: Task): string => {
+			if (!t.assignee) return "";
+			const crewEntry = t.crew?.[t.stage];
+			if (crewEntry?.name) return crewEntry.name;
+			sessions ??= k.read();
+			const session = sessions.find((s) => s.id === t.assignee);
+			return session?.role || "Agent";
+		};
+		const hasStuckWarning = (t: Task): boolean => {
+			return t.stage === "inbox" && !t.assignee && now - t.created > 30000;
+		};
+		return c.json({
 			stages: STAGES,
 			roles: STAGE_ROLES,
 			tasks: beltOrder(readTasks()).map((t) => ({
 				...t,
+				assigneeLabel: getAssigneeLabel(t),
+				pickedUpAt: t.sentAt || undefined,
+				stuckWarning: hasStuckWarning(t),
 				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
 				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? (settings().auto ? "Spec done: crossing the pass." : "Waiting at the pass for your approval.") : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t, settings().auto).why,
 			})),
-		}),
-	);
+		});
+	});
 	app.post("/api/tasks", async (c) => {
 		const no = guard(c);
 		if (no) return no;
@@ -322,7 +339,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const t = addTask({ title, cwd: where, priority: b.priority, skills, route, kind, lane, zachman: card });
 		frontDesk(t);
 		stock(skills, k.fetch);
-		return c.json(t, 201);
+		// The order as it is after the front desk: a sum is already answered and served.
+		return c.json(readTasks().find((x) => x.id === t.id) ?? t, 201);
 	});
 	app.post("/api/tasks/move", async (c) => {
 		const no = guard(c);

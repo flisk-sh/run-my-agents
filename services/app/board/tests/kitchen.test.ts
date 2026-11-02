@@ -6,6 +6,7 @@ import { createApp } from "../src/index";
 import { parseSession, type Session } from "../src/sessions";
 import { beltOrder, MAX_ROUNDS, nextStage, sendBack, type Task } from "../src/kitchen/pipeline";
 import { bowl, scoreboard } from "../src/kitchen/scores";
+import { kindOf, quickMath } from "../src/kitchen/triage";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
 const line = (o: object) => JSON.stringify(o);
@@ -103,6 +104,49 @@ describe("orders", () => {
 		expect((await post("/api/tasks/serve", { id: "t" })).body.stage).toBe("review");
 		expect((await post("/api/tasks/serve", { id: "t" })).body.stage).toBe("done");
 	});
+
+	it("math questions skip the pipeline and are answered immediately", async () => {
+		const sent: string[] = [];
+		const { post } = app(
+			[session("front", "Front", "math helper")],
+			sent,
+		);
+		const r = await post("/api/tasks", { title: "2+2 =?", priority: "P0" });
+		expect(r.status).toBe(201);
+		expect(r.body).toMatchObject({ n: 1, stage: "done", assignee: "", answer: "4", priority: "P0" });
+		// Front desk handles it, no agent message sent
+		expect(sent).toHaveLength(0);
+	});
+
+	it("non-math questions go to the kitchen pipeline", async () => {
+		const sent: string[] = [];
+		const { post } = app(
+			[session("front", "Front", "")],
+			sent,
+		);
+		const r = await post("/api/tasks", { title: "what is the weather?", priority: "P1" });
+		expect(r.status).toBe(201);
+		expect(r.body).toMatchObject({ n: 1, stage: "inbox", kind: "question" });
+		// Question goes to the pipeline, not immediately answered
+		expect(r.body.stage).not.toBe("done");
+	});
+
+	it("shows stuckWarning when order waits >30s in inbox without pickup", async () => {
+		const { a, post } = app([]);
+		const r = await post("/api/tasks", { title: "fix the bug", priority: "P1" });
+		expect(r.status).toBe(201);
+		const taskId = r.body.id;
+		// Just created: no warning yet
+		let list = await (await a.request("/api/tasks")).json();
+		let task = list.tasks.find((t: { id: string }) => t.id === taskId);
+		expect(task.stuckWarning).toBe(false);
+		// Simulate time passing: >30s in inbox without pickup
+		const past = Date.now() - 31000;
+		writeFileSync(join(process.env.RUN_MY_AGENTS_DIR as string, "tasks.json"), JSON.stringify([{ ...r.body, created: past }]));
+		list = await (await a.request("/api/tasks")).json();
+		task = list.tasks.find((t: { id: string }) => t.id === taskId);
+		expect(task.stuckWarning).toBe(true);
+	});
 });
 
 describe("order rules", () => {
@@ -175,5 +219,55 @@ describe("live ratings", () => {
 		expect(rs.find((r) => r.id === "b")).toMatchObject({ steps: 2, served: 1, fails: 2, stuck: 1, strikes: 1, rating: 25 });
 		expect(rs.find((r) => r.id === "t")).toMatchObject({ steps: 0, working: 1, rating: 50 });
 		expect(rs.map((r) => r.id)).toEqual(["p", "t", "b"]);
+	});
+});
+
+describe("triage: math questions", () => {
+	it("recognizes math expressions as questions, not tasks", () => {
+		expect(kindOf("2+2 =?")).toBe("question");
+		expect(kindOf("10 * 5")).toBe("question");
+		expect(kindOf("100 / 4")).toBe("question");
+		expect(kindOf("2^3 =?")).toBe("question");
+		expect(kindOf("(5 + 3) * 2")).toBe("question");
+		expect(kindOf("50 - 20 =?")).toBe("question");
+		expect(kindOf("fix the bug")).toBe("task");
+		expect(kindOf("how are you?")).toBe("question");
+	});
+
+	it("evaluates arithmetic expressions in <1s", () => {
+		const start = Date.now();
+		const result = quickMath("2+2 =?");
+		const elapsed = Date.now() - start;
+		expect(result).toBe("4");
+		expect(elapsed).toBeLessThan(1000); // <1s = <1000ms
+	});
+
+	it("evaluates various math expressions correctly", () => {
+		expect(quickMath("2+2 =?")).toBe("4");
+		expect(quickMath("10 * 5")).toBe("50");
+		expect(quickMath("100 / 4")).toBe("25");
+		expect(quickMath("2^3 =?")).toBe("8");
+		expect(quickMath("(5 + 3) * 2 =?")).toBe("16");
+		expect(quickMath("50 - 20")).toBe("30");
+		expect(quickMath("7 % 3")).toBe("1");
+		expect(quickMath("3.14 * 2")).toBe("6.28");
+	});
+
+	it("rejects non-math expressions", () => {
+		expect(quickMath("how are you?")).toBeUndefined();
+		expect(quickMath("hello")).toBeUndefined();
+		expect(quickMath("fix the bug")).toBeUndefined();
+	});
+
+	it("handles expressions without trailing =? or ?", () => {
+		expect(quickMath("2+2")).toBe("4"); // no =? needed
+		expect(quickMath("2 + 2 =?")).toBe("4");
+		expect(quickMath("3 * 4 ?")).toBe("12");
+	});
+
+	it("returns undefined for invalid expressions", () => {
+		expect(quickMath("2 ++ 2 =?")).toBeUndefined(); // double operator
+		expect(quickMath("abc + def")).toBeUndefined();
+		expect(quickMath("1/0")).toBeUndefined(); // division by zero returns Infinity
 	});
 });
