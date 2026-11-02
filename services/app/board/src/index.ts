@@ -111,12 +111,24 @@ export function workDirs(s: Session): string[] {
 	return [...out].slice(-8);
 }
 
+/**
+ * The permission mode a board message runs in: the one you picked for this session, else the mode the session itself
+ * last ran in (so a Full access session stays Full access), else Auto-accept edits. A headless copy has no one to
+ * approve a prompt, so a stricter mode than the session's only leaves it stuck on its first shell command. Plan mode
+ * is not carried over: it would make the copy only plan.
+ */
+export function boardMode(s: Pick<Session, "tune" | "mode">): string {
+	if (s.tune?.mode) return s.tune.mode;
+	if (s.mode && s.mode !== "plan" && s.mode !== "default") return s.mode;
+	return "acceptEdits";
+}
+
 export function sendToSession(s: Session, text: string, run = spawn, dirs: string[] = []): Promise<void> {
 	dirs = [...dirs, ...workDirs(s)];
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
-			: ["claude", ["-p", "--resume", s.id, "--permission-mode", s.tune?.mode || "acceptEdits", ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d])]];
+			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(s.tune?.model ? ["--model", s.tune.model] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d])]];
 	return new Promise((resolve, reject) => {
 		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"] });
 		child.on("error", reject);

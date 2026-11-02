@@ -274,6 +274,15 @@ describe("send", () => {
 		expect(s?.feed.at(-1)?.calls?.map((c) => c.detail)).toEqual(["ls", "git status", "bun test"]);
 	});
 
+	it("runs a board message in the session's own permission mode unless you picked one", async () => {
+		const { boardMode } = await import("../src/index");
+		expect(boardMode({ mode: "bypassPermissions" })).toBe("bypassPermissions");
+		expect(boardMode({ mode: "auto" })).toBe("auto");
+		expect(boardMode({ mode: "plan" })).toBe("acceptEdits");
+		expect(boardMode({})).toBe("acceptEdits");
+		expect(boardMode({ mode: "bypassPermissions", tune: { mode: "default" } })).toBe("default");
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
