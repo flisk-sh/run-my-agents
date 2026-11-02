@@ -263,6 +263,17 @@ describe("send", () => {
 		expect((await (await app.request("/api/umux")).json()).ratings.map((r: { q1: number; q2: number }) => [r.q1, r.q2])).toEqual([[6, 7]]);
 	});
 
+	it("keeps what each tool call actually ran", async () => {
+		const { callDetail } = await import("../src/sessions");
+		expect(callDetail("Bash", { command: "bun test", description: "Run the tests" })).toEqual({ what: "Run the tests", detail: "bun test" });
+		expect(callDetail("Read", { file_path: "/repo/a.ts" })).toEqual({ detail: "/repo/a.ts" });
+		expect(callDetail("Grep", { pattern: "TODO", path: "src" })).toEqual({ detail: "TODO  in src" });
+		expect(callDetail("WebFetch", { url: "https://x.dev", prompt: "read it" })).toEqual({ what: "read it", detail: "https://x.dev" });
+		const tool = (command: string) => line({ type: "assistant", message: { content: [{ type: "tool_use", id: command, name: "Bash", input: { command } }] } });
+		const s = parseSession("calls", [ask("go"), tool("ls"), tool("git status"), tool("bun test")], now);
+		expect(s?.feed.at(-1)?.calls?.map((c) => c.detail)).toEqual(["ls", "git status", "bun test"]);
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

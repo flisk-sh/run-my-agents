@@ -92,6 +92,8 @@ export interface FeedItem {
 	who: "you" | "agent";
 	text: string;
 	tools: string[];
+	/** Each tool call in this reply, with what it actually ran: the command, file, URL or search. */
+	calls?: { label: string; what?: string; detail: string }[];
 	options?: Options;
 	/** When this reply started; stays the same while it grows, so the page can remember if you collapsed it. */
 	t0?: number;
@@ -213,6 +215,24 @@ export function applyPlan(plan: Step[] | undefined, name: string, input: Record<
 	return next;
 }
 
+/** What a tool call actually did, in one line a person can read and copy: the shell command, the file, the URL. */
+export function callDetail(name: string, input?: Record<string, unknown>): { what?: string; detail: string } {
+	const str = (v: unknown) => (typeof v === "string" ? v : "");
+	const cut = (v: string, n: number) => (v.length > n ? `${v.slice(0, n)}…` : v);
+	if (name === "Bash" || name === "shell" || name === "exec_command") {
+		const cmd = Array.isArray(input?.command) ? (input.command as unknown[]).map(String).join(" ") : str(input?.command ?? input?.cmd);
+		return { what: str(input?.description) || undefined, detail: cut(cmd, 800) };
+	}
+	const file = str(input?.file_path ?? input?.notebook_path ?? input?.path);
+	if (file && !input?.pattern) return { detail: file };
+	if (input?.pattern) return { detail: cut(`${str(input.pattern)}${file ? `  in ${file}` : ""}`, 300) };
+	if (input?.url) return { what: str(input.prompt).slice(0, 120) || undefined, detail: str(input.url) };
+	if (input?.query) return { detail: cut(str(input.query), 300) };
+	if (input?.description) return { detail: cut(str(input.description), 200) };
+	const small = Object.fromEntries(Object.entries(input ?? {}).filter(([, v]) => typeof v !== "object" || v === null).map(([k, v]) => [k, typeof v === "string" ? cut(v, 80) : v]));
+	return { detail: cut(JSON.stringify(small), 300) };
+}
+
 /** One transcript to a Session, or undefined when it has no conversation in it. */
 /** Session ids are UUID-like. Anything else is dropped: ids go into the page's HTML and into `claude --resume <id>`. */
 export const SESSION_ID = /^[\w-]{1,128}$/;
@@ -325,6 +345,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 					}
 				}
 				if (item.tools.length < 6) item.tools.push(s.doing);
+				if ((item.calls ??= []).length < 40) item.calls.push({ label: s.doing, ...callDetail(c.name, c.input) });
 				if (c.name === "TodoWrite" || c.name.endsWith("update_plan")) s.plan = applyPlan(s.plan, c.name, c.input);
 				if ((c.name === "Agent" || c.name === "Task") && c.id) {
 					const a = { what: String(c.input?.description ?? "Subagent").slice(0, 80), kind: String(c.input?.subagent_type ?? "general-purpose"), at, done: false };
@@ -387,6 +408,13 @@ export function parseCodexSession(lines: string[], updatedAt: number): Session |
 			}
 			const last = s.feed[s.feed.length - 1];
 			if (last?.who === "agent" && last.tools.length < 6) last.tools.push(s.doing);
+			if (last?.who === "agent" && (last.calls ??= []).length < 40) {
+				let args: Record<string, unknown> = {};
+				try {
+					args = typeof p.arguments === "string" ? JSON.parse(p.arguments) : ((p.arguments ?? p.input ?? {}) as Record<string, unknown>);
+				} catch {}
+				last.calls.push({ label: s.doing, ...callDetail(String(p.name ?? "tool"), args) });
+			}
 		}
 	}
 	if (!SESSION_ID.test(s.id) || s.id.startsWith("-") || (!s.title && !s.said)) return undefined;
