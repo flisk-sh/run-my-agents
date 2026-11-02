@@ -64,6 +64,31 @@ footer{margin-top:48px;border-top:1px solid var(--line);padding:24px 0 40px;colo
 #demo-0:checked~.panes .pn0,#demo-1:checked~.panes .pn1,#demo-2:checked~.panes .pn2,#demo-3:checked~.panes .pn3,#demo-4:checked~.panes .pn4{display:flex}
 #demo-0:focus-visible~.rows .dr0,#demo-1:focus-visible~.rows .dr1,#demo-2:focus-visible~.rows .dr2,#demo-3:focus-visible~.rows .dr3,#demo-4:focus-visible~.rows .dr4{outline:2px solid var(--accent-text);outline-offset:-2px}
 @media (max-width:640px){.demo{grid-template-columns:1fr}.rows{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.drow{flex:none}.drow .dt span{display:none}}
+
+/* Motion, like the board: a living background, faces that bob and blink, a staggered entrance, sections that rise in. */
+body{background-size:140% 140%,140% 140%,auto;animation:bgdrift 18s ease-in-out infinite alternate}
+@keyframes bgdrift{to{background-position:30% 20%,70% 60%,0 0}}
+.hero>*{animation:rise .7s cubic-bezier(.2,.8,.2,1) both}
+.hero>*:nth-child(2){animation-delay:.08s}.hero>*:nth-child(3){animation-delay:.16s}.hero>*:nth-child(4){animation-delay:.24s}.hero>*:nth-child(5){animation-delay:.32s}.hero>*:nth-child(6){animation-delay:.4s}.hero>*:nth-child(7){animation-delay:.48s}
+@keyframes rise{from{opacity:0;transform:translateY(18px);filter:blur(4px)}}
+.faces .ava{animation:fbob 3s ease-in-out infinite,fin .6s cubic-bezier(.3,1.6,.5,1) both;filter:drop-shadow(0 6px 6px rgba(0,0,0,.35));transition:transform .25s}
+.faces .ava:nth-child(2n){animation-delay:-1.1s,.05s}.faces .ava:nth-child(3n){animation-delay:-2s,.1s}.faces .ava:nth-child(4n){animation-delay:-.6s,.15s}.faces .ava:nth-child(5n){animation-delay:-1.6s,.2s}
+.faces .ava:hover{transform:translateY(-6px) scale(1.15) rotate(-6deg)}
+@keyframes fbob{50%{translate:0 -5px}}
+@keyframes fin{from{opacity:0;scale:.3}}
+.ava circle[fill="#0b0b10"],.ava rect[fill="#0b0b10"],.ava ellipse[fill="#0b0b10"]{transform-box:fill-box;transform-origin:center;animation:blink 5s infinite}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+h1 span{background:linear-gradient(90deg,var(--accent),#6ee7a0,#38bdf8,var(--accent));background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 6s linear infinite}
+@keyframes shine{to{background-position:300% 0}}
+.pill{animation:rise .7s both,glowp 2.6s ease-in-out infinite 1s}
+@keyframes glowp{50%{box-shadow:0 0 0 6px var(--accent-tint)}}
+.shot{animation:rise .9s .5s cubic-bezier(.2,.8,.2,1) both,float 6s ease-in-out 1.4s infinite;transition:transform .4s,box-shadow .4s}
+.shot:hover{transform:translateY(-4px) scale(1.01);box-shadow:0 0 0 1px var(--accent),0 30px 70px -20px rgba(34,197,94,.45)}
+@keyframes float{50%{translate:0 -8px}}
+@supports (animation-timeline:view()){section{animation:rise linear both;animation-timeline:view();animation-range:entry 0% entry 40%}}
+.steps>*,.limits li{transition:transform .25s,box-shadow .25s}.steps>*:hover{transform:translateY(-4px)}
+.copy,button{transition:transform .15s,filter .2s}.copy:hover,button:hover{filter:brightness(1.15)}.copy:active,button:active{transform:scale(.95)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 `;
 
 function layout(base: string, meta: PageMeta, body: string): string {
