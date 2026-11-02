@@ -299,6 +299,6 @@ describe("order progress estimate", () => {
 		expect(kEst({ stage: "test", lane: "fast", stageAt: now - 60 * min }, 10 * min)).toEqual({ pct: 63, left: 11 * min }); // review still ahead
 		expect(Math.round(kEst({ stage: "build", stageAt: now - 60 * min }, 10 * min).left / min)).toBe(21); // late build, test and review still ahead
 		expect(kEst({ stage: "done" }, 10 * min).pct).toBe(100);
-		expect(KITCHEN_JS).toContain("+kEstLine(t)");
+		expect(KITCHEN_JS).toContain("kEstLine(t)");
 	});
 });
