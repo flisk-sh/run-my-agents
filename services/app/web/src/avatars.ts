@@ -242,5 +242,5 @@ function eyes(kind: Eyes, look: Look): string {
 
 /** One agent's face as an SVG, size in pixels. */
 export function avatar(a: Agent, size = 48): string {
-	return `<svg class="ava" width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${a.role} agent">${body(a.shape, a.color)}${eyes(a.eyes, a.look)}${a.extra ? EXTRAS[a.extra] : ""}</svg>`;
+	return `<svg class="ava" width="${size}" height="${size}" viewBox="${a.extra ? "-6 -6 76 76" : "0 0 64 64"}" role="img" aria-label="${a.role} agent">${body(a.shape, a.color)}${eyes(a.eyes, a.look)}${a.extra ? EXTRAS[a.extra] : ""}</svg>`;
 }
