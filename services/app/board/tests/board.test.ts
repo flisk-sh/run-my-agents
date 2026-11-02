@@ -581,7 +581,7 @@ describe("new sessions and agent types", () => {
 		const { join } = await import("node:path");
 		const dir = mkdtempSync(join(tmpdir(), "rma-new-grok-"));
 		let seen: { agent: string; cwd: string; text: string; id?: string } | undefined;
-		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: true }), start: async (n) => { seen = n; } });
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: true }), start: async (n) => { seen = n; }, grokAuth: () => true });
 		const res = await post(app, "/api/new", { agent: "grok", cwd: dir, text: "scaffold a widget" });
 		expect(res.status).toBe(202);
 		const { id } = await res.json();
@@ -592,6 +592,27 @@ describe("new sessions and agent types", () => {
 		expect(res2.status).toBe(400);
 		expect((await res2.json()).error).toBe("Grok Build is not installed on this computer.");
 		expect((await post(app, "/api/new", { agent: "gemini", cwd: dir, text: "x" })).status).toBe(400);
+	});
+
+	it("says Grok is not signed in instead of starting a session that never shows up", async () => {
+		const { mkdtempSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const { grokSignedIn } = await import("../src/index");
+		const dir = mkdtempSync(join(tmpdir(), "rma-grok-auth-"));
+		let started = false;
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: true }), start: async () => { started = true; }, grokAuth: () => false });
+		const res = await post(app, "/api/new", { agent: "grok", cwd: dir, text: "x" });
+		expect(res.status).toBe(400);
+		expect((await res.json()).error).toContain("not signed in");
+		expect(started).toBe(false);
+		const g = { id: "01a0d530-4c9a-7782-b980-1dc79bc04e29", agent: "grok", cwd: dir, edits: [], feed: [] } as never;
+		const sent = await post(createApp(() => [g], async () => {}, { grokAuth: () => false }), "/api/send", { id: "01a0d530-4c9a-7782-b980-1dc79bc04e29", text: "hi" });
+		expect(sent.status).toBe(400);
+		expect(grokSignedIn({ GROK_HOME: dir })).toBe(false);
+		expect(grokSignedIn({ GROK_HOME: dir, XAI_API_KEY: "k" })).toBe(true);
+		writeFileSync(join(dir, "auth.json"), "{}");
+		expect(grokSignedIn({ GROK_HOME: dir })).toBe(true);
 	});
 
 	it("puts the prompt on stdin and never in the command line, for both AIs", async () => {

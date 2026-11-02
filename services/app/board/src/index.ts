@@ -298,6 +298,20 @@ export const AGENT_LABEL: Record<Session["agent"], string> = { claude: "Claude C
 /** Which of the three coding agents the board can start are installed. */
 export const installed = () => ({ claude: !!Bun.which("claude"), codex: !!Bun.which("codex"), grok: !!Bun.which("grok") });
 
+/**
+ * Grok Build quits with "Not signed in" before it creates a session, and the board starts it in the background, so
+ * without this check a new Grok session never shows up and nothing says why. Signed in means an API key or auth.json.
+ */
+export function grokSignedIn(env: Record<string, string | undefined> = process.env): boolean {
+	if (env.XAI_API_KEY) return true;
+	try {
+		return statSync(join(env.GROK_HOME || join(homedir(), ".grok"), "auth.json")).isFile();
+	} catch {
+		return false;
+	}
+}
+const GROK_SIGN_IN = "Grok Build is not signed in. Run `grok login` in a terminal (or set XAI_API_KEY), then try again.";
+
 export interface NewSession {
 	agent: "claude" | "codex" | "grok";
 	cwd: string;
@@ -330,8 +344,9 @@ const BUILD = Bun.hash(PAGE).toString(36);
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs } = {},
+	deps: { start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
+	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
 	const which = deps.which ?? installed;
 	const open = deps.open ?? openIn;
@@ -449,6 +464,7 @@ export function createApp(
 		if (message.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
 		const s = read().find((x) => x.id === id);
 		if (!s) return c.json({ error: "That session is gone." }, 404);
+		if (s.agent === "grok" && !grokAuth()) return c.json({ error: GROK_SIGN_IN }, 400);
 		// Only files this board saved for this session can be attached, however the request names them.
 		const dir = join(dataDir(), "uploads", s.id);
 		const attached = (Array.isArray(files) ? files : []).slice(0, 10).map(String).filter((f) => {
@@ -642,6 +658,7 @@ export function createApp(
 		if (text.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
 		if (b.agent !== "claude" && b.agent !== "codex" && b.agent !== "grok") return c.json({ error: "Pick Claude Code, Codex or Grok Build." }, 400);
 		if (!which()[b.agent]) return c.json({ error: `${AGENT_LABEL[b.agent]} is not installed on this computer.` }, 400);
+		if (b.agent === "grok" && !grokAuth()) return c.json({ error: GROK_SIGN_IN }, 400);
 		if (b.role && !ROLES.includes(b.role)) return c.json({ error: "Unknown agent type." }, 400);
 		const cwd = resolve(String(b.cwd ?? ""));
 		try {
