@@ -237,6 +237,13 @@ describe("grok", () => {
 	});
 });
 
+describe("hover pop-ups", () => {
+	it("opens no pop-up when it has nothing to show, like a tool row", async () => {
+		const { PAGE } = await import("../src/page");
+		expect(PAGE).toContain('const html=popHtml(chip.dataset.pop,s,chip);if(!html)return;');
+	});
+});
+
 describe("send", () => {
 	it("sends a message to the session and refuses empty text or a second send while one is on its way", async () => {
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
