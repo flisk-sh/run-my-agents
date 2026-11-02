@@ -104,6 +104,8 @@ export function workDirs(s: Session): string[] {
 			continue;
 		}
 		const r = root(d);
+		// never the whole home folder or the disk, only a project inside it
+		if (r === homedir() || r === dirname(r)) continue;
 		if (r !== own && !(own && (r + sep).startsWith(own + sep))) out.add(r);
 	}
 	return [...out].slice(-8);
