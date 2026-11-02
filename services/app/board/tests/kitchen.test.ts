@@ -124,7 +124,7 @@ describe("scoreboard", () => {
 	const cook = (id: string) => ({ id, role: id === "a" ? "Planner" : "Code", name: id.toUpperCase() });
 	const served = (n: number, rounds: number, crew: string[], extra: Partial<Task> = {}): Task => ({
 		id: `t${n}`, n, title: `order ${n}`, cwd: "", priority: "P1", stage: "done", assignee: "", sentAt: 0, approved: true,
-		skills: ["tdd"], route: "Code", rounds, stuck: false, created: n, updated: n, servedAt: n,
+		skills: ["tdd"], route: "Code", rounds, stuck: false, created: n, updated: n, servedAt: n, kind: "task",
 		crew: { spec: cook(crew[0]), build: cook(crew[1] ?? crew[0]) }, ...extra,
 	});
 	it("scores a perfect game as 300", () => {
@@ -161,7 +161,7 @@ describe("kitchen page", () => {
 describe("live ratings", () => {
 	const { ratings } = require("../src/kitchen/scores") as typeof import("../src/kitchen/scores");
 	const cook = (id: string, role = "Code") => ({ id, role, name: id });
-	const base: Task = { id: "x", n: 1, title: "x", cwd: "", priority: "P1", stage: "done", assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 };
+	const base: Task = { id: "x", n: 1, title: "x", cwd: "", priority: "P1", stage: "done", assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1, kind: "task" };
 	it("rates agents from every order, served or not", () => {
 		const rs = ratings(
 			[

@@ -532,3 +532,37 @@ describe("one chat per order", () => {
 		expect((await post("/api/tasks/move", { id: "t", cwd: "/no/such/folder" })).status).toBe(400);
 	});
 });
+
+describe("lanes, scores and crew clean-up", () => {
+	it("keeps the FAIL line as the lesson, drops junk, and names the stage once", async () => {
+		const { failLine } = await import("../src/kitchen/routes");
+		expect(failLine("Checked it.\n\n**FAIL** — range(1,3) returned [1,2], expected [1,2,3].")).toBe("FAIL — range(1,3) returned [1,2], expected [1,2,3].");
+		expect(failLine("Ready.")).toBe("");
+		const { isLesson } = await import("../src/kitchen/containers");
+		expect(["Ready.", "Let me check the build lessons to understand", "REJECT: will not reopen"].map(isLesson)).toEqual([false, false, false]);
+		expect(["FAIL — returned 2013 for a date", "Stuck after 3 rounds.", "Missed: no progress for 30 min."].map(isLesson)).toEqual([true, true, true]);
+		const { post } = setup([]);
+		order({ stage: "build", cwd: "/repo", title: "add search filters to the sessions list with saved views" });
+		await post("/api/kitchen", { auto: true });
+		expect(readFileSync(join(skills, "rma-lessons-build", "SKILL.md"), "utf8")).toContain("Lessons the Build agents learned");
+	});
+
+	it("scores crew rows, not chats, and leaves out questions and pre-triage orders", async () => {
+		const { crewKey, ratings } = await import("../src/kitchen/scores");
+		expect(crewKey({ id: "a", role: "Build", name: "Build · flisk 3125" })).toEqual({ key: "Build · flisk", label: "Build · flisk", role: "Build" });
+		expect(crewKey({ id: "b", role: "Code", name: 'You are a Code agent in the "Kitchen cooks" agent container on' }).key).toBe("Kitchen cooks");
+		expect(crewKey({ id: "c", role: "Code", name: "kicken" }).key).toBe("c");
+		const t = (n: number, who: string, extra = {}) => ({ id: `t${n}`, n, title: "x", cwd: "", priority: "P1" as const, stage: "done" as const, assignee: "", sentAt: 0, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1, kind: "task" as const, crew: { build: { id: who, role: "Build", name: `Build · flisk ${who}` } }, ...extra });
+		const rs = ratings([t(1, "aaaa"), t(2, "bbbb"), t(3, "cccc", { kind: undefined })], { "Build · flisk": 1 });
+		expect(rs).toHaveLength(1);
+		expect(rs[0]).toMatchObject({ label: "Build · flisk", role: "Build", steps: 2, served: 2, strikes: 1 });
+	});
+
+	it("retires an old all-stage container once its agents hold no order", async () => {
+		const { post } = setup([]);
+		const { createContainer } = await import("../src/kitchen/containers");
+		createContainer({ name: "Kitchen cooks", role: "Code", stages: ["spec", "build", "test", "review"], replicas: 2, cwd: "/repo" });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Kitchen cooks: replaced by stage agents");
+		expect(readContainers().find((x) => x.name === "Kitchen cooks")).toMatchObject({ replicas: 0, downReason: "Replaced by stage agents" });
+	});
+});

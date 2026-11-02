@@ -31,24 +31,39 @@ function line(key: string, label: string, sub: string, orders: Task[]): Line {
 }
 const rank = (a: Line, b: Line) => b.score - a.score || b.strikes - a.strikes || b.served - a.served || a.label.localeCompare(b.label);
 
-/** Rank tables for agents, pairs of agents who cooked the same order, and skills. Only served orders count. */
+/**
+ * Who a crew entry is for scoring: its crew row ("Build · flisk"), not the chat. Every order gets a fresh chat, so
+ * scoring chats listed dozens of retired ones. Old entries named by their first prompt map to their container too.
+ */
+export function crewKey(c: { id: string; role: string; name: string }): { key: string; label: string; role: string } {
+	const quoted = /in the "([^"]+)" agent container/.exec(c.name)?.[1];
+	const pod = /^(.+ · .+|Kitchen cooks|Auto cooks.*)\s[0-9a-f]{4}$/.exec(c.name)?.[1];
+	const base = quoted ?? pod;
+	// One of your own chats: rated as itself.
+	if (!base) return { key: c.id, label: c.name || c.role, role: c.role };
+	const type = /^(Spec|Build|Test|Review)\b/.exec(base)?.[1];
+	return { key: base, label: base, role: type ?? c.role };
+}
+
+/** Rank tables for crew rows, pairs of rows that cooked the same order, and skills. Only served tasks count. */
 export function scoreboard(tasks: Task[]) {
-	const served = tasks.filter((t) => t.stage === "done");
+	// Questions and orders from before intake triage (no kind) never went through the kitchen.
+	const served = tasks.filter((t) => t.stage === "done" && t.kind === "task");
 	const agents = new Map<string, { label: string; sub: string; orders: Task[] }>();
 	const pairs = new Map<string, { label: string; orders: Task[] }>();
 	const skills = new Map<string, Task[]>();
 	for (const t of served) {
-		const crew = [...new Map(Object.values(t.crew ?? {}).filter(Boolean).map((c) => [c!.id, c!])).values()];
+		const crew = [...new Map(Object.values(t.crew ?? {}).filter(Boolean).map((c) => crewKey(c!)).map((c) => [c.key, c])).values()];
 		for (const c of crew) {
-			const a = agents.get(c.id) ?? { label: c.name || c.role, sub: c.role, orders: [] };
+			const a = agents.get(c.key) ?? { label: c.label, sub: c.role, orders: [] };
 			a.orders.push(t);
-			agents.set(c.id, a);
+			agents.set(c.key, a);
 		}
 		for (let i = 0; i < crew.length; i++)
 			for (let j = i + 1; j < crew.length; j++) {
-				const [x, y] = [crew[i], crew[j]].sort((p, q) => p.id.localeCompare(q.id));
-				const k = `${x.id}+${y.id}`;
-				const p = pairs.get(k) ?? { label: `${x.name || x.role} + ${y.name || y.role}`, orders: [] };
+				const [x, y] = [crew[i], crew[j]].sort((p, q) => p.key.localeCompare(q.key));
+				const k = `${x.key}+${y.key}`;
+				const p = pairs.get(k) ?? { label: `${x.label} + ${y.label}`, orders: [] };
 				p.orders.push(t);
 				pairs.set(k, p);
 			}
@@ -66,18 +81,19 @@ export function scoreboard(tasks: Task[]) {
 export type Rating = { id: string; label: string; role: string; steps: number; served: number; fails: number; stuck: number; strikes: number; working: number; rating: number };
 
 /**
- * A 0-100 rating per agent from all orders so far, so agents are rated before anything is served. It starts at 50:
+ * A 0-100 rating per crew row (Build · flisk, or one of your chats) from all tasks so far, so agents are rated before anything is served. It starts at 50:
  * +10 per order served, +3 per step done, -8 per FAIL on an order it built, -15 per stuck order it built, -10 per
  * container strike. The table shows every number it is made of.
  */
 export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Rating[] {
 	const by = new Map<string, Rating>();
 	const get = (c: { id: string; role: string; name: string }) => {
-		let r = by.get(c.id);
-		if (!r) by.set(c.id, (r = { id: c.id, label: c.name || c.role, role: c.role, steps: 0, served: 0, fails: 0, stuck: 0, strikes: strikes[c.id] ?? 0, working: 0, rating: 0 }));
+		const ck = crewKey(c);
+		let r = by.get(ck.key);
+		if (!r) by.set(ck.key, (r = { id: ck.key === ck.label ? c.id : ck.key, label: ck.label, role: ck.role, steps: 0, served: 0, fails: 0, stuck: 0, strikes: strikes[ck.key] ?? strikes[c.id] ?? 0, working: 0, rating: 0 }));
 		return r;
 	};
-	for (const t of tasks) {
+	for (const t of tasks.filter((x) => x.kind === "task")) {
 		for (const [stage, c] of Object.entries(t.crew ?? {})) {
 			if (!c) continue;
 			const r = get(c);
@@ -85,8 +101,8 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
 			if (current) r.working += 1;
 			else r.steps += 1;
 		}
-		const crew = new Set(Object.values(t.crew ?? {}).map((c) => c?.id));
-		if (t.stage === "done" && !t.failed) for (const id of crew) if (id) by.get(id)!.served += 1;
+		const crew = new Set(Object.values(t.crew ?? {}).filter(Boolean).map((c) => get(c!)));
+		if (t.stage === "done" && !t.failed) for (const r of crew) r.served += 1;
 		const builder = t.crew?.build;
 		if (builder) {
 			get(builder).fails += t.rounds;

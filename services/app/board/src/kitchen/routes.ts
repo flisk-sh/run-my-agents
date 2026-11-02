@@ -53,6 +53,15 @@ const handOff = (s: Session | undefined) => {
 		.slice(-3000);
 };
 
+/** The line that says FAIL and why, without markdown, for a lesson. */
+export function failLine(text: string): string {
+	const lines = text.split("\n").map((l) => l.replace(/[*_`>#]/g, "").trim()).filter(Boolean);
+	const i = lines.map((l) => /\bFAIL\b/.test(l)).lastIndexOf(true);
+	if (i < 0) return "";
+	const line = lines[i].length < 40 && lines[i + 1] ? `${lines[i]} ${lines[i + 1]}` : lines[i];
+	return line.slice(0, 300);
+}
+
 /** The verdict a test or review agent gave: its last PASS or FAIL wins, so "FAIL … corrected verdict: PASS" passes. */
 export function verdictIn(text: string): boolean | undefined {
 	const all = [...text.matchAll(/\b(PASS|FAIL)\b/g)];
@@ -209,7 +218,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	// ---------- orders ----------
 	app.get("/api/scores", (c) => {
 		const strikes: Record<string, number> = {};
-		for (const box of readContainers()) for (const p of box.pods) strikes[p.session] = (strikes[p.session] ?? 0) + p.strikes;
+		for (const box of readContainers()) strikes[box.name] = (strikes[box.name] ?? 0) + box.pods.reduce((a, p) => a + p.strikes, 0);
 		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes), flow: flow(readTasks()) });
 	});
 	app.get("/api/tasks", (c) =>
@@ -381,7 +390,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const order = t;
 		if (pass === false && (t.stage === "test" || t.stage === "review")) {
 			const builder = t.crew?.build?.id;
-			const why = lastSaid(k.read().find((x) => x.id === t.assignee)) || `${t.stage} said FAIL`;
+			// The lesson is the agent's FAIL line, not the tail of its reply.
+			const why = failLine(handOff(k.read().find((x) => x.id === t.assignee))) || `FAIL in ${t.stage} (no reason given)`;
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
 			if (hit?.fired && builder) k.close(builder);
 			const back = sendBack(t);
@@ -423,7 +433,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				did.push(`#${t.n} closed as failed`);
 			}
 		}
-		did.push(...autoscale(), ...letIdleGo(now));
+		did.push(...autoscale(), ...retireMixed(), ...letIdleGo(now));
 		const all = k.read();
 		for (const t of readTasks()) {
 			if (!t.assignee) continue;
@@ -488,6 +498,22 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					did.push(`${box.name}: ${box.replicas} → ${want} agents`);
 				}
 			}
+		}
+		return did;
+	}
+
+	/**
+	 * Containers that cover several stages (Kitchen cooks, Auto cooks) came before the stage agents. Once none of
+	 * their agents holds an order they go to zero, unless you sized one by hand; the stage rows take their work.
+	 */
+	function retireMixed() {
+		const did: string[] = [];
+		const busy = new Set(readTasks().filter((t) => t.assignee).map((t) => t.assignee));
+		for (const box of readContainers()) {
+			if (box.stages.length < 2 || box.floorByHand || box.replicas === 0) continue;
+			if (box.pods.some((p) => p.status !== "evicted" && busy.has(p.session))) continue;
+			patchContainer(box.id, { replicas: 0, downReason: "Replaced by stage agents" });
+			did.push(`${box.name}: replaced by stage agents`);
 		}
 		return did;
 	}
@@ -573,7 +599,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!b.cwd) return c.json({ error: "Pick the folder its agents work in." }, 400);
 		if (b.model && !["haiku", "sonnet", "opus"].includes(b.model)) return c.json({ error: "Pick haiku, sonnet or opus." }, 400);
 		const skills = (b.skills ?? []).filter((n) => SKILLS.some((s) => s.name === n));
-		const box = createContainer({ ...b, name, role: b.role || STAGE_ROLES[stages[0]][0], stages, cwd: b.cwd, skills, model: b.model ?? "", effort: b.effort ?? "" });
+		const box = createContainer({ ...b, name, role: b.role || STAGE_ROLES[stages[0]][0], stages, cwd: b.cwd, skills, floorByHand: true, model: b.model ?? "", effort: b.effort ?? "" });
 		stock([...skills, ...stages.flatMap((s) => STAGE_SKILLS[s])], k.fetch);
 		return c.json(view(box), 201);
 	});
