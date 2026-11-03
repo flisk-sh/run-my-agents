@@ -456,3 +456,14 @@ describe("kitchen pipeline bugs", () => {
 		expect(t).toMatchObject({ stage: "done", answer: "Paris." });
 	});
 });
+
+describe("checkers hold the work to a higher standard (order #82)", () => {
+	it("Test and Review verify facts and read the whole change, not only the spec's checklist", async () => {
+		const { STAGE_BRIEF } = await import("../src/kitchen/routes");
+		expect(STAGE_BRIEF.test).toContain("open every file the change touches and read it whole");
+		expect(STAGE_BRIEF.test).toContain("FAIL on an invented or unverifiable fact");
+		expect(STAGE_BRIEF.review).toContain("not only the spec");
+		expect(STAGE_BRIEF.review).toContain("invented or unverifiable fact");
+		expect(STAGE_BRIEF.spec).toContain("never tells Build to transcribe or guess a fact");
+	});
+});

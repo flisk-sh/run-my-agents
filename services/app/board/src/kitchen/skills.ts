@@ -115,13 +115,18 @@ export function skillset(stage: Stage, extra: string[] = []): string[] {
 	return [...new Set([...STAGE_SKILLS[stage], ...extra])].filter((n) => SKILLS.some((s) => s.name === n) || n.startsWith(LESSONS_PREFIX));
 }
 
-/** Model policy: the orchestrator (the spec step that plans the order) on Opus/medium, every worker on Haiku/low. */
+/**
+ * Model policy: the orchestrator (the spec step that plans the order) on Opus/medium, the checkers (Test and Review) on
+ * Sonnet/medium, the builder on Haiku/low. Order #82's Test and Review on Haiku/low passed a doc that invented facts
+ * and a garbled risk paragraph, because a checker that follows a checklist literally cannot tell when the work is wrong.
+ */
 export const POLICY = {
 	orchestrator: { model: "opus", effort: "medium" },
+	checker: { model: "sonnet", effort: "medium" },
 	worker: { model: "haiku", effort: "low" },
 } as const;
 export const policyFor = (stage: Stage, override?: { model?: string; effort?: string }) => {
-	const base = stage === "spec" || stage === "inbox" ? POLICY.orchestrator : POLICY.worker;
+	const base = stage === "spec" || stage === "inbox" ? POLICY.orchestrator : stage === "test" || stage === "review" ? POLICY.checker : POLICY.worker;
 	return { model: override?.model || base.model, effort: override?.effort || base.effort };
 };
 

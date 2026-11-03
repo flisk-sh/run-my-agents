@@ -48,7 +48,8 @@ const order = (o: object) => writeFileSync(join(dir, "tasks.json"), JSON.stringi
 describe("model policy and skill sets", () => {
 	it("runs workers on haiku/low and the orchestrator on opus/medium", () => {
 		expect(policyFor("build")).toEqual({ model: "haiku", effort: "low" });
-		expect(policyFor("review")).toEqual({ model: "haiku", effort: "low" });
+		expect(policyFor("review")).toEqual({ model: "sonnet", effort: "medium" });
+		expect(policyFor("test")).toEqual({ model: "sonnet", effort: "medium" });
 		expect(policyFor("spec")).toEqual({ model: "opus", effort: "medium" });
 		expect(policyFor("build", { model: "sonnet", effort: "" })).toEqual({ model: "sonnet", effort: "low" });
 	});
