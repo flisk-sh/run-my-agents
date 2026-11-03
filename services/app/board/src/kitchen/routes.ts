@@ -595,7 +595,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			...(b.stage ? { stage: b.stage as Stage, assignee: "", sentAt: 0, shipping: false, stuck: false, waitingOn: undefined, answered: 0, rounds: Math.min(cur?.rounds ?? 0, MAX_ROUNDS - 1) } : {}),
 			...(typeof b.approved === "boolean" ? { approved: b.approved, ...(b.approved ? { atPass: false } : {}) } : {}),
 			...(b.priority ? { priority: b.priority as Task["priority"] } : {}),
-			...(b.cwd ? { cwd: resolvePath(String(b.cwd)), assignee: "", sentAt: 0 } : {}),
+			// Another repo gets its own worktree: keeping the old one sent Build to repo A after a move to repo B (#259).
+			...(b.cwd ? { cwd: resolvePath(String(b.cwd)), assignee: "", sentAt: 0, ...(resolvePath(String(b.cwd)) !== cur?.cwd ? { worktree: undefined, base: undefined, baseDirty: undefined } : {}) } : {}),
 		});
 		return t ? c.json(t) : c.json({ error: "That order is gone." }, 404);
 	});

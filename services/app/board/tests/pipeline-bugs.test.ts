@@ -275,4 +275,22 @@ describe("kitchen pipeline bugs", () => {
 		expect(stages).toContain("test");
 		expect(t.stage).toBe("done");
 	});
+
+	it("#259: moving an order to another repo by hand does not keep the old repo's worktree", async () => {
+		const a = repo();
+		const b = repo();
+		const k = kitchen();
+		await k.post("/api/kitchen", { auto: false });
+		await k.post("/api/tasks", { title: TITLE, cwd: a });
+		const id = k.tasks()[0].id;
+		const { orderWorktree, headOf } = await import("../src/kitchen/routes");
+		const wtA = orderWorktree(a, 1) as string;
+		k.setTasks(k.tasks().map((t: object) => ({ ...t, stage: "build", approved: true, worktree: wtA, base: headOf(wtA) })));
+		await k.post("/api/tasks/move", { id, cwd: b });
+		k.sessions.push({ ...(parseSession("b1", [JSON.stringify({ type: "user", cwd: b, message: { content: "hi" } })], Date.now()) as Session), cwd: b, role: "Build" });
+		await k.post("/api/tasks/dispatch", { id, session: "b1" });
+		const sent = k.said.at(-1) ?? "";
+		expect(sent).not.toContain(wtA);
+		expect(k.tasks()[0].worktree ?? "").not.toBe(wtA);
+	});
 });
