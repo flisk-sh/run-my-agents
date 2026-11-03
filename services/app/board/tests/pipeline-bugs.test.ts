@@ -376,4 +376,22 @@ describe("kitchen pipeline bugs", () => {
 		// The spec step of the new run was handed the old run's verdicts, though it is told they do not apply.
 		expect(k.said.filter((m) => m.startsWith("Order #1 (spec)")).at(-1)).not.toContain("From the Test agent");
 	});
+
+	it("#319: Spec is told not to invent what an order says to fix", async () => {
+		const { STAGE_BRIEF } = await import("../src/kitchen/routes");
+		expect(STAGE_BRIEF.spec).toContain("If the order asks to fix or change a file, function or behaviour that does not exist in this repo, do not create it");
+	});
+
+	it("#319: an order to fix a file that does not exist ends blocked, with no follow-up, when Spec follows its brief", async () => {
+		const k = kitchen((text) =>
+			/\(spec\)/.test(text) && text.includes("do not create it") ? "This repo has no src/geometry.ts and no area().\n\nFAIL: src/geometry.ts and area() do not exist in this repo" : undefined,
+		);
+		await k.post("/api/tasks", { title: "fix the crash in src/geometry.ts area() when the radius is negative", cwd: repo() });
+		const { stages, t } = await k.run();
+		expect(stages).not.toContain("build");
+		expect(t).toMatchObject({ stage: "done", failed: true });
+		expect(t.failures.join("\n")).toContain("spec: blocked: src/geometry.ts and area() do not exist");
+		expect(t.followUp).toBeUndefined();
+		expect(k.tasks()).toHaveLength(1);
+	});
 });
