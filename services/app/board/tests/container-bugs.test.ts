@@ -202,6 +202,22 @@ describe("agent container bugs", () => {
 		const r = await post("/api/containers/scale", { id: box?.id, replicas: 1 });
 		expect(r.body.replicas).toBe(1);
 	});
+	it("#244: keeps a ready agent that has been quiet for an hour instead of evicting and rebooting it", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "Builders", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		sessions.push(session(started[0].id as string, "Code"));
+		await post("/api/containers/reconcile", {});
+		expect(readContainers()[0].pods[0].status).toBe("ready");
+		// 70 quiet minutes later its transcript is older than the listing window, so it is no longer in k.read().
+		const boxes = JSON.parse(readFileSync(join(dir, "containers.json"), "utf8"));
+		writeFileSync(join(dir, "containers.json"), JSON.stringify(boxes.map((b: { pods: { started: number }[] }) => ({ ...b, pods: b.pods.map((p) => ({ ...p, started: Date.now() - 70 * 60_000 })) }))));
+		sessions.length = 0;
+		await post("/api/containers/reconcile", {});
+		expect(readContainers()[0].pods.map((p) => [p.status, p.reason])).toEqual([["ready", undefined]]);
+		expect(started).toHaveLength(1);
+	});
 });
 
 // keep imports used

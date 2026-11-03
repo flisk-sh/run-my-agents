@@ -358,7 +358,9 @@ export function reconcile(ctx: ReconcileCtx) {
 					did.push(`${c.name}: ${p.session.slice(0, 8)} ready`);
 				}
 				// Gone or closed by hand: a starting pod gets 10 minutes to show up.
-				if ((s?.hidden || (!s && now - p.started > 10 * 60_000)) && p.status !== "evicted") {
+				// "Never started" is for a pod still starting. A ready agent quiet for an hour drops off the board's list
+				// (it shows chats changed in the last 60 minutes) and was evicted and booted again every hour (#244).
+				if ((s?.hidden || (!s && p.status === "starting" && now - p.started > 10 * 60_000)) && p.status !== "evicted") {
 					Object.assign(p, { status: "evicted", reason: s ? "Closed on the board" : "Never started", evictedAt: now });
 					did.push(`${c.name}: ${p.session.slice(0, 8)} gone`);
 				}
