@@ -324,4 +324,25 @@ describe("kitchen pipeline bugs", () => {
 		const { KITCHEN_JS } = await import("../src/kitchen/view");
 		expect(KITCHEN_JS).toContain('post("api/tasks/serve",{id:t.id,pass,stage:t.stage,assignee:t.assignee||""})');
 	});
+
+	it("#308: Spec and Test are told a test that failed before the change is not its defect", async () => {
+		const { STAGE_BRIEF } = await import("../src/kitchen/routes");
+		expect(STAGE_BRIEF.spec).toContain("never 'the whole suite passes' when a test already fails before the change");
+		expect(STAGE_BRIEF.test).toContain("A test that already fails on the branch the change started from");
+		expect(STAGE_BRIEF.test).toContain("is not this change's defect: name it and PASS");
+	});
+
+	it("#308: serves a correct change in a repo whose suite already fails, when Test follows its brief", async () => {
+		const k = kitchen((text) => {
+			if (!/\(test\)/.test(text)) return undefined;
+			// What the brief now asks: the old failure is named, the change itself is judged.
+			return /already fails on the branch the change started from/.test(text)
+				? "Ran bun test: 1 fail, 'ranges include the end', which fails on main too (git stash). The new code is correct.\n\nPASS — the only failure is pre-existing."
+				: "Ran bun test: 1 fail.\n\nFAIL: 'ranges include the end' fails.";
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const { t } = await k.run();
+		expect(t).toMatchObject({ stage: "done" });
+		expect(t.failed).toBeFalsy();
+	});
 });
