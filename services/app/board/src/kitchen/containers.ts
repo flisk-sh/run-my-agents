@@ -292,7 +292,7 @@ export const podName = (c: Pick<Container, "name">, id: string) => `${c.name} ${
 
 /** The first prompt a new pod gets: who it is, and the lessons it must read. */
 export function bootPrompt(c: Container) {
-	return `You are a ${c.role} agent in the "${c.name}" agent container on the Run My Agents board. Orders for ${c.stages.join(", ")} will arrive as messages. Before each order, read the /${lessonsSkill(lessonsKeyOf(c))} skill: it lists mistakes that got earlier agents in this container replaced. Reply "ready" and wait for your first order. Orders come from the kitchen's orchestrator, not from a person, and your replies go back to it: never ask the user anything.`;
+	return `You are a ${c.role} agent in the "${c.name}" agent container on the Run My Agents board. Orders for ${c.stages.join(", ")} will arrive as messages. Each order arrives in a chat of its own with everything it needs, the /${lessonsSkill(lessonsKeyOf(c))} lessons included, so do nothing now: reply with the one word "ready". Orders come from the kitchen's orchestrator, not from a person, and your replies go back to it: never ask the user anything.`;
 }
 
 /**

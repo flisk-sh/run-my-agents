@@ -426,7 +426,20 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const boxes = readContainers()
 			.filter((x) => order.kind === "question" || x.stages.includes(key))
 			.sort((a, b) => a.stages.length - b.stages.length);
-		const pod = boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
+		// A task step in a stage runs in a fresh chat in the order's worktree (see dispatch), so the pod is only a slot:
+		// any live pod holding no order will do, even one still starting or still on its boot turn. Waiting for the boot
+		// turn to end held every step 40-50 s before it began.
+		const fresh = order.kind === "task" && ["spec", "build", "test", "review"].includes(key);
+		const slot = (x: Container, p: Container["pods"][number]): Session | undefined => {
+			const s = all.find((y) => y.id === p.session);
+			if (s) return !s.hidden && !busy.has(s.id) && !order.missedBy?.includes(s.id) && (!order.cwd || sameRepo(s.cwd, order.cwd)) ? s : undefined;
+			if (busy.has(p.session) || order.missedBy?.includes(p.session) || (order.cwd && !sameRepo(x.cwd, order.cwd))) return undefined;
+			// Its chat has not shown up on the board yet: stand in for it, since only its id, role and folder are used.
+			return { id: p.session, agent: "claude", model: "", tokens: { used: 0, cached: 0 }, cwd: x.cwd, branch: "", title: podName(x, p.session), said: "", doing: "Starting", edits: [], updatedAt: p.started, role: x.role, pinned: false, feed: [] };
+		};
+		const pod = fresh
+			? boxes.flatMap((x) => x.pods.filter((p) => p.status !== "evicted").map((p) => slot(x, p))).find((s): s is Session => !!s)
+			: boxes.flatMap((x) => x.pods.filter((p) => p.status === "ready").map((p) => all.find((s) => s.id === p.session))).find((s): s is Session => !!s && free(s));
 		const stage = order.stage === "inbox" ? (order.lane === "fast" ? "build" : "spec") : order.stage;
 		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
 		if (podsOnly) {

@@ -457,8 +457,9 @@ describe("fast lane", () => {
 		sessions.push({ ...session(started[0].id as string, "Code"), updatedAt: Date.now() - 60_000 });
 		await post("/api/containers/reconcile", {});
 		await Bun.sleep(30);
-		const r = (await post("/api/tasks/dispatch", { id: t.id })).body;
-		expect(r).toMatchObject({ stage: "build", approved: true, model: "haiku", effort: "low" });
+		// The loop sends it to a Build agent at once: it does not wait for that agent's boot turn, or for a dispatch call.
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0]).toMatchObject({ stage: "build", approved: true });
+		expect((await post("/api/tasks/dispatch", { id: t.id })).body.error).toBe("#1 is already with an agent.");
 		expect(sent.at(-1)).toContain("Order #1 (build)");
 	});
 });

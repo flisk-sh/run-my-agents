@@ -32,9 +32,9 @@ type Agent = (text: string, cwd: string) => string;
 /** The scripted agents. `build` decides whether the builder really changes the file. */
 /**
  * `ship` decides how many ship attempts fail (no PR in the reply) before one opens a PR. `tools`: every agent reply
- * comes with its tool calls, as a real turn's last feed item does.
+ * comes with its tool calls, as a real turn's last feed item does. `bootHangs`: a pod's boot turn never ends.
  */
-function kitchen(build: "fix" | "nothing", ship = 0, o: { tools?: boolean } = {}) {
+function kitchen(build: "fix" | "nothing", ship = 0, o: { tools?: boolean; bootHangs?: boolean } = {}) {
 	let shipFails = ship;
 	const reply: Agent = (text, cwd) => {
 		if (/^You are a \w+ agent/.test(text)) return "ready";
@@ -66,6 +66,7 @@ function kitchen(build: "fix" | "nothing", ship = 0, o: { tools?: boolean } = {}
 			start: async (n) => {
 				const s = { ...(parseSession(n.id as string, [JSON.stringify({ type: "user", cwd: n.cwd, message: { content: "start" } })], Date.now()) as Session), cwd: n.cwd, role: "Build", feed: [] };
 				sessions.push(s);
+				if (o.bootHangs && /^You are a \w+ agent/.test(n.text)) return new Promise<void>(() => {});
 				talk(s, n.text);
 			},
 			fetch: (async () => new Response("---\nname: x\n---\n")) as unknown as typeof fetch,
@@ -190,6 +191,14 @@ describe("full SDLC, end to end", () => {
 	it("moves on as soon as a step's agent is quiet, even though its last message carries tool calls (#228)", async () => {
 		// A parsed turn is one feed item with all its tool calls; the board read every finished step as mid-turn for 30 s.
 		const k = kitchen("fix", 0, { tools: true });
+		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: repo(false) });
+		const { stages, t } = await run(k);
+		expect(stages).toEqual(["spec", "build", "test", "review", "done"]);
+		expect(t.failed).toBeFalsy();
+	});
+
+	it("starts a step without waiting for its agent's boot turn, since the step runs in a chat of its own (#229)", async () => {
+		const k = kitchen("fix", 0, { bootHangs: true });
 		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: repo(false) });
 		const { stages, t } = await run(k);
 		expect(stages).toEqual(["spec", "build", "test", "review", "done"]);
