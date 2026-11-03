@@ -90,6 +90,11 @@ refreshes `services/app/board/src/skills.json`).
 
 ## Mac app
 
+[Download for macOS](https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip)
+(Apple Silicon and Intel, macOS 13 or later). The board is built in, so it needs no Bun, Docker, Tilt or Flisk. It
+is not notarized yet: the first time, open it from System Settings, Privacy & Security, Open Anyway. Every `v*` tag
+builds and attaches a new one (`.github/workflows/release-mac.yml`).
+
 `mac/build.sh` builds `mac/build/Run My Agents.app`: the board in a native window, plus a menu bar item. It starts
 the board itself if nothing answers on port 4100. See [mac/README.md](mac/README.md).
 

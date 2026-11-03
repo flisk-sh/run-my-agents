@@ -1,0 +1,47 @@
+# Builds the Mac app for a release and attaches it, so the website's "Download for macOS" link
+# (releases/latest/download/Run-My-Agents-macOS.zip) always serves the newest board. Runs when a v* tag is
+# pushed, or by hand for an existing tag.
+name: Release | Mac app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build, like v0.1.7"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    name: Mac app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+      - name: Build
+        run: RUN_MY_AGENTS_VERSION="$TAG" ./mac/build.sh --release
+      - name: The bundled board starts with nothing on PATH
+        run: |
+          board="mac/build/Run My Agents.app/Contents/Resources/board"
+          lipo -archs "$board" | grep -q arm64
+          mkdir -p "$RUNNER_TEMP/home/.claude/projects"
+          (env -i HOME="$RUNNER_TEMP/home" PATH=/usr/bin:/bin PORT=4799 "$board" > "$RUNNER_TEMP/board.log" 2>&1 &)
+          for i in $(seq 1 20); do curl -sf -o /dev/null http://127.0.0.1:4799/ && break; sleep 1; done
+          curl -sf http://127.0.0.1:4799/ | grep -q preact || { cat "$RUNNER_TEMP/board.log"; exit 1; }
+      - name: Attach to the release
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "Run My Agents ${TAG#v}" --generate-notes
+          gh release upload "$TAG" mac/build/Run-My-Agents-macOS.zip --clobber

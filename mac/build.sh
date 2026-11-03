@@ -8,6 +8,10 @@ release=false; [ "${1:-}" = "--release" ] && release=true
 here="$(cd "$(dirname "$0")" && pwd)"
 board="${RUN_MY_AGENTS_BOARD:-$(cd "$here/../services/app/board" && pwd)}"
 out="$here/build"; app="$out/Run My Agents.app"
+# The version shown in Finder and About: RUN_MY_AGENTS_VERSION (the release workflow passes the tag), else the
+# latest v* tag, else 0.0.0.
+version="${RUN_MY_AGENTS_VERSION:-$(git -C "$here" describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)}"
+version="${version#v}"
 rm -rf "$app"; mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$out/tmp"
 
 # icon
@@ -48,8 +52,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>sh.flisk.run-my-agents</string>
   <key>CFBundleExecutable</key><string>RunMyAgents</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.5</string>
-  <key>CFBundleVersion</key><string>6</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$version</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>

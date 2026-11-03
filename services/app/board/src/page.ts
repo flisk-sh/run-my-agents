@@ -9,11 +9,11 @@
 import { KITCHEN_CSS, KITCHEN_HTML, KITCHEN_JS } from "./kitchen/view";
 import { renderMarkdown } from "./markdown";
 import { EXTRAS } from "../../web/src/avatars";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+// A text import, so `bun build --compile` (the Mac app) embeds the file instead of reading node_modules at start.
+import PREACT_UMD from "../node_modules/preact/dist/preact.min.js" with { type: "text" };
 
 // Preact's UMD build (defines the global `preact`), inlined so the board works offline.
-const PREACT = readFileSync(join(dirname(Bun.resolveSync("preact/package.json", import.meta.dir)), "dist/preact.min.js"), "utf8").replace(/\/\/# sourceMappingURL=.*$/m, "");
+const PREACT = (PREACT_UMD as unknown as string).replace(/\/\/# sourceMappingURL=.*$/m, "");
 
 export const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Run My Agents</title><style>

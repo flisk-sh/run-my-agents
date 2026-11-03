@@ -159,6 +159,16 @@ describe("live board demo", () => {
 	});
 });
 
+describe("Mac download", () => {
+	it("links the home page to the newest release's Mac app", async () => {
+		const html = await (await app.request("/")).text();
+		expect(html).toContain(
+			'href="https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip"',
+		);
+		expect(html).toContain("Download for macOS");
+	});
+});
+
 describe("Kitchen Rush game", () => {
 	it("serves the game with a script-only policy and links it from the nav", async () => {
 		const res = await app.request("/play");

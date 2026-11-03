@@ -66,6 +66,16 @@ jobs:
       - name: Kitchen agent (Flisk agent resource)
         run: bun test
         working-directory: services/app/kitchen
+      # The Mac app ships the board as one compiled binary, so it must start with nothing on PATH: no Bun, Docker,
+      # Tilt or Flisk, and no node_modules next to it.
+      - name: Compiled board starts on its own
+        run: |
+          bun build --compile src/index.ts --outfile "$RUNNER_TEMP/board"
+          mkdir -p "$RUNNER_TEMP/home/.claude/projects"
+          (cd "$RUNNER_TEMP" && env -i HOME="$RUNNER_TEMP/home" PATH=/usr/bin:/bin PORT=4799 ./board > board.log 2>&1 &)
+          for i in $(seq 1 20); do curl -sf -o /dev/null http://127.0.0.1:4799/ && break; sleep 1; done
+          curl -sf http://127.0.0.1:4799/ | grep -q preact || { cat "$RUNNER_TEMP/board.log"; exit 1; }
+          curl -sf http://127.0.0.1:4799/api/sessions > /dev/null
 
   image:
     name: Production image

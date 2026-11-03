@@ -23,6 +23,8 @@ h1{font-size:clamp(2.4rem,7vw,4rem);line-height:1.05;letter-spacing:-.03em;margi
 .install .bar{padding:10px 16px;border-bottom:1px solid var(--line);font-size:.8rem;color:var(--faint)}
 pre{margin:0;padding:16px;font:.9rem/1.7 var(--mono);overflow-x:auto}.p{color:var(--faint);user-select:none}
 .meta{margin-top:14px;color:var(--faint);font-size:.9rem}
+.dl{margin-top:16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}.dl span{color:var(--faint);font-size:.85rem;flex:1 1 260px}
+.dlb{display:inline-block;background:var(--accent);color:#04130a;font-weight:600;text-decoration:none;border-radius:10px;padding:10px 18px}.dlb:hover{filter:brightness(1.1)}.dlb:focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
 .shot{display:block;width:100%;max-width:800px;height:auto;margin:28px auto 0;border-radius:14px;box-shadow:0 0 0 1px var(--line,rgba(127,127,127,.25)),0 20px 50px -20px rgba(0,0,0,.6)}
 section{padding:40px 0}h2{font-size:1.6rem;letter-spacing:-.02em;margin:0 0 8px}.sub{color:var(--muted);margin:0 0 24px}
 .term{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;font:.85rem/1.7 var(--mono)}
@@ -103,6 +105,13 @@ ${head(base, meta)}
 <main>${body}</main>
 <footer><div class="wrap">MIT licensed. Made by <a href="${SITE.author.url}">${esc(SITE.author.name)}</a> and run locally with <a href="https://github.com/flisk-sh/flisk">Flisk</a>. <a href="${SITE.repo}">Source on GitHub</a>.</div></footer>
 </body></html>`;
+}
+
+/** The Mac app: the board in its own window, with the board built in. The link always points at the newest release. */
+export const MAC_DOWNLOAD =
+	"https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip";
+function downloadMac(): string {
+	return `<p class="dl"><a class="dlb" href="${MAC_DOWNLOAD}">Download for macOS</a><span>Apple Silicon and Intel, macOS 13 or later. Not notarized yet: the first time, open it from System Settings, Privacy &amp; Security, Open Anyway.</span></p>`;
 }
 
 function installBox(): string {
@@ -198,6 +207,7 @@ export function homePage(base: string): string {
 <h1>Run My <span>Agents</span></h1>
 <p class="lede">Run many Claude Code sessions on one repo, and stop them overwriting each other's work.</p>
 ${installBox()}
+${downloadMac()}
 <p class="meta">No server. No account. No keys. Everything stays on your computer.</p><div class="mac"><div class="mbar"><i></i><i></i><i></i><span>Run My Agents</span></div><iframe class="live" src="/demo/" title="Run My Agents board, live demo with made-up sessions" loading="lazy"></iframe></div><p class="meta">That is the real board, running on made-up sessions. Click an agent, answer a question, send a message.</p></div>
 <section><h2>Your agent team, on one repo</h2><p class="sub">Every agent has its own job. Click one to see what it's working on.</p>${demoBoard()}<p class="meta">A preview of five agents' chats. Install it and this runs for real, on your own repo.</p></section>
 <section><h2>What your agent sees</h2><p class="sub">Session 2 tries to edit a file session 1 changed two minutes ago.</p>
