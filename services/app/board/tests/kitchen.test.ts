@@ -201,6 +201,12 @@ describe("kitchen page", () => {
 		expect(() => new Function(KITCHEN_JS)).not.toThrow();
 	});
 
+	it("opens an agent's chat from its Crew row, and Fire in that row only fires it", async () => {
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		expect(KITCHEN_JS).toContain('...(!dead&&s?{"data-kopen":p.session}:{})');
+		expect(KITCHEN_JS).toContain('if(d.kopen&&!e.target.closest("[data-kfire]")){');
+	});
+
 	it("has a click handler for every data-k button the kitchen draws", async () => {
 		const { KITCHEN_JS } = await import("../src/kitchen/view");
 		/* Clear lessons and Delete container drew buttons nothing listened to */

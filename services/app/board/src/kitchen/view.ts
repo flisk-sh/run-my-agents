@@ -78,7 +78,7 @@ export const KITCHEN_CSS = String.raw`
 .crewbox .bh{display:flex;justify-content:space-between;align-items:center;gap:8px}.crewbox .bh b{font-size:14px}.crewbox .bh small{color:var(--muted);font:10px var(--mono)}
 .rep{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font:700 13px var(--mono);min-width:0}.crewfolder .rep .cf{flex:1 1 100%}.rep .sk2{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rep button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:#26263a;color:var(--text);cursor:pointer;font-weight:800}
 .rep .bar{flex:1;display:flex;gap:3px}.rep .bar i{flex:1;height:8px;border-radius:3px;background:#2a2a38}.rep .bar i.r{background:#22c55e}.rep .bar i.s{background:#f59e0b;animation:kfl .6s infinite alternate}
-.pods{display:grid;gap:4px}.pod{display:grid;grid-template-columns:28px 1fr auto auto;gap:6px;align-items:center;background:#1a1a24;border-radius:var(--r-row);padding:4px 6px;font-size:11.5px}
+.pods{display:grid;gap:4px}.pod.open{cursor:pointer}.pod.open:hover{background:#22222e}.pod{display:grid;grid-template-columns:28px 1fr auto auto;gap:6px;align-items:center;background:#1a1a24;border-radius:var(--r-row);padding:4px 6px;font-size:11.5px}
 .pod.dead{opacity:.55;background:repeating-linear-gradient(135deg,#1a1a24 0 6px,#20141a 6px 12px)}.pod .nm2{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .strk{display:flex;gap:2px}.strk i{width:8px;height:8px;border-radius:50%;background:#2a2a38}.strk i.on{background:#ef4444}
 .ghost{width:24px;height:24px;border-radius:50%;background:#2a2a38;display:grid;place-items:center;font-size:12px}
@@ -318,7 +318,7 @@ const MCH=m=>m?H("span",{class:"mchip "+m},m):null;
    its agents per folder (with − / +), and the lessons every agent of that stage shares. */
 function kCrew(){if(!CR||!SS)return H("p",{class:"knote"},"Loading crew…");
  const typeFace=(role,n)=>{const t=(SS.types||[]).find(x=>x.role===role);return t?face({id:"type-"+role,face:{shape:t.shape,eyes:t.eyes,color:t.color,extra:t.extra||""},tokens:{used:0},updatedAt:0},n):null};
- const pod=(x,p,i)=>{const s=sess(p.session),dead=p.status==="evicted";return H("div",{key:p.session||i,class:"pod"+(dead?" dead":""),title:p.reason||""},s?kFace(s,24):H("span",{class:"ghost"},dead?"☠":"⏳"),H("span",{class:"nm2"},dead?"Fired: "+(p.reason||""):(s&&s.title)||"Starting…"),H("span",{class:"strk"},Array.from({length:x.maxStrikes},(_,j)=>H("i",{key:j,class:j<p.strikes?"on":""}))),dead?H("span"):H("button",{class:"kbtn sm bad","data-kfire":p.session},"Fire"))};
+ const pod=(x,p,i)=>{const s=sess(p.session),dead=p.status==="evicted";return H("div",{key:p.session||i,class:"pod"+(dead?" dead":"")+(!dead&&s?" open":""),title:p.reason||(!dead&&s?"Open its chat":""),...(!dead&&s?{"data-kopen":p.session}:{})},s?kFace(s,24):H("span",{class:"ghost"},dead?"☠":"⏳"),H("span",{class:"nm2"},dead?"Fired: "+(p.reason||""):(s&&s.title)||"Starting…"),H("span",{class:"strk"},Array.from({length:x.maxStrikes},(_,j)=>H("i",{key:j,class:j<p.strikes?"on":""}))),dead?H("span"):H("button",{class:"kbtn sm bad","data-kfire":p.session},"Fire"))};
  const rows=["spec","build","test","review"].map(st=>{const x=SS.stages[st],boxes=CR.containers.filter(c=>c.stages.length===1&&c.stages[0]===st),role={spec:"Spec",build:"Build",test:"Test",review:"Review"}[st];
   const lessons=boxes.reduce((a,c)=>a+c.lessons.length,0),ready=boxes.reduce((a,c)=>a+c.ready,0),want=boxes.reduce((a,c)=>a+c.replicas,0);
   const folders=boxes.map(c=>{const lv=c.pods.filter(p=>p.status!=="evicted"),dead=c.pods.filter(p=>p.status==="evicted").slice(-2);
@@ -377,7 +377,7 @@ document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.
  if(d.kapprove){const t=find(d.kapprove);await post("api/tasks/move",{id:d.kapprove,approved:true,stage:"build"});setPass(d.kapprove,false);toast("#"+(t?t.n:"")+" crosses the pass");return kLoad()}
  if(d.kpri){const t=find(d.kpri);const n={P0:"P1",P1:"P2",P2:"P0"}[t.priority];await post("api/tasks/move",{id:t.id,priority:n});return kLoad()}
  if(d.kskill){await post("api/tasks/skills",{id:d.kskill});toast("Installing skills");return kLoad()}
- if(d.kopen){sel=d.kopen;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}},true);
+ if(d.kopen&&!e.target.closest("[data-kfire]")){sel=d.kopen;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}},true);
 document.addEventListener("submit",async e=>{if(e.target.id!=="kform")return;e.preventDefault();const i=$("ktitle"),title=i.value.trim();if(!title)return toast("Describe the order first.");
  const cur=sess(sel);const r=await post("api/tasks",{title,priority:kpri,cwd:cur&&cur.cwd||""});if(r.error)return toast(r.error);i.value="";toast("Order #"+r.n+" is on the belt");kLoad()});
 document.addEventListener("click",e=>{const p=e.target.closest("[data-knewpri]");if(p){kpri=p.dataset.knewpri;kDraw()}});
