@@ -728,7 +728,7 @@ document.addEventListener("click",e=>{
  const dz=e.target.closest("[data-design]");if(dz){design=dz.dataset.design;try{localStorage.setItem("rma-design",design)}catch{}document.body.classList.toggle("plain",design==="plain");last="";render();return}
  const mp=e.target.closest("[data-mpick]");if(mp){e.stopImmediatePropagation();const s0=S.find(x=>x.id===mp.dataset.mpick);if(!s0)return;if(s0.agent!=="claude"){toast("Model applies to Claude Code agents");return}showModelPick(mp,s0);return}
  const f=e.target.closest("[data-face]");if(f){f.classList.remove("jump");void f.offsetWidth;f.classList.add("jump");const s=S.find(x=>x.id===f.dataset.face);if(s)toast(s.role+": "+(s.doing||"here"));e.stopPropagation();return}
- const it=e.target.closest("[data-sel]");if(it){sel=it.dataset.sel;renaming=false;try{localStorage.setItem("rma-sel",sel)}catch{}first=true;render();return}
+ const it=e.target.closest("[data-sel]");if(it){sel=it.dataset.sel;renaming=false;try{localStorage.setItem("rma-sel",sel)}catch{}kChat();first=true;render();return}
  const g=e.target.closest("[data-grp]");if(g){fold[g.dataset.grp]=!fold[g.dataset.grp];render();return}
  const s=S.find(x=>x.id===sel),a=e.target.closest("[data-act]");
  if(a){const k=a.dataset.act;
@@ -1033,7 +1033,7 @@ document.addEventListener("keydown",e=>{const typing=e.target&&e.target.matches&
 setInterval(()=>{document.querySelectorAll("[data-since]").forEach(e=>{e.textContent=clock(Date.now()-Number(e.dataset.since))});document.querySelectorAll("[data-verb]").forEach(e=>{const v=VERBS[Math.floor(Date.now()/4000)%VERBS.length];if(e.textContent!==v){e.textContent=v;e.classList.remove("vin");void e.offsetWidth;e.classList.add("vin")}})},1000);
 /* ⌘K: jump to any agent or action by typing a few letters. */
 function palItems(){const acts=[["New session",()=>document.querySelector('[data-act="newopen"]')?.click()],["Keyboard shortcuts",()=>showKeys()],["Rate the board (UMUX-Lite)",()=>showUmux(document.querySelector(".umux")||document.body)]].concat(GBY.map(([k,l])=>["Group by "+l,()=>{gby=k;try{localStorage.setItem("rma-group",k)}catch(_){}last="";render()}]));
- return S.filter(s=>!s.hidden).map(s=>({label:s.title||"Untitled",sub:s.role+" · "+(s.branch||s.cwd.split("/").pop()),face:s.face,run:()=>{sel=s.id;try{localStorage.setItem("rma-sel",sel)}catch(_){}first=true;render()}})).concat(acts.map(([l,f])=>({label:l,sub:"Action",run:f})))}
+ return S.filter(s=>!s.hidden).map(s=>({label:s.title||"Untitled",sub:s.role+" · "+(s.branch||s.cwd.split("/").pop()),face:s.face,run:()=>{sel=s.id;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();first=true;render()}})).concat(acts.map(([l,f])=>({label:l,sub:"Action",run:f})))}
 function fuzzy(q,t){q=q.toLowerCase();t=t.toLowerCase();let i=0;for(const ch of t)if(ch===q[i])i++;return i===q.length}
 function PalList({items,hi}){return items.length?items.map((x,j)=>H("div",{key:j,class:"pi"+(j===hi?" on":""),role:"option","aria-selected":String(j===hi),"data-pi":j,style:"--i:"+j},x.face?mini(x.face,22):H("span",{class:"pk"},Ic(IC.star)),H("span",null,x.label,H("small",null,x.sub)))):H("div",{class:"pre"},"Nothing matches.")}
 function showPal(){let el=$("pal");if(el){el.remove();return}el=document.createElement("div");el.id="pal";el.className="keys";el.setAttribute("role","dialog");el.setAttribute("aria-label","Command palette");

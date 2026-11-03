@@ -8,7 +8,7 @@ export const KITCHEN_CSS = String.raw`
 .ktab:hover{color:var(--text);background:#1e1e28}.ktab.on{color:var(--text);background:#26263a;box-shadow:inset 0 -2px 0 var(--green)}
 .ktab i{font-style:normal;font:10px var(--mono);color:var(--mint);margin-left:5px}
 .main.kmode>#hd,.main.kmode>#actbar,.main.kmode>#meter,.main.kmode>#skills,.main.kmode>#roles,.main.kmode>#warns,.main.kmode>#feed,.main.kmode>#newpill,.main.kmode>#box{display:none!important}
-#kview{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:12px}
+#kview{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:12px}#kview[hidden]{display:none}
 .kbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .kbar input,.kbar select{background:#0b0b10;color:var(--text);border:1px solid var(--line);border-radius:var(--r-row);padding:7px 10px;font:13px var(--body)}
 .kbar input{flex:1;min-width:180px}
@@ -125,6 +125,8 @@ function kTabs(){const n=KD.tasks.filter(t=>t.stage!=="done").length;
  pRender(H(Frag,null,KT.map(([k,l])=>H("button",{key:k,class:"ktab"+(ktab===k?" on":""),"data-ktab":k},l,k!=="chat"&&n?H("i",null,n):null))),$("ktabs"));
  document.querySelector(".main").classList.toggle("kmode",ktab!=="chat");$("kview").hidden=ktab==="chat"}
 const sess=id=>S.find(s=>s.id===id);
+/* Opening an agent (sidebar row, chef, queue card) always lands on its chat. */
+function kChat(){if(ktab==="chat")return;ktab="chat";try{localStorage.setItem("rma-ktab","chat")}catch(_){}last="";kDraw()}
 const kFace=(s,n)=>s?face(s,n):null;
 /* An agent is done with its step when it went quiet after the order was sent. */
 const kReady=t=>{const s=sess(t.assignee);return !!(s&&t.sentAt&&!s.sending&&state(s)!=="y"&&s.updatedAt>t.sentAt+3000&&Date.now()-s.updatedAt>8000)};
@@ -287,7 +289,7 @@ document.addEventListener("click",e=>{const cv=e.target.closest&&e.target.closes
  const h=[...KG.hits].reverse().find(h=>Math.hypot(h.x-x,h.y-y)<h.r);if(!h)return;
  if(h.act==="approve"){post("api/tasks/move",{id:h.id,approved:true,stage:"build"}).then(()=>{setPass(h.id,false);toast("Approved: it crosses the pass");kLoad()})}
  else if(!sess(h.id)){const o=KD.tasks.find(x=>x.stage!=="done"&&(h.id==="front-desk"?x.assignee==="front-desk":x.stage==="spec"||x.answered>0));toast((h.id==="front-desk"?"Front desk":"The orchestrator")+" is the board itself, not an agent chat"+(o?": #"+o.n+" is at "+(STN[o.stage]||o.stage):""))}
- else{sel=h.id;try{localStorage.setItem("rma-sel",sel);localStorage.setItem("rma-ktab","chat")}catch(_){}ktab="chat";last="";kDraw();render()}});
+ else{sel=h.id;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}});
 document.addEventListener("mousemove",e=>{const cv=e.target.closest&&e.target.closest("#kcv");if(!cv)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*1000/r.width,y=(e.clientY-r.top)*580/r.height;cv.style.cursor=KG.hits.some(h=>Math.hypot(h.x-x,h.y-y)<h.r)?"pointer":"default"});
 function kFlow(){const f=SC.flow;if(!f)return null;const tile=(l,v,sub)=>H("div",{key:l},H("small",null,l),H("b",null,v),H("i",null,sub));
  return H(Frag,null,H("div",{class:"kh"},"Flow · lead and cycle time"),H("div",{class:"flow"},tile("Lead time",f.served?kDur(f.leadMedian):"–","median · p85 "+(f.served?kDur(f.leadP85):"–")),tile("Cycle time",f.cycleCount?kDur(f.cycleMedian):"–","median · p85 "+(f.cycleCount?kDur(f.cycleP85):"–")),tile("Throughput",f.throughput24h,"served in 24 h"),tile("In progress",f.wip,"open orders"),tile("Failed",f.failed,"closed after FAILs")))}
@@ -374,7 +376,7 @@ document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.
  if(d.kapprove){const t=find(d.kapprove);await post("api/tasks/move",{id:d.kapprove,approved:true,stage:"build"});setPass(d.kapprove,false);toast("#"+(t?t.n:"")+" crosses the pass");return kLoad()}
  if(d.kpri){const t=find(d.kpri);const n={P0:"P1",P1:"P2",P2:"P0"}[t.priority];await post("api/tasks/move",{id:t.id,priority:n});return kLoad()}
  if(d.kskill){await post("api/tasks/skills",{id:d.kskill});toast("Installing skills");return kLoad()}
- if(d.kopen){sel=d.kopen;try{localStorage.setItem("rma-sel",sel)}catch(_){}ktab="chat";try{localStorage.setItem("rma-ktab","chat")}catch(_){}last="";kDraw();render()}},true);
+ if(d.kopen){sel=d.kopen;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}},true);
 document.addEventListener("submit",async e=>{if(e.target.id!=="kform")return;e.preventDefault();const i=$("ktitle"),title=i.value.trim();if(!title)return toast("Describe the order first.");
  const cur=sess(sel);const r=await post("api/tasks",{title,priority:kpri,cwd:cur&&cur.cwd||""});if(r.error)return toast(r.error);i.value="";toast("Order #"+r.n+" is on the belt");kLoad()});
 document.addEventListener("click",e=>{const p=e.target.closest("[data-knewpri]");if(p){kpri=p.dataset.knewpri;kDraw()}});

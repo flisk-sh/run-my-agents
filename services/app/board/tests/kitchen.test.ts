@@ -200,6 +200,16 @@ describe("kitchen page", () => {
 		for (const t of tabs) expect(KITCHEN_JS).toContain(`function k${t[0].toUpperCase()}${t.slice(1)}(`);
 		expect(() => new Function(KITCHEN_JS)).not.toThrow();
 	});
+
+	it("hides the kitchen view on the chat tab, and every way of opening an agent lands on its chat", async () => {
+		const { KITCHEN_CSS, KITCHEN_JS } = await import("../src/kitchen/view");
+		const { PAGE } = await import("../src/page");
+		/* #kview sets display:flex, which beats the hidden attribute unless [hidden] is restated */
+		expect(KITCHEN_CSS).toContain("#kview[hidden]{display:none}");
+		expect(KITCHEN_JS).toMatch(/else\{sel=h\.id;[^}]*\}catch\(_\)\{\}kChat\(\)/);
+		const page = PAGE;
+		expect(page).toContain('localStorage.setItem("rma-sel",sel)}catch{}kChat();first=true;render();return}');
+	});
 });
 
 describe("live ratings", () => {
