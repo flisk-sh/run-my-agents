@@ -293,4 +293,17 @@ describe("kitchen pipeline bugs", () => {
 		expect(sent).not.toContain(wtA);
 		expect(k.tasks()[0].worktree ?? "").not.toBe(wtA);
 	});
+
+	it("#260: a follow-up's first failed ship is not counted as its second because of the parent's ship failure", async () => {
+		const k = kitchen();
+		const r = repo();
+		await k.post("/api/tasks", { title: TITLE, cwd: r });
+		const id = k.tasks()[0].id;
+		// A follow-up (#1 follows up #9) carrying its parent's one ship failure; its own ship now opens no PR.
+		k.sessions.push({ ...(parseSession("ship1", [JSON.stringify({ type: "user", cwd: r, message: { content: "Ship" } })], Date.now()) as Session), feed: [{ who: "you", text: "Ship order #1", at: 1 } as never, { who: "agent", text: "git push failed: could not read Username.", at: 2 } as never] });
+		k.setTasks(k.tasks().map((t: object) => ({ ...t, stage: "test", approved: true, shipping: true, assignee: "ship1", sentAt: 1, retryOf: 9, failures: ["ship: no pull request. git push failed"], carried: 1 })));
+		const res = await k.post("/api/tasks/serve", { id });
+		expect(res).toMatchObject({ stage: "test", shipping: false });
+		expect(res.stuck).toBe(false);
+	});
 });

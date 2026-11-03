@@ -852,7 +852,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (!pr && !t.pr) {
 				const why = `ship: no pull request. ${failLine(said) || said.split("\n").filter(Boolean).at(-1)?.slice(0, 200) || "(nothing)"}`.slice(0, 300);
 				const failures = [...(t.failures ?? []), why].slice(-6);
-				const twice = (t.failures ?? []).some((f) => f.startsWith("ship:"));
+				// This run's ship failures only: a follow-up carries its parent's (#260).
+				const twice = (t.failures ?? []).slice(t.carried ?? 0).some((f) => f.startsWith("ship:"));
 				return { status: 200, body: { ...updateTask(t.id, { stage: "test", shipping: false, assignee: "", sentAt: 0, failures, stuck: twice || t.stuck }) } };
 			}
 			// No new PR (the old one is fine), or a new PR was created: proceed to review.
