@@ -59,6 +59,13 @@ const handOff = (s: Session | undefined) => {
 		.join("\n\n");
 };
 
+/** The reason, when a reply's last line is a FAIL line ("FAIL: the decision that is missing: …"). */
+export function endsInFail(text: string): string | undefined {
+	const last = text.split("\n").map((l) => l.replace(/[*_`>#]/g, "").trim()).filter(Boolean).at(-1) ?? "";
+	// A verdict-style line only ("FAIL: …", "FAIL — …"), not a test runner's "FAIL src/x.test.ts".
+	return /^FAIL\s*[:—–-]/.test(last) ? last.replace(/^FAIL\s*[:—–-]\s*/, "") || last : undefined;
+}
+
 /** The line that says FAIL and why, without markdown, for a lesson. */
 export function failLine(text: string): string {
 	const lines = text.split("\n").map((l) => l.replace(/[*_`>#]/g, "").trim()).filter(Boolean);
@@ -999,7 +1006,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			}
 			if (!finished(t, s, now)) continue;
 			// The agent said it cannot go on: the order stops with its reason, nobody nudges it to pretend otherwise.
-			const stop = s && !t.shipping ? recordIn(handOff(s))?.blocked : undefined;
+			// A spec or build that ends on a FAIL line is blocked too: DECIDE tells an agent to end that way when only a person
+			// can decide, and those specs went on to Build (#257).
+			const stop = s && !t.shipping ? (recordIn(handOff(s))?.blocked ?? (t.stage === "spec" || t.stage === "build" ? endsInFail(handOff(s)) : undefined)) : undefined;
 			if (stop) {
 				updateTask(t.id, { ...keep(t, s), stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), `${t.stage}: blocked: ${stop}`.slice(0, 300)].slice(-6) });
 				did.push(`#${t.n} ${t.stage} blocked: ${stop.slice(0, 60)}`);

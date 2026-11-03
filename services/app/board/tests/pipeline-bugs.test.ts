@@ -134,4 +134,25 @@ describe("kitchen pipeline bugs", () => {
 		expect(t.cwd).toBe(r);
 		expect(t.pr).toBe("https://github.com/acme/demo/pull/42");
 	});
+
+	it("#257: a Spec that ends 'FAIL: the decision that is missing' (as DECIDE tells it to) does not cross to Build", async () => {
+		const k = kitchen((text) => {
+			if (text.includes("nobody will approve or answer this")) return "FAIL: the decision that is missing: should range() include b, or should callers pass b+1?";
+			if (/\(spec\)/.test(text)) return "Two readings are possible. Should range() include b, or should callers pass b+1?";
+			return undefined;
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const { stages, t } = await k.run(20);
+		expect(stages).not.toContain("build");
+		expect(t.notes?.spec ?? "").not.toStartWith("FAIL");
+		expect((t.failures ?? []).join("\n")).toContain("the decision that is missing");
+	});
+
+	it("#257: reads only a verdict-style FAIL line as a block", async () => {
+		const { endsInFail } = await import("../src/kitchen/routes");
+		expect(endsInFail("Two readings.\n\n**FAIL: the decision that is missing: include b?**")).toBe("the decision that is missing: include b?");
+		expect(endsInFail("Ran the suite.\nFAIL — no test runner in this repo")).toBe("no test runner in this repo");
+		expect(endsInFail("Ran jest.\nFAIL src/math.test.ts")).toBeUndefined();
+		expect(endsInFail("FAIL: early\nThen I fixed it. Changed math.ts.")).toBeUndefined();
+	});
 });
