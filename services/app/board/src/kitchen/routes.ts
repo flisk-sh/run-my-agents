@@ -363,6 +363,8 @@ export const httpAgent =
 const SETTINGS = new JsonStore<Partial<Settings>>("kitchen.json");
 /** Autopilot on, and idle agents let go after 10 minutes, unless kitchen.json says otherwise. */
 const settings = (): Settings => ({ auto: true, idleMinutes: 10, ...(SETTINGS.read()[0] ?? {}) });
+/** How many of a container's latest orders a learned skill must show up in, at least once, to stay. */
+const RECENT_ORDERS = 10;
 /** How many learned skills the sidecar keeps per container. */
 const SIDECAR_KEEP = 6;
 
@@ -1358,7 +1360,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// A learned skill stays only while its orders go better than the container's other orders: +1 for every
 			// served order made /terraform-test look useful in a TypeScript repo (#237). Three orders decide.
 			const all = boxOutcomes(box, tasks);
+			// The container's latest orders: a learned skill none of them carried is not earning anything any more. Skills the
+			// old loose matching injected (#237) never reached 3 uses and stayed in every agent's prompt (#321).
+			const recent = tasks
+				.filter((t) => t.kind === "task" && Object.values(t.crew ?? {}).some((c) => c && crewKey(c).label === box.name))
+				.sort((a, b) => (a.servedAt ?? a.updated) - (b.servedAt ?? b.updated))
+				.slice(-RECENT_ORDERS);
+			const stale = (n: string) => recent.length >= RECENT_ORDERS && !recent.some((t) => t.skills.includes(n));
 			const earns = (n: string) => {
+				if (stale(n)) return false;
 				const x = stats[n];
 				if (!x || x.uses < 3) return (x?.score ?? 0) > -2;
 				const rest = all.orders - x.uses;

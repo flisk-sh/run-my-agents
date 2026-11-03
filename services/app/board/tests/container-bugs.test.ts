@@ -240,6 +240,18 @@ describe("agent container bugs", () => {
 		expect(tasks()[0].missedBy).toContain(chat);
 	});
 
+	it("#321: drops a learned skill that none of the container's last 10 orders carried", async () => {
+		const { post } = setup([]);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo", skills: ["terraform-test", "find-bugs"] });
+		const crew = { build: { id: "x", role: "Build", name: "Build · repo abcd" } };
+		const done = (n: number, skills: string[]) => task({ id: `t${n}`, n, cwd: "/repo", stage: "done", skills, crew, servedAt: n });
+		// terraform-test: 2 old orders, then 10 without it. find-bugs: in one of the last 10.
+		const all = [done(1, ["terraform-test"]), done(2, ["terraform-test"]), ...Array.from({ length: 10 }, (_, i) => done(3 + i, i === 5 ? ["find-bugs"] : []))];
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify(all));
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · repo: sidecar dropped /terraform-test");
+		expect(readContainers()[0].skills).toContain("find-bugs");
+	});
+
 });
 
 // keep imports used
