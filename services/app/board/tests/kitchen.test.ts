@@ -256,6 +256,11 @@ describe("live ratings", () => {
 		expect(rs.find((r) => r.id === "t")).toMatchObject({ steps: 0, working: 1, rating: 50 });
 		expect(rs.map((r) => r.id)).toEqual(["p", "t", "b"]);
 	});
+
+	it("counts the step in progress as working, though its chat id is not the pod's id (#239)", () => {
+		const rs = ratings([{ ...base, stage: "build", assignee: "fresh-chat-9", crew: { build: { id: "pod-1", role: "Build", name: "Build · flisk 3125" } } }]);
+		expect(rs[0]).toMatchObject({ label: "Build · flisk", working: 1, steps: 0 });
+	});
 });
 
 describe("triage: math questions", () => {

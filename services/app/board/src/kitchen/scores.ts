@@ -97,7 +97,9 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
 		for (const [stage, c] of Object.entries(t.crew ?? {})) {
 			if (!c) continue;
 			const r = get(c);
-			const current = stage === t.stage && t.assignee === c.id;
+			// The step the order is on now: crew[stage] is written when it is sent. Its id is the pod's stable id while
+			// assignee is the step's fresh chat, so comparing the two never matched and "Working" was always 0 (#239).
+			const current = stage === t.stage && !!t.assignee && t.stage !== "done";
 			if (current) r.working += 1;
 			else r.steps += 1;
 		}
