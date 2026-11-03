@@ -12,7 +12,7 @@ import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
 import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
 import { addTask, beltOrder, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
-import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, type AskStage } from "./protocol";
+import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, withoutRecord, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
 import { kindOf, laneOf, quickMath, zachman, zachmanLines } from "./triage";
 import { clip, haikuFit, installSkill, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
@@ -123,13 +123,22 @@ export const cannotAsk = (n: number, to: AskStage) =>
  * Did the agent end its turn by asking instead of finishing? A question at the end ("Would you like me to proceed?",
  * "Should I…", "Let me know"), with no verdict, no pull request link and no "finished" line.
  */
+/** A last line that waits on someone. The second half are lines real kitchen agents ended on that went unanswered (#251). */
+const ASKING =
+	/\b(would you like|should i|shall i|do you want|want me to|let me know|awaiting (?:your )?(?:approval|confirmation)|please confirm|confirm (?:that|before)|approve the|pending (?:your )?approval|once (?:\w+ )?(?:is |are )?approved|requires? (?:your )?approval|waiting (?:for|on)|resubmit|submit (?:\w+ )?clarification|to proceed\b.*\b(?:clarify|confirm|name|choose|decide|resubmit)|must clarify|need(?:s)? (?:you|your) to)\b/i;
 export function asksBack(text: string, t: Pick<Task, "stage" | "shipping">): boolean {
-	const tail = text.trim().slice(-400);
-	if (!tail || recordIn(text)) return false;
+	// A record that asks, blocks or gives a verdict is handled as such; a handoff record does not hide a question
+	// written above it, and an ask to someone who is not a stage (the user, the orchestrator), which recordIn() drops,
+	// is still a question (#251).
+	const rec = recordIn(text);
+	if (rec?.ask || rec?.blocked || rec?.verdict) return false;
+	if (/```kitchen[\s\S]*?"ask"\s*:\s*\{[\s\S]*?"question"\s*:/.test(text)) return true;
+	const tail = withoutRecord(text).slice(-400);
+	if (!tail) return false;
 	if ((t.stage === "test" || t.stage === "review") && !t.shipping && verdictIn(tail) !== undefined) return false;
 	if (t.shipping && /https:\/\/github\.com\/\S+\/pull\/\d+/.test(tail)) return false;
 	const last = tail.split("\n").map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
-	return /\?\s*\**\s*$/.test(last) || /\b(would you like|should i|shall i|do you want|want me to|let me know|awaiting (?:your )?(?:approval|confirmation)|please confirm|confirm (?:that|before)|approve the)\b/i.test(last);
+	return /\?\s*\**\s*$/.test(last) || ASKING.test(last);
 }
 
 const isDir = (p: string) => {

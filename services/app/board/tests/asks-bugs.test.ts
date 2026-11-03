@@ -143,4 +143,27 @@ describe("asks and records the board must answer", () => {
 		const said = s.feed.filter((f) => f.who === "agent").map((f) => f.text).join("\n");
 		expect(said).not.toContain("No response requested.");
 	});
+	it("#251: catches a question that is followed by a handoff record (recordIn() short-circuits asksBack)", () => {
+		const text = 'Spec draft: range(1,3) should be [1,2,3].\n\nShall I proceed with this scope, or should Build also change range2()?\n\n```kitchen\n{"handoff": "Goal: range includes its end."}\n```';
+		expect(asksBack(text, { stage: "spec" })).toBe(true);
+	});
+	it("#251: catches an ask record addressed to someone who is not a stage (the user, the orchestrator)", () => {
+		// recordIn drops the ask (to is not spec/build/test/review), returns undefined, and asksBack's last line is the fence.
+		const text = 'Two folders could hold this code.\n\n```kitchen\n{"ask": {"to": "user", "question": "Is the code in flisk or in flisk-candidate-test-draft?"}}\n```';
+		expect(asksBack(text, { stage: "build" })).toBe(true);
+	});
+	const build = { stage: "build" } as const;
+	// Each line is the last line of a real kitchen turn that waited on a person; asksBack() returns false for all.
+	for (const [order, line] of [
+		["#18 build", "Build complete: clamp function implemented with 16 comprehensive tests; commit pending approval."],
+		["#15 build", "Ready for next step (test phase) once commit is approved."],
+		["#12 build", "FAIL: Cannot modify routes.ts in non-interactive session — write permissions require approval, but approval is unavailable without interactive session."],
+		["#20 build", "Waiting for the exploration agent to identify task-opening code in flisk."],
+		["#19 build", "Resubmit with a concrete bug/fix target and I'll build it."],
+		["#20 build", "**Submit actionable clarification** with those details so I can build a fix with proper test coverage."],
+		["#21 build", "**To proceed**: Spec agent must clarify the above three points and name the target (Cloudflare Workers, RMA agent pool, etc.), then resubmit to build."],
+	] as const)
+		it(`#251: catches ${order}: ${line.slice(0, 50)}`, () => {
+			expect(asksBack(`I looked at the code.\n\n${line}`, build)).toBe(true);
+		});
 });
