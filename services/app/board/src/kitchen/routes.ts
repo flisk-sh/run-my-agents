@@ -1170,7 +1170,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				// kept its order waiting for good (#255).
 				const shunned = box.pods.filter((p) => p.status !== "evicted" && here.some((t) => !t.assignee && t.missedBy?.includes(p.session))).length;
 				const want = Math.min(MAX_AGENTS, working + waiting + shunned);
-				if (want > box.replicas) {
+				// A size you set on the Crew tab holds both ways: the autoscaler grew a container straight back after −,
+				// so the button seemed to do nothing while orders waited (#243).
+				if (want > box.replicas && !box.floorByHand) {
 					patchContainer(box.id, { replicas: want, downReason: undefined });
 					did.push(`${box.name}: ${box.replicas} → ${want} agents`);
 				}
