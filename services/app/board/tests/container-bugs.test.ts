@@ -278,6 +278,16 @@ describe("agent container bugs", () => {
 		expect(tasks()[0]).toMatchObject({ stage: "done", answer: reply });
 	});
 
+	it("#326: tells the answer check not to reject an answer only because it cannot verify it", async () => {
+		const checks: string[] = [];
+		const { post } = setup([], { ask: async (q, _c, o) => (o?.system ? (checks.push(q), '{"ok": true}') : "London today: 12°C, showers from 1pm (Met Office).") });
+		await post("/api/tasks", { title: "weateher in London today?", cwd: "/repo" });
+		await Bun.sleep(20);
+		expect(checks[0]).toContain("The reply was written with web search");
+		expect(checks[0]).toContain("do not reject a specific answer only because you cannot verify it");
+		expect(tasks()[0]).toMatchObject({ stage: "done", answer: "London today: 12°C, showers from 1pm (Met Office)." });
+	});
+
 });
 
 // keep imports used

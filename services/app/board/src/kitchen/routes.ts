@@ -578,7 +578,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!answer || CANT_LOOK.test(answer)) return { ok: false, missing: CANT_LOOK.test(answer) ? "live information from the web" : "an answer" };
 		try {
 			const said = await (k.ask as NonNullable<typeof k.ask>)(
-				`Question: ${question}\n\nReply: ${answer}\n\nDoes the reply give the person what they asked for: a real answer, not "I can't", not "check elsewhere", not a made-up guess? Answer with one line of JSON only: {"ok": true} or {"ok": false, "missing": "<the tool, data or skill that is missing>"}`,
+				`Question: ${question}\n\nReply: ${answer}\n\nThe reply was written with web search and the repo at hand. Does it give the person what they asked for: an answer to this question, not "I can't", not "check elsewhere", not about something else? You cannot check its facts yourself, so do not reject a specific answer only because you cannot verify it (#326). Answer with one line of JSON only: {"ok": true} or {"ok": false, "missing": "<the tool, data or skill that is missing>"}`,
 				"",
 				{ web: false, system: CHECK_PROMPT },
 			);
