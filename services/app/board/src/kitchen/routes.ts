@@ -645,7 +645,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				pickedUpAt: t.sentAt || undefined,
 				stuckWarning: hasStuckWarning(t),
 				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
-				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? (settings().auto ? "Spec done: crossing the pass." : "Waiting at the pass for your approval.") : t.skills.some((n) => skillState(n) !== "ok") ? "Installing its skills." : pick(t, settings().auto).why,
+				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? (settings().auto ? "Spec done: crossing the pass." : "Waiting at the pass for your approval.") : t.skills.some((n) => skillState(n) === "get" || skillState(n) === "miss") ? "Installing its skills." : pick(t, settings().auto).why,
 			})),
 		});
 	});
@@ -790,9 +790,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.stuck) return { status: 409, body: { error: `#${t.n} failed ${t.rounds} times. Look at it, then serve or send it back yourself.` } };
 		// Never hand the same step to two agents: the first one still has it.
 		if (t.assignee && t.assignee !== session) return { status: 409, body: { error: `#${t.n} is already with ${k.read().find((x) => x.id === t.assignee)?.role ?? "an agent"}.` } };
-		if (t.skills.some((n) => skillState(n) !== "ok")) {
+		// Wait for skills still downloading or not tried yet; one whose download keeps failing is left out (#179).
+		if (t.skills.some((n) => skillState(n) === "get" || skillState(n) === "miss")) {
 			stock(t.skills, k.fetch);
-			return { status: 409, body: { error: "Its skills are still installing." } };
+			if (t.skills.some((n) => skillState(n) !== "failed" && skillState(n) !== "ok")) return { status: 409, body: { error: "Its skills are still installing." } };
 		}
 		const order = t;
 		if (agent() && order.kind === "task" && !session) return fliskDispatch(order);
@@ -803,7 +804,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// A question is a worker's job (Haiku, low); only planning a task is the orchestrator's.
 		const policy = policyFor(order.kind === "question" ? "build" : order.stage, box ? { model: box.model, effort: box.effort } : undefined);
 		if (s.agent === "claude") k.tune(s.id, { ...policy, mode: KITCHEN_MODE });
-		const use = skillset(order.stage, [...order.skills, ...(box ? [...box.skills, lessonsSkill(lessonsKeyOf(box))] : [])]);
+		const use = skillset(order.stage, [...order.skills.filter((n) => skillState(n) !== "failed"), ...(box ? [...box.skills, lessonsSkill(lessonsKeyOf(box))] : [])]);
 		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it, Spec too, so
 		// nothing a stage writes lands in the shared checkout.
 		const wt = order.kind === "task" && ["spec", "build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;

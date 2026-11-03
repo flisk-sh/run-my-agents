@@ -311,6 +311,33 @@ describe("agent container bugs", () => {
 		expect(fetched).toEqual([]);
 	});
 
+	it("#179: gives up on a skill whose download keeps failing, and sends the order without it", async () => {
+		const { resetSkillFails } = await import("../src/kitchen/skills");
+		resetSkillFails();
+		const fetched: string[] = [];
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions, { fetch: (async (u: string) => (fetched.push(String(u)), new Response("nope", { status: 404 }))) as unknown as typeof fetch });
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		sessions.push({ ...session(started[0].id as string, "Build"), updatedAt: Date.now() - 60_000 });
+		order({ stage: "build", cwd: "/repo", skills: ["playwright-expert"] });
+		const realNow = Date.now;
+		let now = realNow();
+		Date.now = () => now;
+		try {
+			// Ticks over 4 minutes: each failure waits longer before the next try, then the skill is given up.
+			for (let i = 0; i < 48; i++) {
+				now += 5_000;
+				await post("/api/kitchen", { auto: true });
+				await Bun.sleep(1);
+			}
+		} finally {
+			Date.now = realNow;
+		}
+		expect(fetched.filter((u) => u.includes("playwright")).length).toBeLessThanOrEqual(3);
+		expect(tasks()[0].assignee).not.toBe("");
+	});
+
 });
 
 // keep imports used

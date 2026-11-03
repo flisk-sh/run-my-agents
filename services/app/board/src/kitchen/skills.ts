@@ -145,7 +145,25 @@ export function readSkill(name: string): string {
 	}
 }
 const installing = new Set<string>();
-export const skillState = (name: string) => (skillInstalled(name) ? "ok" : installing.has(name) ? "get" : "miss");
+/**
+ * Downloads that failed, per skill: a 404 (the skill moved), no network or a rate limit left its order waiting for good
+ * while every 3 s tick fetched again (#179). Each failure waits longer before the next try (30 s, 60 s, ...); after
+ * GIVE_UP failures the skill is "failed" for FAILED_FOR, and orders go on without it.
+ */
+const fails = new Map<string, { n: number; at: number }>();
+const GIVE_UP = 3;
+const FAILED_FOR = 10 * 60_000;
+const failed = (name: string, now = Date.now()) => {
+	const f = fails.get(name);
+	return !!f && f.n >= GIVE_UP && now - f.at < FAILED_FOR;
+};
+const waiting = (name: string, now = Date.now()) => {
+	const f = fails.get(name);
+	return !!f && now - f.at < 30_000 * 2 ** (f.n - 1);
+};
+/** For tests: forget the failed downloads. */
+export const resetSkillFails = () => fails.clear();
+export const skillState = (name: string) => (skillInstalled(name) ? "ok" : installing.has(name) ? "get" : failed(name) ? "failed" : "miss");
 
 /**
  * Installs a catalog skill's SKILL.md from its GitHub repo into ~/.claude/skills/<name>. Only names from the
@@ -154,15 +172,22 @@ export const skillState = (name: string) => (skillInstalled(name) ? "ok" : insta
 export async function installSkill(s: Pick<CatalogSkill, "name" | "source" | "path">, get: typeof fetch = fetch): Promise<boolean> {
 	if (!/^[\w.-]+$/.test(s.name) || !/^[\w.-]+\/[\w.-]+$/.test(s.source)) return false;
 	if (skillInstalled(s.name) || installing.has(s.name)) return true;
+	if (failed(s.name) || waiting(s.name)) return false;
 	installing.add(s.name);
+	const miss = () => fails.set(s.name, { n: (fails.get(s.name)?.n ?? 0) + 1, at: Date.now() });
 	try {
 		const r = await get(`https://raw.githubusercontent.com/${s.source}/HEAD/${s.path}`);
-		if (!r.ok) return false;
+		if (!r.ok) {
+			miss();
+			return false;
+		}
+		fails.delete(s.name);
 		const dir = join(skillsDir(), s.name);
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "SKILL.md"), await r.text());
 		return true;
 	} catch {
+		miss();
 		return false;
 	} finally {
 		installing.delete(s.name);
