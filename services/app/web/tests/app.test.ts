@@ -166,6 +166,9 @@ describe("Kitchen Rush game", () => {
 		expect(html).toContain('"@type":"VideoGame"');
 		// a fixed flaky test comes back once, as "marked done?"
 		expect(html).toContain("Marked done?");
+		// the HUD and end screens show how many returning flaky tests were really fixed
+		expect(html).toContain("Catch rate ");
+		expect(html).toContain('waved through "+waved');
 		expect(html).toContain('content="https://tool.test/play/card.png"');
 		expect(res.headers.get("content-security-policy")).toContain(
 			"https://x.com",

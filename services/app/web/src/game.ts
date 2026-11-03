@@ -2,7 +2,7 @@
 // conflicts pour into the kitchen, and your pans fly at the nearest one by themselves. Tickets level you up, and
 // three of the upgrades hire the board's cooks (Spec, Build, Review) to fight beside you. Hold out for five
 // minutes and the order ships. A flaky test you knock down once comes back and slinks off: let it go and it is
-// waved through, marked done when it wasn't, and the ship screen counts every one. Plain canvas, no libraries, so the page needs only an inline script.
+// waved through, marked done when it wasn't, and the ship screen counts every one and shows your catch rate. Plain canvas, no libraries, so the page needs only an inline script.
 import { SITE } from "./site";
 
 const SCRIPT = `
@@ -21,6 +21,7 @@ function reset(){P={x:0,y:0,hp:100,max:100,spd:170,rate:.7,cd:0,dmg:1,multi:1,ma
 function tap(e){if(st==="title"||st==="dead"||st==="won"){reset();st="play";last=performance.now();return}
  if(st==="up"&&e){const i=pick(e.clientX,e.clientY);if(i>=0)choose(i)}}
 addEventListener("keydown",e=>{if(st==="up"&&"123".includes(e.key))choose(+e.key-1)});
+const catchPct=()=>caught+waved?Math.round(caught/(caught+waved)*100)+"%":"",rateLine=()=>caught+waved?"Catch rate "+catchPct()+": "+caught+" of "+(caught+waved)+" flaky tests that came back really fixed.":"";
 const rnd=(a,b)=>a+Math.random()*(b-a);
 function spawn(){const a=rnd(0,7),r=Math.max(W,H)/2+60,m=t/60;
  const kind=Math.random()<.12+m*.04?"conflict":Math.random()<.35?"flaky":"bug";
@@ -87,7 +88,7 @@ function draw(){const sx=shake>0?rnd(-4,4):0,sy=shake>0?rnd(-4,4):0;x.save();x.t
 function bar(y,v,c,label){px(W/2,y,"#000a",Math.min(W-32,420)+4,14);const w=Math.min(W-32,420);x.fillStyle=c;x.fillRect(W/2-w/2,y-5,w*Math.max(0,Math.min(1,v)),10);x.fillStyle="#fff";x.font="bold 11px monospace";x.textAlign="center";x.fillText(label,W/2,y+4)}
 function hud(){const left=Math.max(0,WIN-t),mm=Math.floor(left/60),ss=String(Math.floor(left%60)).padStart(2,"0");
  bar(16,xp/need,"#4ade80","Level "+lvl+"  ·  tickets "+xp+"/"+need);bar(34,P.hp/P.max,"#ef4444","Health "+Math.ceil(Math.max(0,P.hp)));
- px(W/2,61,"#000a",90,26);x.fillStyle="#fff";x.font="bold 22px monospace";x.textAlign="center";x.fillText(mm+":"+ss,W/2,68);px(W/2,82,"#000a",200,16);x.font="12px monospace";x.fillStyle="#ddd";x.fillText("bugs fixed "+kills+"  ·  cooks "+cooks.length+"/3",W/2,86);if(waved){px(W/2,100,"#000a",200,16);x.fillStyle="#fdba74";x.fillText("waved through "+waved,W/2,104)}
+ px(W/2,61,"#000a",90,26);x.fillStyle="#fff";x.font="bold 22px monospace";x.textAlign="center";x.fillText(mm+":"+ss,W/2,68);px(W/2,82,"#000a",200,16);x.font="12px monospace";x.fillStyle="#ddd";x.fillText("bugs fixed "+kills+"  ·  cooks "+cooks.length+"/3",W/2,86);if(caught+waved){px(W/2,100,"#000a",260,16);x.fillStyle=waved?"#fdba74":"#4ade80";x.fillText("caught "+caught+"/"+(caught+waved)+" ("+catchPct()+")  ·  waved through "+waved,W/2,104)}
  if(joy){x.strokeStyle="#fff4";x.beginPath();x.arc(joy.x0,joy.y0,40,0,7);x.stroke();px(joy.x,joy.y,"#fff6",16,16)}}
 let boxes=[];function pick(mx,my){return boxes.findIndex(b=>mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h)}
 function panel(title,lines,cta){x.fillStyle="#000b";x.fillRect(0,0,W,H);x.textAlign="center";x.fillStyle="#22c55e";x.font="bold "+Math.min(48,W/10)+"px monospace";x.fillText(title,W/2,H/2-70);
@@ -100,8 +101,8 @@ function loop(now){const dt=Math.min(.05,(now-(last||now))/1000);last=now;
  if(st==="play")step(dt);if(st==="title"){reset();tile()}else draw();
  if(st==="title")panel("KITCHEN RUSH",["Bugs are pouring into the kitchen.","Your pans fly by themselves. Move with WASD,","arrows, or drag on a phone. Hire up to 3 cooks.","Hold out 5:00 and the order ships.","Flaky tests come back. Don't wave them through."],"Tap or press Enter");
  if(st==="up")upScreen();
- if(st==="dead")panel("ORDER FAILED",["You lasted "+Math.floor(t/60)+":"+String(Math.floor(t%60)).padStart(2,"0")+" at level "+lvl+".","Bugs fixed: "+kills+"  ·  cooks hired: "+cooks.length+"  ·  waved through: "+waved],"Tap to cook again");
- if(st==="won")panel(waved?"SHIPPED, WITH DEBT":"CLEAN SHIP",["Five minutes, level "+lvl+", "+kills+" bugs fixed.",waved?waved+" flaky test"+(waved>1?"s":"")+" marked done that "+(waved>1?"weren't":"wasn't")+".":"Every flaky test really fixed"+(caught?" ("+caught+")":"")+".","Your real cooks can do this too:","run-my-agents.flisk.si"],"Tap to play again");
+ if(st==="dead")panel("ORDER FAILED",["You lasted "+Math.floor(t/60)+":"+String(Math.floor(t%60)).padStart(2,"0")+" at level "+lvl+".","Bugs fixed: "+kills+"  ·  cooks hired: "+cooks.length+"  ·  waved through: "+waved,rateLine()].filter(Boolean),"Tap to cook again");
+ if(st==="won")panel(waved?"SHIPPED, WITH DEBT":"CLEAN SHIP",["Five minutes, level "+lvl+", "+kills+" bugs fixed.",waved?waved+" flaky test"+(waved>1?"s":"")+" marked done that "+(waved>1?"weren't":"wasn't")+".":"Every flaky test really fixed"+(caught?" ("+caught+")":"")+".",rateLine(),"Your real cooks can do this too:","run-my-agents.flisk.si"].filter(Boolean),"Tap to play again");
  requestAnimationFrame(loop)}
 requestAnimationFrame(loop);
 `;
