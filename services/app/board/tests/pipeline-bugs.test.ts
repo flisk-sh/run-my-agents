@@ -399,4 +399,26 @@ describe("kitchen pipeline bugs", () => {
 		expect(t.followUp).toBeUndefined();
 		expect(k.tasks()).toHaveLength(1);
 	});
+
+	it("#186: a Test reply whose last line is PASS is not turned into a FAIL because it quotes the word FAIL", async () => {
+		const k = kitchen((text) => {
+			if (text.includes("You stopped without a verdict")) return 'Re-ran: range(1,3) is [1,2,3], so the spec\'s "FAIL if b is missing" case does not happen.\n\nPASS';
+			if (/\(test\)/.test(text)) return 'Ran range(1,3): [1,2,3]. The spec\'s check "FAIL if b is missing" holds.\n\nPASS';
+			return undefined;
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const { t } = await k.run();
+		expect(t.failures ?? []).toEqual([]);
+		expect(t.failed).toBeFalsy();
+		expect(t.rounds).toBe(0);
+	});
+
+	it("#186: reads a verdict from the lines that start with it, not a word in a sentence", async () => {
+		const { verdictIn } = await import("../src/kitchen/protocol");
+		expect(verdictIn('The spec\'s check "FAIL if b is missing" holds: range(1,3) is [1,2,3].\n\nPASS')).toBe(true);
+		expect(verdictIn("Ran it.\n\nVerdict: PASS")).toBe(true);
+		// Still no verdict when two lines disagree, or one line says both.
+		expect(verdictIn("FAIL: range(1,3) gave [1,2]\nPASS")).toBeUndefined();
+		expect(verdictIn("PASS looks fine. Wait, FAIL: the date check returns 2013.")).toBeUndefined();
+	});
 });

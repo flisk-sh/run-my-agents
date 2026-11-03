@@ -65,10 +65,14 @@ export function verdictIn(text: string): boolean | undefined {
 		.split("\n")
 		.map((l) => l.replace(/[*_`>#]/g, "").trim())
 		.filter(Boolean);
-	const m = /^(PASS|FAIL)\b/.exec(lines.at(-1) ?? "");
-	if (!m) return undefined;
-	const said = new Set(lines.flatMap((l) => [...l.matchAll(/\b(PASS|FAIL)\b/g)].map((x) => x[1])));
-	return said.size > 1 ? undefined : m[1] === "PASS";
+	// A verdict is a line that starts with PASS or FAIL ("Verdict: PASS" too). The word inside a sentence, such as a
+	// quoted acceptance check ("FAIL if b is missing"), is not one: it turned clear PASSes into FAILs (#186).
+	const lead = (l: string) => /^(?:(?:verdict|result)\s*:\s*)?(PASS|FAIL)\b/i.exec(l)?.[1]?.toUpperCase();
+	const last = lines.at(-1) ?? "";
+	const m = lead(last);
+	if (!m || (/\bPASS\b/.test(last) && /\bFAIL\b/.test(last))) return undefined;
+	const said = new Set(lines.map(lead).filter(Boolean));
+	return said.size > 1 ? undefined : m === "PASS";
 }
 
 /** A long text cut in the middle, so the start (a spec's goal and checks) and the end (its result) both survive. */
