@@ -1,6 +1,6 @@
 // "Nobody replies to the kitchen agents": what the board does when an agent ends its turn waiting on someone, using
 // lines real kitchen agents wrote (order numbers in the test names). Each test failed on main before its fix (#issue).
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,9 @@ import { join } from "node:path";
 import { createApp } from "../src/index";
 import { asksBack } from "../src/kitchen/routes";
 import { parseSession, type Session } from "../src/sessions";
+
+// Each case runs the real autopilot for up to 40 ticks: the preload's 30 s default did not reach this file in a full run (#313).
+setDefaultTimeout(30_000);
 
 let dir = "";
 beforeEach(() => {
