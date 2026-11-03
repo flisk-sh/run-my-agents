@@ -962,7 +962,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				updateTask(t.id, { atPass: false, approved: true, stage: "build", assignee: "", sentAt: 0 });
 				did.push(`#${t.n} approved`);
 			} else if (t.stuck && t.stage !== "done") {
-				updateTask(t.id, { stage: "done", failed: true, assignee: "", sentAt: 0, servedAt: now });
+				updateTask(t.id, { stage: "done", failed: true, shipping: false, assignee: "", sentAt: 0, servedAt: now });
 				did.push(`#${t.n} closed as failed`);
 				const next = followUp(t);
 				if (next) did.push(`#${t.n} followed up as #${next.n}`);
@@ -1013,14 +1013,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// The agent said it cannot go on: the order stops with its reason, nobody nudges it to pretend otherwise.
 			// A spec or build that ends on a FAIL line is blocked too: DECIDE tells an agent to end that way when only a person
 			// can decide, and those specs went on to Build (#257).
-			const stop = s && !t.shipping ? (recordIn(handOff(s))?.blocked ?? (t.stage === "spec" || t.stage === "build" ? endsInFail(handOff(s)) : undefined)) : undefined;
+			// Ship's records count too: a Ship that said it was blocked was read as "no pull request" and sent back to Test,
+			// and its ask was never answered (#250).
+			const stop = s ? (recordIn(handOff(s))?.blocked ?? (!t.shipping && (t.stage === "spec" || t.stage === "build") ? endsInFail(handOff(s)) : undefined)) : undefined;
 			if (stop) {
 				updateTask(t.id, { ...keep(t, s), stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), `${t.stage}: blocked: ${stop}`.slice(0, 300)].slice(-6) });
 				did.push(`#${t.n} ${t.stage} blocked: ${stop.slice(0, 60)}`);
 				continue;
 			}
 			// Agent to agent: the record's one ask goes to an earlier stage, answered by a fresh turn from that stage's record.
-			const q = s && !t.shipping ? recordIn(handOff(s))?.ask : undefined;
+			const q = s ? recordIn(handOff(s))?.ask : undefined;
 			if (q && (t.asked ?? 0) < MAX_ASKS) {
 				const asker = STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage;
 				const talk = [...(t.talk ?? []), { at: Date.now(), from: asker, to: STAGE_TYPE[q.to], text: q.question.slice(0, 300) }].slice(-10);
