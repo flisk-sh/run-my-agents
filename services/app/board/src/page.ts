@@ -242,7 +242,7 @@ button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:7
 .hd{position:relative;gap:12px;background:linear-gradient(90deg,rgba(255,255,255,.035),transparent 45%)}
 .hd::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--green),#38bdf8,#a78bfa,transparent);background-size:200% 100%;animation:tflow 5s linear infinite;opacity:.75}
 .hd .av{filter:drop-shadow(0 0 12px rgba(110,231,183,.45))}
-.ht{min-width:0;flex:1}
+.hd{flex-wrap:wrap;row-gap:8px}.ht{min-width:0;flex:1 1 280px}
 .ttl{display:flex;gap:6px;align-items:baseline;font-size:14px;min-width:0}
 .ttl b{font-weight:700;background:linear-gradient(90deg,#fff,var(--mint),#38bdf8,#fff);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:tflow 7s linear infinite}
 .ttl i{color:var(--muted);font-style:normal}.ttl span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:color .2s}.ttl:hover span{color:var(--mint)}
@@ -559,11 +559,11 @@ body.plain .pp .pbtn.dng{color:#cf222e}body.plain .pp .pbtn.dng.arm{background:#
 .ci small{display:block;color:var(--muted);font:500 11px var(--body);margin-bottom:3px}.ci code{display:block;font:11.5px/1.45 var(--mono);color:#d8e4dd;white-space:pre-wrap;word-break:break-all}
 .apop:has(.clist){width:min(460px,92vw)}
 
-.apop:has(.bowl){width:min(380px,94vw)}.bowl{position:relative;height:210px;margin:-2px -2px 6px;border-radius:12px 12px 0 0;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1d1d28,#0e0e14);cursor:pointer}.bowl:empty::after{content:"Setting up the lane\2026";display:grid;place-items:center;height:100%;font:500 11px var(--mono);color:var(--muted)}
+.apop:has(.bowl){width:min(380px,94vw)}.bowl{position:relative;height:210px;margin:-2px -2px 6px;border-radius:12px 12px 0 0;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1d1d28,#0e0e14);cursor:pointer}.bowl:empty::after{content:"Setting up the lane…";display:grid;place-items:center;height:100%;font:500 11px var(--mono);color:var(--muted)}
 
 .bowl .bball{position:absolute;left:0;top:0;width:64px;height:64px;transform-origin:32px 40px;pointer-events:none;will-change:transform}.bowl .bball .av{cursor:default}.bowl .bball .dot{display:none}
 .bowl .bres{position:absolute;left:50%;top:12px;transform:translate(-50%,-6px);padding:4px 12px;border-radius:999px;font:600 12px var(--body);color:#fff;background:rgba(12,12,18,.7);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);opacity:0;transition:opacity .3s,transform .3s;pointer-events:none}.bowl .bres.on{opacity:1;transform:translate(-50%,0)}.bowl .bres.strike{color:#04120a;background:#6ee7a0;animation:glowp 1.6s ease-in-out infinite}
-.apop:has(.bowl){width:min(360px,94vw)}.bowl{height:190px;margin:-2px -2px 6px;border-radius:12px 12px 0 0;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1d1d28,#0e0e14);cursor:pointer}.bowl:empty::after{content:"Setting up the lane\2026";display:grid;place-items:center;height:100%;font:500 11px var(--mono);color:var(--muted)}
+.apop:has(.bowl){width:min(360px,94vw)}.bowl{height:190px;margin:-2px -2px 6px;border-radius:12px 12px 0 0;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#1d1d28,#0e0e14);cursor:pointer}.bowl:empty::after{content:"Setting up the lane…";display:grid;place-items:center;height:100%;font:500 11px var(--mono);color:var(--muted)}
 .tooldet .pre{padding:9px 10px;font-size:11.5px;color:var(--muted)}
 ${KITCHEN_CSS}</style></head><body><div id="tip" role="tooltip"></div>
 <svg width="0" height="0" style="position:absolute"><defs>

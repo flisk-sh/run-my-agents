@@ -146,6 +146,17 @@ describe("live board demo", () => {
 		);
 		expect(await home.text()).toContain('src="/demo/"');
 	});
+	it("is built from the current board page, so the site never shows stale CSS", async () => {
+		// run `bun run demo` after changing the board page. The board sits outside this package's rootDir, so read it
+		// in a child process rather than importing it.
+		const PAGE = Bun.spawnSync([
+			process.execPath,
+			"-e",
+			'process.stdout.write(require("../board/src/page").PAGE)',
+		]).stdout.toString();
+		const css = PAGE.slice(PAGE.indexOf("<style>"), PAGE.indexOf("</style>"));
+		expect(await (await app.request("/demo/")).text()).toContain(css);
+	});
 });
 
 describe("Kitchen Rush game", () => {
