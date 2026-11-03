@@ -455,4 +455,25 @@ describe("kitchen pipeline bugs", () => {
 		expect(asked).toBe(1);
 		expect(t).toMatchObject({ stage: "done", answer: "Paris." });
 	});
+
+	it("an order's attached files reach every stage's brief, and only files from the order bucket count", async () => {
+		const { mkdirSync } = await import("node:fs");
+		const { uploadDir } = await import("../src/uploads");
+		const k = kitchen();
+		mkdirSync(uploadDir("order"), { recursive: true });
+		const shot = join(uploadDir("order"), "abc-screenshot.png");
+		writeFileSync(shot, "png");
+		const outside = join(dir, "secret.txt");
+		writeFileSync(outside, "no");
+		await k.post("/api/tasks", { title: TITLE, cwd: repo(), files: [shot, outside] });
+		expect(k.tasks()[0].files).toEqual([shot]);
+		const { t } = await k.run();
+		expect(t.stage).toBe("done");
+		for (const stage of ["spec", "build", "test", "review"]) {
+			const brief = k.said.find((x) => x.includes(`(${stage})`));
+			expect(brief).toContain(`Attached files (saved on this computer, read them with your tools):\n- ${shot}`);
+			expect(brief).not.toContain(outside);
+		}
+	});
+
 });

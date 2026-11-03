@@ -1090,6 +1090,25 @@ describe("file upload", () => {
 		expect((await upload(app, "id=u1&name=a", new Uint8Array([1]), { "x-run-my-agents": "1", "content-length": String(30 * 1024 * 1024) })).status).toBe(413);
 	});
 
+	it("takes files for a session or an order that does not exist yet, and a new session gets them in its prompt", async () => {
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		const data = mkdtempSync(join(tmpdir(), "rma-up-"));
+		process.env.RUN_MY_AGENTS_DIR = data;
+		const cwd = mkdtempSync(join(tmpdir(), "rma-new-"));
+		let seen: { text: string; dirs?: string[] } | undefined;
+		const app = createApp(() => [], undefined, { which: () => ({ claude: true, codex: true, grok: false }), start: async (n) => { seen = n; } });
+		const n = await (await upload(app, "id=new&name=spec.md", new Uint8Array([1]))).json();
+		expect(n.path.startsWith(join(data, "uploads", "_new"))).toBe(true);
+		const o = await (await upload(app, "id=order&name=shot.png", new Uint8Array([1]))).json();
+		expect(o.path.startsWith(join(data, "kitchen-home", "uploads"))).toBe(true);
+		const res = await app.request("/api/new", { method: "POST", headers: J, body: JSON.stringify({ agent: "claude", cwd, text: "build it", files: [n.path, o.path, "/etc/passwd"] }) });
+		expect(res.status).toBe(202);
+		expect(seen?.text).toBe(`build it\n\nAttached files (saved on this computer, read them with your tools):\n- ${n.path}`);
+		expect(seen?.dirs).toEqual([join(data, "uploads", "_new")]);
+	});
+
 	it("sends only files this board saved for the session, and lets the agent read that folder", async () => {
 		const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
 		const { tmpdir } = await import("node:os");

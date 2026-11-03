@@ -1,5 +1,6 @@
 // The agents board: every Claude Code, Codex and Grok Build session on this computer as an agent with a face, its
 // channel, its tokens against the limit, and skills for its job. Local only; started by `flisk up` or the Mac app.
+import { attachedBlock, isBucket, ownFiles, uploadDir } from "./uploads";
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pr } from "./desktop";
@@ -371,6 +372,8 @@ export interface NewSession {
 	mode?: string;
 	/** Tools allowed without asking (kitchen agents: KITCHEN_TOOLS). */
 	allow?: string[];
+	/** Folders outside cwd the agent may read, like the one its attached files are in (Claude only). */
+	dirs?: string[];
 }
 const MODELS = ["opus", "sonnet", "haiku"];
 
@@ -409,7 +412,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 	const [cmd, args] =
 		n.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
-			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : []), ...(n.allow?.length ? [...kitchenFlags(), "--allowedTools", ...n.allow] : [])]];
+			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : []), ...(n.allow?.length ? [...kitchenFlags(), "--allowedTools", ...n.allow] : []), ...(n.dirs ?? []).flatMap((d) => ["--add-dir", d])]];
 	return new Promise((resolveStart, reject) => {
 		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"], env: agentEnv() });
 		child.on("error", reject);
@@ -649,16 +652,9 @@ export function createApp(
 		if (!s) return c.json({ error: "That session is gone." }, 404);
 		if (s.agent === "grok" && !grokAuth()) return c.json({ error: GROK_SIGN_IN }, 400);
 		// Only files this board saved for this session can be attached, however the request names them.
-		const dir = join(dataDir(), "uploads", s.id);
-		const attached = (Array.isArray(files) ? files : []).slice(0, 10).map(String).filter((f) => {
-			const p = resolve(f);
-			try {
-				return p.startsWith(dir + sep) && statSync(p).isFile();
-			} catch {
-				return false;
-			}
-		});
-		const body = `${message || (attached.length ? "Please look at the attached files." : "")}${attached.length ? `\n\nAttached files (saved on this computer, read them with your tools):\n${attached.map((f) => `- ${f}`).join("\n")}` : ""}`;
+		const dir = uploadDir(s.id);
+		const attached = ownFiles(files, dir);
+		const body = `${message || (attached.length ? "Please look at the attached files." : "")}${attachedBlock(attached)}`;
 		const item = { qid: randomUUID(), text: message || "(attached files)", body, dirs: attached.length ? [dir] : [] };
 		// Like Claude: a message to a busy session waits in its queue, unless you ask to send it now.
 		if (!now && (sending.has(s.id) || appBusy(s))) {
@@ -730,12 +726,13 @@ export function createApp(
 		if (c.req.header("x-run-my-agents") !== "1" || !localOrigin(c)) return c.json({ error: "Upload from the board." }, 403);
 		const id = c.req.query("id") ?? "";
 		if (!/^[\w-]{1,128}$/.test(id)) return c.json({ error: "Unknown session." }, 400);
-		if (!read().some((x) => x.id === id)) return c.json({ error: "That session is gone." }, 404);
+		// "new" and "order" are for a session or an order that does not exist yet (see uploads.ts).
+		if (!isBucket(id) && !read().some((x) => x.id === id)) return c.json({ error: "That session is gone." }, 404);
 		if (Number(c.req.header("content-length") ?? 0) > MAX_FILE) return c.json({ error: "That file is over 25 MB." }, 413);
 		const bytes = new Uint8Array(await c.req.arrayBuffer());
 		if (!bytes.length) return c.json({ error: "That file is empty." }, 400);
 		if (bytes.length > MAX_FILE) return c.json({ error: "That file is over 25 MB." }, 413);
-		const dir = join(dataDir(), "uploads", id);
+		const dir = uploadDir(id);
 		mkdirSync(dir, { recursive: true });
 		const name = safeName(c.req.query("name") ?? "");
 		const path = join(dir, `${Date.now().toString(36)}-${name}`);
@@ -847,8 +844,10 @@ export function createApp(
 	});
 	app.post("/api/new", async (c) => {
 		if (!sameOrigin(c)) return c.json({ error: "Send JSON from the board." }, 403);
-		const b = (await c.req.json().catch(() => ({}))) as { agent?: string; cwd?: string; text?: string; role?: string; model?: string; effort?: string };
-		const text = String(b.text ?? "").trim();
+		const b = (await c.req.json().catch(() => ({}))) as { agent?: string; cwd?: string; text?: string; role?: string; model?: string; effort?: string; files?: unknown };
+		const attached = ownFiles(b.files, uploadDir("new"));
+		const asked = String(b.text ?? "").trim();
+		const text = asked && attached.length ? `${asked}${attachedBlock(attached)}` : asked;
 		if (!text) return c.json({ error: "Describe the task first." }, 400);
 		if (text.length > PROMPT_LIMIT) return c.json({ error: "That message is too long." }, 400);
 		if (b.agent !== "claude" && b.agent !== "codex" && b.agent !== "grok") return c.json({ error: "Pick Claude Code, Codex or Grok Build." }, 400);
@@ -871,7 +870,7 @@ export function createApp(
 		}
 		// Its first turn can take minutes: until it ends, a follow-up would start a second copy of the same session.
 		if (id) sending.add(id);
-		start({ agent: b.agent, cwd, text, model, effort, id })
+		start({ agent: b.agent, cwd, text, model, effort, id, ...(attached.length ? { dirs: [uploadDir("new")] } : {}) })
 			.catch((e) => console.error("start failed:", e))
 			.finally(() => {
 				if (id) sending.delete(id);

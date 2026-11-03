@@ -14,6 +14,7 @@ import { addTask, beltOrder, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, remov
 import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, withoutRecord, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
+import { attachedBlock, ownFiles, uploadDir } from "../uploads";
 import { kindOf, laneOf, quickMath, zachman, zachmanLines } from "./triage";
 import { clip, haikuFit, installSkill, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
@@ -686,7 +687,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.post("/api/tasks", async (c) => {
 		const no = guard(c);
 		if (no) return no;
-		const b = await body<{ title?: string; cwd?: string; priority?: string }>(c);
+		const b = await body<{ title?: string; cwd?: string; priority?: string; files?: unknown }>(c);
 		const title = String(b.title ?? "").trim();
 		if (!title) return c.json({ error: "Describe the order first." }, 400);
 		if (title.length > k.promptLimit) return c.json({ error: "That order is too long." }, 400);
@@ -700,7 +701,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const folders = [...new Set([...k.read().map((x) => x.cwd).filter(Boolean), ...readContainers().map((x) => x.cwd)])] as string[];
 		const where = kind === "task" ? whereOf(title, b.cwd ?? "", folders) : (b.cwd ?? "");
 		if (where !== (b.cwd ?? "")) card.where = where.split("/").filter(Boolean).pop() ?? where;
-		const t = addTask({ title, cwd: where, priority: b.priority, skills, route, kind, lane, zachman: card });
+		const added = addTask({ title, cwd: where, priority: b.priority, skills, route, kind, lane, zachman: card });
+		const files = ownFiles(b.files, uploadDir("order"));
+		const t = files.length ? (updateTask(added.id, { files }) ?? added) : added;
 		frontDesk(t);
 		stock(skills, k.fetch);
 		// The order as it is after the front desk: a sum is already answered and served.
@@ -809,8 +812,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const fresh = order.requeued ? `\n\nThis order was requeued: treat it as new. Earlier verdicts or rejections of #${order.n} do not apply.` : "";
 		const text =
 			order.kind === "question"
-				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${sentBack}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+				? `Question #${order.n} from the board: ${order.title}${attachedBlock(order.files ?? [])}\n\nAnswer it in one short reply. Do not change any files.`
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${sentBack}${lastTime}${known}${fresh}${attachedBlock(order.files ?? [])}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 		const context = { ...(wt ? { worktree: wt } : {}), ...(order.base ? { base: order.base } : {}), round: order.rounds ?? 0, records: (["spec", "build", "test"] as const).filter((st) => st !== order.stage && order.notes?.[st]) };
 		return order.kind === "question" ? text : envelope(text, { from: "Orchestrator", to: STAGE_TYPE[order.stage as keyof typeof STAGE_TYPE] ?? order.stage, type: "order", order: order.n, stage: order.stage, expects: verdict ? "verdict" : "record", context });
 	}

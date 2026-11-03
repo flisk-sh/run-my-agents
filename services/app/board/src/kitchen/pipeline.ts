@@ -21,6 +21,8 @@ export type Task = {
 	id: string;
 	n: number;
 	title: string;
+	/** Files attached to the order when it was added, saved under kitchen-home/uploads (see uploads.ts). */
+	files?: string[];
 	cwd: string;
 	priority: (typeof PRIORITIES)[number];
 	stage: Stage;

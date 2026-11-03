@@ -269,7 +269,7 @@ button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:7
 .clip:active{transform:translateY(1px)}
 .clip.has{color:#04120a;background:linear-gradient(var(--mint),var(--green))}
 .clip b{position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;padding:0 3px;border-radius:999px;background:var(--amber);color:#2a1a00;font:700 9px var(--mono);display:flex;align-items:center;justify-content:center;animation:pop 1.2s ease-in-out infinite}.clip b[hidden]{display:none}
-.atray{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 0}.atray:empty{display:none}
+.natt{display:flex;align-items:center;gap:8px;margin:8px 0 2px}.natt .clip,.kbar .clip{height:28px;flex:none;display:inline-flex;align-items:center}.natt .clip.has,.kbar .clip.has{color:var(--green)}.natt .atray,.kattw .atray{padding:0} .atray{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 0}.atray:empty{display:none}
 .att{position:relative;display:inline-flex;align-items:center;gap:7px;max-width:230px;padding:4px 8px 4px 4px;border-radius:12px;background:#15151d;box-shadow:inset 0 0 0 1px var(--line);font:11px var(--mono);color:var(--text);overflow:hidden;animation:pop2 .35s cubic-bezier(.3,1.6,.5,1) both;transition:transform .2s,box-shadow .2s}
 @keyframes pop2{from{opacity:0;transform:scale(.6) translateY(6px)}}
 .att:hover{transform:translateY(-2px);box-shadow:inset 0 0 0 1px rgba(110,231,183,.4),0 8px 18px -10px rgba(110,231,183,.6)}
@@ -744,7 +744,7 @@ document.addEventListener("click",e=>{
   else if(k==="send"){sendMsg()}
   else if(k==="rename"){if(!renaming){renaming=true;render()}}
   else if(k==="pin"){pinSession(s.id,!s.pinned)}
-  else if(k==="attach"){$("fin").click()}
+  else if(k==="attach"){attFor="";$("fin").click()}
   else if(k==="newopen"){openNew()}
   else if(k==="newcancel"){$("dlg").hidden=true}
   else if(k==="newgo"){startNew()}
@@ -760,7 +760,7 @@ document.addEventListener("click",e=>{
  const ls=e.target.closest("[data-limset]");if(ls){LIM.tokens=Number(ls.dataset.limset);renderLim();return}
  const lw=e.target.closest("#lp [data-sw]");if(lw){LIM.auto=!LIM.auto;renderLim();return}
  const ct=e.target.closest("[data-ctext]");if(ct){if(ct.dataset.ctext)cp(ct.dataset.ctext);return}
- const rm=e.target.closest("[data-rmatt]");if(rm){const a=ATT[composerFor]||[];a.splice(Number(rm.dataset.rmatt),1);drawTray();return}
+ const rm=e.target.closest("[data-rmatt]");if(rm){const a=ATT[rm.dataset.rmkey||composerFor]||[];a.splice(Number(rm.dataset.rmatt),1);drawTray();return}
  const ob=e.target.closest("[data-opt]");if(ob){answer(ob.dataset.opt);return}
  const sk=e.target.closest("[data-skill]");if(sk){navigator.clipboard?.writeText("/"+sk.dataset.skill).catch(()=>{});toast("Copied /"+sk.dataset.skill);return}
  const cc=e.target.closest("[data-copycode]");if(cc){cp(cc.parentElement.querySelector("code").textContent);return}
@@ -839,7 +839,7 @@ function drawNew(){const o=OPT;
  $("nmrow").style.display=ND.agent==="claude"?"":"none";markFolders()}
 function NewDlg(){return H(Frag,null,H("div",{class:"dbg","data-act":"newcancel"}),H("div",{class:"dcard gx"},H("div",{class:"in"},
  H("div",{class:"dhd"},H("h3",null,"New session"),H("span",{class:"dsub"},"the board starts it for you")),
- H("div",{class:"tbox"},H("textarea",{id:"ntext",placeholder:"What should the agent do?"})),
+ H("div",{class:"tbox"},H("textarea",{id:"ntext",placeholder:"What should the agent do?"})),H("div",{class:"natt"},H("span",{class:"clip","data-attfor":"new",title:"Attach files (or drop them here)"},ico(IC.clip)),H("div",{class:"atray",id:"ntray"})),
  H("div",{class:"lbl"},"AI"),H("div",{class:"seg",id:"nagent"}),
  H("div",{class:"lbl"},"Agent type ",H("em",{id:"nauto"})),H("div",{class:"chips",id:"nrole"}),
  H("div",{class:"lbl"},"Folder"),H("div",{class:"fch",id:"nfold"},OPT.folders.map(f=>H("span",{key:f,class:"fc","data-folder":f,title:f},folderName(f)))),
@@ -860,9 +860,10 @@ document.addEventListener("input",e=>{if(e.target.id==="ncwd")markFolders()});
 document.addEventListener("input",e=>{if(e.target.id!=="ntext")return;saveDraft("new",e.target.value);clearTimeout(dt);dt=setTimeout(async()=>{const t=$("ntext")&&$("ntext").value;if(!t||!ND)return;const r=await fetch("api/detect?text="+encodeURIComponent(t)).then(r=>r.json()).catch(()=>null);if(!r||!ND)return;if(!ND.manual)ND.role=r.role;if(!ND.agentManual&&r.agent)ND.agent=r.agent;drawNew()},200)});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){hideMenu();if(!$("dlg").hidden)$("dlg").hidden=true}if(e.target.id==="ntext"&&e.key==="Enter"&&(e.metaKey||e.ctrlKey)){e.preventDefault();startNew()}});
 async function startNew(){const text=$("ntext").value.trim();if(!text){toast("Describe the task first");$("ntext").focus();return}
- const r=await post("api/new",{agent:ND.agent,cwd:$("ncwd").value.trim(),text,role:ND.manual?ND.role:"",model:ND.agent==="claude"?ND.model:"",effort:ND.agent==="claude"?ND.effort:""}).catch(()=>({error:"The board is not answering."}));
+ const natt=ATT.new||[];if(natt.some(f=>!f.path&&!f.err)){toast("Still uploading\u2026");return}const files=natt.filter(f=>f.path).map(f=>f.path);
+ const r=await post("api/new",{agent:ND.agent,cwd:$("ncwd").value.trim(),text,role:ND.manual?ND.role:"",model:ND.agent==="claude"?ND.model:"",effort:ND.agent==="claude"?ND.effort:"",files}).catch(()=>({error:"The board is not answering."}));
  if(r.error){toast(r.error);return}
- $("dlg").hidden=true;saveDraft("new","");wantSel=r.id||"";toast("Started a "+ND.role+" agent on "+AGENT_LABEL[ND.agent]);[1500,5000,12000].forEach(t=>setTimeout(()=>{last="";load()},t))}
+ ATT.new=[];$("dlg").hidden=true;saveDraft("new","");wantSel=r.id||"";toast("Started a "+ND.role+" agent on "+AGENT_LABEL[ND.agent]);[1500,5000,12000].forEach(t=>setTimeout(()=>{last="";load()},t))}
 function limPanel(){const pre=[[0,"OFF"],[500000,"500k"],[1000000,"1M"],[2000000,"2M"],[5000000,"5M"]];
  return H("div",{class:"panel lp gx live",id:"lp"},H("div",{class:"lbl"},"Token limit per session"),H("div",{class:"lnum"},H("span",{class:"lbtn","data-lim":"-250000"},"−"),H("b",{id:"limv"},LIM.tokens?limLabel(LIM.tokens):"OFF"),H("span",{class:"lbtn","data-lim":"250000"},"+")),
   H("div",{class:"fch lchips"},pre.map(([v,l])=>H("span",{key:v,class:"fc"+(LIM.tokens===v?" on":""),"data-limset":v},l))),
@@ -871,24 +872,33 @@ function limPanel(){const pre=[[0,"OFF"],[500000,"500k"],[1000000,"1M"],[2000000
 function renderLim(){const p=$("lp");if(!p)return;const v=$("limv");v.textContent=LIM.tokens?limLabel(LIM.tokens):"OFF";v.classList.remove("bump");void v.offsetWidth;v.classList.add("bump");p.querySelectorAll("[data-limset]").forEach(c=>c.classList.toggle("on",Number(c.dataset.limset)===LIM.tokens));p.querySelector(".swt").classList.toggle("on",LIM.auto)}
 const ATT={};
 function fmtSize(n){return n>=1048576?(n/1048576).toFixed(1)+" MB":Math.max(1,Math.round(n/1024))+" KB"}
-function drawTray(){const t=$("atray");if(!t)return;const a=ATT[composerFor]||[];
- pRender(H(Frag,null,a.map((f,i)=>H("span",{key:i,class:"att"+(f.err?" err":""),"data-att":i},H("span",Object.assign({class:"th"},f.thumb?{style:"background-image:url("+f.thumb+")"}:{}),f.thumb?null:ico(IC.files)),H("span",{class:"nm2",title:f.name},f.name),H("small",null,fmtSize(f.size)),H("span",{class:"x","data-rmatt":i,title:"Remove"},"\u00d7"),f.path||f.err?null:H("i",{class:"pg",style:"--w:"+(f.pct||0)+"%"})))),t);
- const c=document.querySelector(".clip"),n=$("clipn");if(c)c.classList.toggle("has",a.length>0);if(n){n.hidden=!a.length;n.textContent=a.length}}
-function attachFiles(list){const s=S.find(x=>x.id===composerFor);if(!s){toast("Select an agent first");return}const a=ATT[s.id]=ATT[s.id]||[];
+/* Files wait in a tray per place: the chat's agent, "new" (the New session dialog) and "order" (the Kitchen's
+   new-order box). Before a session or an order exists, its files go to that bucket on the board. */
+let attFor="";
+function trayItems(key){return (ATT[key]||[]).map((f,i)=>H("span",{key:i,class:"att"+(f.err?" err":""),"data-att":i},H("span",Object.assign({class:"th"},f.thumb?{style:"background-image:url("+f.thumb+")"}:{}),f.thumb?null:ico(IC.files)),H("span",{class:"nm2",title:f.name},f.name),H("small",null,fmtSize(f.size)),H("span",{class:"x","data-rmatt":i,"data-rmkey":key,title:"Remove"},"\u00d7"),f.path||f.err?null:H("i",{class:"pg",style:"--w:"+(f.pct||0)+"%"})))}
+function drawTray(){const t=$("atray"),a=ATT[composerFor]||[];if(t)pRender(H(Frag,null,trayItems(composerFor)),t);
+ const c=document.querySelector(".row .clip"),n=$("clipn");if(c)c.classList.toggle("has",a.length>0);if(n){n.hidden=!a.length;n.textContent=a.length}
+ const nt=$("ntray");if(nt)pRender(H(Frag,null,trayItems("new")),nt);
+ for(const k of ["new","order"]){const b=document.querySelector('[data-attfor="'+k+'"]');if(b)b.classList.toggle("has",(ATT[k]||[]).length>0)}
+ if($("ktray")&&typeof kDraw==="function")kDraw()}
+function attachFiles(list,key){key=key||composerFor;const bucket=key==="new"||key==="order",s=bucket?null:S.find(x=>x.id===key);if(!bucket&&!s){toast("Select an agent first");return}const a=ATT[key]=ATT[key]||[];
  for(const file of list){if(a.length>=10){toast("Up to 10 files per message");break}if(!file.size){toast(file.name+" is empty");continue}if(file.size>26214400){toast(file.name+" is over 25 MB");continue}
   const f={name:file.name,size:file.size,pct:0,thumb:/^image\\//.test(file.type)?URL.createObjectURL(file):""};a.push(f);
-  const x=new XMLHttpRequest();x.open("POST","api/upload?id="+encodeURIComponent(s.id)+"&name="+encodeURIComponent(file.name));x.setRequestHeader("x-run-my-agents","1");
+  const x=new XMLHttpRequest();x.open("POST","api/upload?id="+encodeURIComponent(key)+"&name="+encodeURIComponent(file.name));x.setRequestHeader("x-run-my-agents","1");
   x.upload.onprogress=ev=>{f.pct=ev.lengthComputable?Math.round(ev.loaded/ev.total*100):50;const el=document.querySelector('#atray [data-att="'+a.indexOf(f)+'"] .pg');if(el)el.style.setProperty("--w",f.pct+"%")};
   x.onload=()=>{try{const r=JSON.parse(x.responseText);if(x.status===200&&r.path)f.path=r.path;else{f.err=true;toast(r.error||"Upload failed")}}catch(e){f.err=true}drawTray()};
   x.onerror=()=>{f.err=true;drawTray();toast("Upload failed")};x.send(file)}
  drawTray()}
-$("fin").addEventListener("change",e=>{attachFiles([...e.target.files]);e.target.value=""});
+$("fin").addEventListener("change",e=>{attachFiles([...e.target.files],attFor);attFor="";e.target.value=""});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-attfor]");if(!b)return;e.preventDefault();attFor=b.dataset.attfor;$("fin").click()});
+/* Where a dropped or pasted file goes: the open New session dialog, the Kitchen's new-order box, else the chat. */
+const dropKey=()=>!$("dlg").hidden&&$("ntext")?"new":$("ktitle")?"order":"";
 const hasFiles=e=>e.dataTransfer&&[...e.dataTransfer.types].includes("Files");
-document.addEventListener("dragenter",e=>{if(!hasFiles(e))return;e.preventDefault();const s=S.find(x=>x.id===composerFor);$("dzt").textContent=s?"Drop to attach to "+s.role:"Drop files to attach";$("drop").hidden=false});
+document.addEventListener("dragenter",e=>{if(!hasFiles(e))return;e.preventDefault();const s=S.find(x=>x.id===composerFor);const dk=dropKey();$("dzt").textContent=dk==="new"?"Drop to attach to the new session":dk==="order"?"Drop to attach to the new order":s?"Drop to attach to "+s.role:"Drop files to attach";$("drop").hidden=false});
 document.addEventListener("dragover",e=>{if(hasFiles(e))e.preventDefault()});
 document.addEventListener("dragleave",e=>{if(!e.relatedTarget)$("drop").hidden=true});
-document.addEventListener("drop",e=>{if(!hasFiles(e))return;e.preventDefault();$("drop").hidden=true;attachFiles([...e.dataTransfer.files])});
-document.addEventListener("paste",e=>{if(e.target.id!=="msg")return;const fs=[...((e.clipboardData&&e.clipboardData.files)||[])];if(fs.length){e.preventDefault();attachFiles(fs)}});
+document.addEventListener("drop",e=>{if(!hasFiles(e))return;e.preventDefault();$("drop").hidden=true;attachFiles([...e.dataTransfer.files],dropKey())});
+document.addEventListener("paste",e=>{const key={msg:"",ntext:"new",ktitle:"order"}[e.target.id];if(key===undefined)return;const fs=[...((e.clipboardData&&e.clipboardData.files)||[])];if(fs.length){e.preventDefault();attachFiles(fs,key)}});
 function ordSort(xs){const o=new Map(ORDER.map((id,i)=>[id,i]));return xs.slice().sort((a,b)=>(o.has(a.id)?o.get(a.id):-1)-(o.has(b.id)?o.get(b.id):-1))}
 function snapRows(){const m=new Map();document.querySelectorAll("#side .it[data-sel]").forEach(r=>m.set(r.dataset.sel,r.getBoundingClientRect().top));return m}
 function flip(old){document.querySelectorAll("#side .it[data-sel]").forEach(r=>{const o=old.get(r.dataset.sel);if(o===undefined)return;const d=o-r.getBoundingClientRect().top;if(Math.abs(d)<2)return;r.style.transition="none";r.style.transform="translateY("+d+"px)";void r.offsetWidth;r.style.transition="transform .5s cubic-bezier(.2,.9,.3,1.15),background .2s";r.style.transform="";setTimeout(()=>{r.style.transition=""},560)})}
