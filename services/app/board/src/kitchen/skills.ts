@@ -102,6 +102,14 @@ export const policyFor = (stage: Stage, override?: { model?: string; effort?: st
 };
 
 // ---------- the pantry: installing skills ----------
+/** A lesson, shortened at a word, never mid-word ("…under concurr"). */
+export const clip = (text: string, max = 300) => {
+	const t = text.replace(/\s+/g, " ").trim();
+	if (t.length <= max) return t;
+	const cut = t.slice(0, max - 1);
+	return `${cut.slice(0, cut.lastIndexOf(" ") > max / 2 ? cut.lastIndexOf(" ") : cut.length).replace(/[\s,;:.]+$/, "")}…`;
+};
+
 export const skillsDir = () => process.env.RUN_MY_AGENTS_SKILLS_DIR || join(homedir(), ".claude", "skills");
 export const skillInstalled = (name: string) => existsSync(join(skillsDir(), name, "SKILL.md"));
 /** An installed skill's text, for injecting it into a prompt; empty if it is not installed. */
@@ -156,7 +164,7 @@ export function writeLessons(slug: string, container: string, lessons: { at: num
 	mkdirSync(dir, { recursive: true });
 	const body = lessons
 		.slice(-40)
-		.map((l) => `- ${new Date(l.at).toISOString().slice(0, 10)} · ${l.order}: ${l.reason.replace(/\s+/g, " ").slice(0, 300)}`)
+		.map((l) => `- ${new Date(l.at).toISOString().slice(0, 10)} · ${l.order}: ${clip(l.reason)}`)
 		.join("\n");
 	writeFileSync(
 		join(dir, "SKILL.md"),

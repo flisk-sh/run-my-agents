@@ -8,7 +8,7 @@ import { existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync } f
 import { join } from "node:path";
 import { dataDir } from "../prefs";
 import type { Stage } from "./pipeline";
-import { lessonsSkill, matchSkills, SKILLS, STAGE_SKILLS, skillInstalled, skillsDir, writeLessons } from "./skills";
+import { clip, lessonsSkill, matchSkills, SKILLS, STAGE_SKILLS, skillInstalled, skillsDir, writeLessons } from "./skills";
 import { JsonStore } from "./store";
 
 /**
@@ -81,10 +81,10 @@ export function lessonsFor(key: string, n = 5): string[] {
 	return readContainers()
 		.filter((c) => lessonsKeyOf(c) === key)
 		.flatMap((c) => c.lessons)
-		.filter((l) => isLesson(l.reason))
+		.filter((l) => l.kept || isLesson(l.reason))
 		.sort((a, b) => a.at - b.at)
 		.slice(-n)
-		.map((l) => `${l.order}: ${l.reason.replace(/\s+/g, " ").slice(0, 300)}`);
+		.map((l) => `${l.order}: ${clip(l.reason)}`);
 }
 
 export type Container = {
@@ -106,7 +106,8 @@ export type Container = {
 	/** An order with no progress for this long is a miss. */
 	missMinutes: number;
 	pods: Pod[];
-	lessons: { at: number; order: string; reason: string }[];
+	/** `kept`: a reason you typed when you fired an agent, kept even if it names no FAIL. */
+	lessons: { at: number; order: string; reason: string; kept?: boolean }[];
 	/** Containers with the same key share one lessons skill: every Build container learns from every build. */
 	lessonsKey?: string;
 	/** You set its size with − / +: the idle timer keeps that many agents instead of letting them all go. */
@@ -192,14 +193,17 @@ const REFUSAL = /\b(clarif|resubmit|too vague|vague|will not reopen|not reopen|c
  * A lesson names a mistake: a FAIL line, a miss or a stuck order. Refusals, and the half-sentences an earlier version
  * saved ("Ready.", "Let me check the build lessons"), are not lessons.
  */
-export const isLesson = (reason: string) => !REFUSAL.test(reason) && /\b(FAIL|Missed|Stuck|fired by hand|Fired by hand)\b/.test(reason) && reason.trim().length >= 12;
+export const isLesson = (reason: string) =>
+	!REFUSAL.test(reason) && !NO_LESSON.test(reason.trim()) && /\b(FAIL|Missed|Stuck|fired by hand|Fired by hand)\b/.test(reason) && reason.trim().length >= 12;
+/** Lines that say a step failed but not what was wrong: 16 of the 22 shared Build lessons were these (#234). */
+const NO_LESSON = /^(?:Stuck after \d+ rounds\.?|(?:\*\*)?FAIL(?:\*\*)? in \w+ \(no reason given\)\.?)$/i;
 
 /** The lessons skill a container reads and writes: shared by key, else its own. */
 export const lessonsKeyOf = (c: Pick<Container, "slug" | "lessonsKey">) => c.lessonsKey ?? c.slug;
 /** Rewrites one lessons skill from every container that shares its key. */
 function writeShared(all: Container[], key: string, name: string) {
 	// Old refusal lessons are dropped as they are rewritten, so they stop teaching agents to refuse.
-	for (const x of all) x.lessons = x.lessons.filter((l) => isLesson(l.reason));
+	for (const x of all) x.lessons = x.lessons.filter((l) => l.kept || isLesson(l.reason));
 	const lessons = all.filter((x) => lessonsKeyOf(x) === key).flatMap((x) => x.lessons).sort((a, b) => a.at - b.at);
 	writeLessons(key, name, lessons);
 }
@@ -229,16 +233,20 @@ export const podById = (podId: string) => {
  * container's skill, and the next reconcile replaces it. Returns the pod's new state.
  * Can pass either sessionId or podId: podId works even after freshChat recycles the session.
  */
-export function strike(idOrSession: string, order: string, reason: string): { container: string; pod: Pod; fired: boolean; gained: string[] } | undefined {
+/**
+ * One strike on a pod, and its reason as the container's lesson (once per order and reason). `fire` fires it at once
+ * (firing by hand), and `keep` keeps the reason as a lesson even if it names no FAIL: the reason you typed.
+ */
+export function strike(idOrSession: string, order: string, reason: string, o: { fire?: boolean; keep?: boolean } = {}): { container: string; pod: Pod; fired: boolean; gained: string[] } | undefined {
 	return store.update((all) => {
 		for (const c of all) {
 			// Try to find by pod's stable id first, then by session (for backward compat).
 			const p = c.pods.find((x) => (x.id === idOrSession || x.session === idOrSession) && x.status !== "evicted");
 			if (!p) continue;
-			p.strikes += 1;
+			p.strikes = o.fire ? Math.max(p.strikes + 1, c.maxStrikes) : p.strikes + 1;
 			// A lesson is a mistake to avoid. Refusals ("too vague", "resubmit", "will not reopen") taught agents to
 			// refuse more, so they count as a strike but are not kept as lessons.
-			if (isLesson(reason)) c.lessons.push({ at: Date.now(), order, reason });
+			if ((o.keep || isLesson(reason)) && !c.lessons.some((l) => l.order === order && l.reason === reason)) c.lessons.push({ at: Date.now(), order, reason, ...(o.keep ? { kept: true } : {}) });
 			const fired = p.strikes >= c.maxStrikes;
 			let gained: string[] = [];
 			if (fired) {

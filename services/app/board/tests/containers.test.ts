@@ -734,7 +734,9 @@ describe("lanes, scores and crew clean-up", () => {
 		expect(failLine("Ready.")).toBe("");
 		const { isLesson } = await import("../src/kitchen/containers");
 		expect(["Ready.", "Let me check the build lessons to understand", "REJECT: will not reopen"].map(isLesson)).toEqual([false, false, false]);
-		expect(["FAIL — returned 2013 for a date", "Stuck after 3 rounds.", "Missed: no progress for 30 min."].map(isLesson)).toEqual([true, true, true]);
+		expect(["FAIL — returned 2013 for a date", "Missed: no progress for 30 min."].map(isLesson)).toEqual([true, true]);
+		// They say a step failed, not what was wrong (#234).
+		expect(["Stuck after 3 rounds.", "FAIL in test (no reason given)"].map(isLesson)).toEqual([false, false]);
 		const { post } = setup([]);
 		order({ stage: "build", cwd: "/repo", title: "add search filters to the sessions list with saved views" });
 		await post("/api/kitchen", { auto: true });

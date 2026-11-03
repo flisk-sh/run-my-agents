@@ -15,7 +15,7 @@ import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
 import { kindOf, laneOf, needsWeb, quickMath, zachman, zachmanLines } from "./triage";
-import { haikuFit, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
+import { clip, haikuFit, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
 export type KitchenCtx = {
 	read: () => Session[];
@@ -72,7 +72,7 @@ export function failLine(text: string): string {
 	const i = lines.map((l) => /\bFAIL\b/.test(l)).lastIndexOf(true);
 	if (i < 0) return "";
 	const line = lines[i].length < 40 && lines[i + 1] ? `${lines[i]} ${lines[i + 1]}` : lines[i];
-	return line.slice(0, 300);
+	return clip(line);
 }
 
 /** How many times the orchestrator answers one step's agent before the step moves on without it. */
@@ -398,8 +398,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const replyOf = (id: string | undefined) => (id && fliskReplies.has(id) ? (fliskReplies.get(id) as string) : handOff(k.read().find((x) => x.id === id)));
 	const guard = (c: Context) => (k.sameOrigin(c) ? undefined : c.json({ error: "Send JSON from the board." }, 403));
 	/** A strike on a pod; when it fires the pod, the skills its container gained are installed for the next agent. */
-	const strike = (session: string, order: string, reason: string) => {
-		const r = strikePod(session, order, reason);
+	const strike = (session: string, order: string, reason: string, o?: Parameters<typeof strikePod>[3]) => {
+		const r = strikePod(session, order, reason, o);
 		if (r?.gained.length) stock(r.gained, k.fetch);
 		return r;
 	};
@@ -872,7 +872,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
 			if (hit?.fired && builder) k.close(builder);
 			const back = sendBack(t);
-			if (back.stuck && builder) strike(builder, `#${t.n} ${t.title}`, `Stuck after ${back.rounds} rounds.`);
+			// The FAIL that made it stuck was the strike; "Stuck after N rounds." names no mistake (#234).
 			return { status: 200, body: { ...updateTask(t.id, { ...back, assignee: "", sentAt: 0 }), fired: !!hit?.fired } };
 		}
 		if (t.kind === "question") {
@@ -1382,8 +1382,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const { session, reason } = await body<{ session?: string; reason?: string }>(c);
 		const home = podOf(String(session));
 		if (!home) return c.json({ error: "That agent is not in a container." }, 404);
-		let r = strike(home.pod.session, "fired by hand", String(reason || "Fired by hand."));
-		while (r && !r.fired) r = strike(home.pod.session, "fired by hand", String(reason || "Fired by hand."));
+		// One strike that fires it, and one lesson: the reason you typed, kept as you wrote it (#234).
+		strike(home.pod.session, "fired by hand", String(reason || "Fired by hand."), { fire: true, keep: !!reason });
 		k.close(home.pod.session);
 		return c.json({ fired: true, did: tick() });
 	});
