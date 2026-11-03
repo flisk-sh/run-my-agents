@@ -561,7 +561,19 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * served: it goes on the belt to a kitchen agent with full tools. Always with the read-only web tools: a word list
 	 * decided it, and "weateher in London?" got no tools (#315).
 	 */
+	/** Kitchen answers being checked (#324): the front desk holds those too. */
+	const checking = new Set<string>();
+	/** Questions the front desk is answering in this process: one it holds that is not here was cut off by a restart (#183). */
+	const atDesk = new Set<string>();
 	async function answerChecked(t: Task) {
+		atDesk.add(t.id);
+		try {
+			await answerAndCheck(t);
+		} finally {
+			atDesk.delete(t.id);
+		}
+	}
+	async function answerAndCheck(t: Task) {
 		if (!k.ask) return;
 		let picks = matchSkills(t.title, 2).map((x) => x.name);
 		if (picks.length) updateTask(t.id, { skills: picks });
@@ -1042,7 +1054,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// The pass check for a kitchen agent's answer too: #74 was served as "Unable to fulfill … FAIL: …" (#324). While it
 			// runs, the front desk holds the question; an answer that misses closes it as failed, with why, never as an answer.
 			const held = updateTask(t.id, { assignee: FRONT_DESK, sentAt: Date.now() });
+			checking.add(t.id);
 			void checkAnswer(t.title, answer)
+				.finally(() => checking.delete(t.id))
 				.then((v) => {
 					if (v.ok) updateTask(t.id, { stage: "done", answer, assignee: "", sentAt: 0, servedAt: Date.now() });
 					else {
@@ -1130,6 +1144,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 */
 	function auto(now = Date.now()) {
 		const did: string[] = [];
+		// A question the front desk held when the board restarted: its call is gone, so ask it again (#183).
+		for (const t of readTasks())
+			if (t.kind === "question" && t.stage !== "done" && t.assignee === FRONT_DESK && !atDesk.has(t.id) && !checking.has(t.id) && k.ask) {
+				frontDesk(t);
+				did.push(`#${t.n} asked the front desk again`);
+			}
 		did.push(...letIdleGo(now));
 		const all = k.read();
 		did.push(...tidy(all, now));

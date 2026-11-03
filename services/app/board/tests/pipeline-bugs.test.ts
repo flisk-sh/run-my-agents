@@ -441,4 +441,18 @@ describe("kitchen pipeline bugs", () => {
 		// Round 1 shipped a commit; round 2 changed nothing, which must not pass as a change.
 		expect(log).toContain("#1 build made no changes: failed");
 	});
+
+	it("#183: a question the front desk was answering when the board restarted is asked again, not left for 30 min", async () => {
+		let asked = 0;
+		const app = createApp(() => [], async () => {}, { ask: async (_q, _c, o) => (o?.system ? '{"ok": true}' : (asked++, "Paris.")), fetch: (async () => new Response("x")) as unknown as typeof fetch });
+		const post = async (path: string, b: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+		// What tasks.json holds after a restart mid-answer: assigned to the front desk, sent 2 minutes ago, no call running.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ id: "q", n: 1, title: "what is the capital of France?", cwd: "", kind: "question", priority: "P1", stage: "inbox", assignee: "front-desk", sentAt: Date.now() - 120_000, approved: false, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1 }]));
+		await post("/api/kitchen", { auto: true });
+		await post("/api/containers/reconcile", {});
+		await Bun.sleep(10);
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(asked).toBe(1);
+		expect(t).toMatchObject({ stage: "done", answer: "Paris." });
+	});
 });
