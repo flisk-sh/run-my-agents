@@ -4,8 +4,11 @@
 // orders collects strikes; at the limit it is fired (evicted), its mistakes go into the container's lessons skill,
 // and the loop starts a fresh agent that reads those lessons.
 import { randomUUID } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
+import { dataDir } from "../prefs";
 import type { Stage } from "./pipeline";
-import { lessonsSkill, matchSkills, SKILLS, STAGE_SKILLS, skillInstalled, writeLessons } from "./skills";
+import { lessonsSkill, matchSkills, SKILLS, STAGE_SKILLS, skillInstalled, skillsDir, writeLessons } from "./skills";
 import { JsonStore } from "./store";
 
 /**
@@ -19,7 +22,28 @@ export const KITCHEN_TOOLS = [
 	"Bash(git:*)", "Bash(gh:*)", "Bash(bun:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)", "Bash(pnpm:*)", "Bash(yarn:*)",
 	"Bash(make:*)", "Bash(python3:*)", "Bash(pytest:*)", "Bash(go:*)", "Bash(cargo:*)", "Bash(ls:*)", "Bash(cat:*)",
 	"Bash(grep:*)", "Bash(rg:*)", "Bash(find:*)", "Bash(mkdir:*)", "WebFetch", "WebSearch",
+	// Every part of a piped or chained command must be allowed: `find … | grep … | head` was refused 110 times (#249).
+	"Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)", "Bash(sort:*)", "Bash(uniq:*)", "Bash(cut:*)", "Bash(tr:*)", "Bash(sed:*)",
+	"Bash(awk:*)", "Bash(echo:*)", "Bash(printf:*)", "Bash(pwd)", "Bash(which:*)", "Bash(test:*)", "Bash(xargs:*)",
+	"Bash(diff:*)", "Bash(jq:*)", "Bash(tee:*)", "Bash(true)", "Bash(cd:*)",
 ];
+
+/**
+ * What every kitchen agent starts with besides its tools: its repo's own settings only, not the user's. The user's
+ * hooks, plugins and CLAUDE.md made kitchen agents read files outside their repo and blocked their reads (#249). The
+ * skills the kitchen installs live with the user's, so a folder of the board's carries them in (`--add-dir`).
+ */
+export function kitchenFlags(): string[] {
+	const home = join(dataDir(), "kitchen-home");
+	const link = join(home, ".claude", "skills");
+	try {
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		const has = existsSync(link) || (() => { try { return lstatSync(link).isSymbolicLink(); } catch { return false; } })();
+		if (has && readlinkSync(link) !== skillsDir()) rmSync(link, { force: true });
+		if (!existsSync(link)) symlinkSync(skillsDir(), link);
+	} catch {}
+	return ["--setting-sources", "project,local", "--add-dir", home];
+}
 /** Chats the kitchen started: container agents ("Build · flisk 3125") and Ship agents ("Ship · #12"). */
 export const KITCHEN_CHAT = /^(?:(?:Spec|Build|Test|Review) · .+ [0-9a-f]{4}|Ship · #\d+|Auto cooks · .+ [0-9a-f]{4}|Kitchen cooks [0-9a-f]{4})$/;
 

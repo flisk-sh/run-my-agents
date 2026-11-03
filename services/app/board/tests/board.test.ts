@@ -438,6 +438,38 @@ describe("send", () => {
 		expect(env?.HOME).toBe(process.env.HOME);
 	});
 
+	it("starts kitchen agents with their repo's settings only, the kitchen's skills, and piped commands allowed (#249)", async () => {
+		const { mkdtempSync, realpathSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join } = await import("node:path");
+		process.env.RUN_MY_AGENTS_DIR = mkdtempSync(join(tmpdir(), "rma-kflags-"));
+		process.env.RUN_MY_AGENTS_SKILLS_DIR = mkdtempSync(join(tmpdir(), "rma-kflags-skills-"));
+		const { sendToSession, startNewSession } = await import("../src/index");
+		const { KITCHEN_TOOLS } = await import("../src/kitchen/containers");
+		const { dataDir } = await import("../src/prefs");
+		let args: string[] = [];
+		const fake = ((_: string, a: string[]) => {
+			args = a;
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: () => setTimeout(() => child.emit("close"), 0) };
+			return child;
+		}) as never;
+		const home = join(dataDir(), "kitchen-home");
+		const flags = (a: string[]) => [a[a.indexOf("--setting-sources") + 1], a[a.indexOf("--add-dir", a.indexOf("--setting-sources")) + 1]];
+		await startNewSession({ agent: "claude", cwd: "/repo", text: "go", id: "k1", allow: KITCHEN_TOOLS }, fake);
+		expect(flags(args)).toEqual(["project,local", home]);
+		// The kitchen's skills come in through that folder, since the user's own settings (and so their skills) are left out.
+		expect(realpathSync(join(home, ".claude", "skills"))).toBe(realpathSync(process.env.RUN_MY_AGENTS_SKILLS_DIR));
+		const s = parseSession("k2", [ask("hi")], now);
+		if (s) await sendToSession({ ...s, title: "Build · flisk 3125" }, "go", fake);
+		expect(flags(args)).toEqual(["project,local", home]);
+		// Your own chats keep your settings.
+		if (s) await sendToSession({ ...s, title: "My chat" }, "go", fake);
+		expect(args).not.toContain("--setting-sources");
+		// Each part of `find . -name x | grep y | head -5` and `… 2>&1 | tail` is allowed.
+		for (const c of ["find", "grep", "head", "tail", "wc", "sort", "sed", "awk", "echo", "xargs"]) expect(KITCHEN_TOOLS).toContain(`Bash(${c}:*)`);
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

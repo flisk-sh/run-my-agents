@@ -102,7 +102,7 @@ export const policyFor = (stage: Stage, override?: { model?: string; effort?: st
 };
 
 // ---------- the pantry: installing skills ----------
-const skillsDir = () => process.env.RUN_MY_AGENTS_SKILLS_DIR || join(homedir(), ".claude", "skills");
+export const skillsDir = () => process.env.RUN_MY_AGENTS_SKILLS_DIR || join(homedir(), ".claude", "skills");
 export const skillInstalled = (name: string) => existsSync(join(skillsDir(), name, "SKILL.md"));
 /** An installed skill's text, for injecting it into a prompt; empty if it is not installed. */
 export function readSkill(name: string): string {
