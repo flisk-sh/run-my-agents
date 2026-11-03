@@ -71,6 +71,26 @@ describe("board UI bugs", () => {
 		/* #queue sits in .main next to #feed; on Queue/Kitchen/... it still showed the agent's queued messages with Send now */
 		expect(/\.main\.kmode>#queue[,{]/.test(KITCHEN_CSS)).toBe(true);
 	});
+	it("#268: a click on the chip leaves the popover open", () => {
+		/* the chip's branch calls showUmux then stopPropagation(), but the outside-click closer is another listener on
+		   document, so it still runs for the same click and removes the popover it just opened */
+		const branch = /if\(k==="umux"\)\{([^}]*)\}/.exec(JS)?.[1] ?? "";
+		const closer = handler(JS, "click", "e=>{if(apEl&&!e.target.closest(\".apop\")");
+		let hid = false;
+		const run = new Function("apEl", "hideAct", `return (${closer})`)({ className: "prpop apop umpop" }, () => {
+			hid = true;
+		});
+		const chip = { closest: (s: string) => (s.includes(".umux") || s.includes('data-act="umux"') || s === "[data-act]" ? chip : null) };
+		run({ target: chip });
+		expect(branch.includes("stopImmediatePropagation") || !hid).toBe(true);
+	});
+	it("#268: picking a score keeps the options you picked up to visible and clickable", () => {
+		/* the composer's .fill{position:absolute;width:0;pointer-events:none} is unscoped, and UmuxScale marks the
+		   options up to the pick with class "fill": they shrink to 0 px wide and stack in a corner */
+		const fillIsGlobal = unscoped(PAGE_CSS).has("fill");
+		const umuxUsesFill = JS.includes('(i<=v?" fill":"")');
+		expect(fillIsGlobal && umuxUsesFill).toBe(false);
+	});
 });
 
 // keep helpers used

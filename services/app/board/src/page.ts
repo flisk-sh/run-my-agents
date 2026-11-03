@@ -117,7 +117,7 @@ button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:7
 .line{position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#22c55e,#38bdf8,#a78bfa,#22c55e);background-size:200% 100%;animation:sweep 2.4s linear infinite;opacity:.35;transition:opacity .3s}
 .compose:focus-within .line,.compose.hot .line{opacity:1;box-shadow:0 0 12px rgba(56,189,248,.6)}
 @keyframes sweep{to{background-position:-200% 0}}
-.fill{position:absolute;left:0;bottom:0;height:3px;width:0;background:rgba(255,255,255,.55);mix-blend-mode:overlay;transition:width .15s ease-out;pointer-events:none}
+.compose .fill{position:absolute;left:0;bottom:0;height:3px;width:0;background:rgba(255,255,255,.55);mix-blend-mode:overlay;transition:width .15s ease-out;pointer-events:none}
 .sh{position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.07) 50%,transparent 70%);background-size:250% 100%;animation:shim2 2.6s linear infinite;pointer-events:none}
 @keyframes shim2{from{background-position:150% 0}to{background-position:-100% 0}}
 .ch{font:11px var(--mono);color:var(--muted);min-width:26px;justify-content:flex-end}
@@ -732,7 +732,7 @@ document.addEventListener("click",e=>{
  const g=e.target.closest("[data-grp]");if(g){fold[g.dataset.grp]=!fold[g.dataset.grp];render();return}
  const s=S.find(x=>x.id===sel),a=e.target.closest("[data-act]");
  if(a){const k=a.dataset.act;
-  if(k==="umux"){e.stopPropagation();showUmux(a);return}
+  if(k==="umux"){e.stopImmediatePropagation();showUmux(a);return}
   if(k==="go"){sel=a.dataset.other;first=true;render()}
   else if(k==="mute"){muted[s.id]=!muted[s.id];render();toast(muted[s.id]?"Clash warnings hidden for "+s.role:"Clash warnings shown")}
   else if(k==="files"){const fs=[...new Set(s.edits.map(x=>x.file.split("/").pop()))];toast(fs.length?s.role+" edited "+fs.slice(-5).join(", "):s.role+" hasn't edited files")}
