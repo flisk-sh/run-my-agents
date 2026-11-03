@@ -162,6 +162,10 @@ export function movableTo(p: string | undefined): boolean {
 	try {
 		const real = realpathSync(p);
 		if (real === realpathSync(homedir()) || real === "/") return false;
+		// Never an order's own worktree (or any linked worktree): a builder saying "the change is in <its worktree>" moved
+		// the order into it, so Build ran twice and nothing shipped (#256).
+		if (/\/\.kitchen\/order-\d+(\/|$)/.test(real)) return false;
+		if (realpathSync(resolvePath(real, git(real, ["rev-parse", "--git-dir"]))) !== realpathSync(resolvePath(real, git(real, ["rev-parse", "--git-common-dir"])))) return false;
 		return realpathSync(git(real, ["rev-parse", "--show-toplevel"])) === real;
 	} catch {
 		return false;
