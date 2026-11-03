@@ -334,8 +334,12 @@ describe("agent container bugs", () => {
 		} finally {
 			Date.now = realNow;
 		}
-		expect(fetched.filter((u) => u.includes("playwright")).length).toBeLessThanOrEqual(3);
-		expect(tasks()[0].assignee).not.toBe("");
+		const tries = fetched.filter((u) => u.includes("playwright")).length;
+		const sent = tasks()[0].assignee;
+		// The failed downloads are kept in memory for the whole process: forget them, so later tests can install the skill.
+		resetSkillFails();
+		expect(tries).toBeLessThanOrEqual(3);
+		expect(sent).not.toBe("");
 	});
 
 });
