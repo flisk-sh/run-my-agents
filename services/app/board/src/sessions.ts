@@ -322,6 +322,9 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			s.tokens.cached += u.cache_read_input_tokens ?? 0;
 		}
 		if (e.type === "assistant" && e.message?.model && !e.message.model.startsWith("<")) s.model = e.message.model;
+		// Claude Code's own "<synthetic>" message ("No response requested.") after a turn that never finished is not the
+		// agent speaking: read as its reply, it used up the step's two answers and failed orders (#252).
+		if (e.type === "assistant" && e.message?.model === "<synthetic>") continue;
 		if (e.type === "assistant" && Array.isArray(e.message?.content)) {
 			const words = textOf(e.message.content).trim();
 			if (words) s.said = words.replace(/\s+/g, " ").slice(0, 160);

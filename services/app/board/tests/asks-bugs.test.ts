@@ -131,4 +131,16 @@ describe("asks and records the board must answer", () => {
 		expect(t.failures ?? []).toEqual([]);
 		expect(stages).toEqual(["spec", "build", "test", "ship", "review", "done"]);
 	});
+	it("#252: does not read Claude Code's synthetic 'No response requested.' as the agent's reply (36 kitchen turns)", () => {
+		const lines = [
+			{ type: "user", cwd: "/w", timestamp: "2026-11-02T19:56:54.000Z", message: { content: "Order #19 (build): fix it" } },
+			{ type: "assistant", timestamp: "2026-11-02T19:57:22.000Z", message: { model: "claude-opus-5", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "git worktree add x" } }] } },
+			{ type: "user", timestamp: "2026-11-02T19:57:22.100Z", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "This command requires approval", is_error: true }] } },
+			{ type: "user", isMeta: true, timestamp: "2026-11-02T19:57:40.000Z", message: { content: [{ type: "text", text: "Continue from where you left off." }] } },
+			{ type: "assistant", timestamp: "2026-11-02T19:57:40.100Z", message: { model: "<synthetic>", content: [{ type: "text", text: "No response requested." }] } },
+		].map((e) => JSON.stringify(e));
+		const s = parseSession("2a270e7f-3407-4ddd-9f22-beaa4c94caf8", lines, Date.now()) as Session;
+		const said = s.feed.filter((f) => f.who === "agent").map((f) => f.text).join("\n");
+		expect(said).not.toContain("No response requested.");
+	});
 });
