@@ -136,6 +136,16 @@ describe("board UI bugs", () => {
 		const pageLeaks = [...unscoped(PAGE_CSS)].filter((c) => kitchenMarkup.has(c));
 		expect({ kitchenLeaks, pageLeaks }).toEqual({ kitchenLeaks: [], pageLeaks: [] });
 	});
+	it("#270: counts unread replies when the 16-message window slides", () => {
+		const record = /seen\[s\.id\]=([^;]+);/.exec(JS)?.[1] ?? "";
+		const unread = /const unread=([^;]+);/.exec(JS)?.[1] ?? "";
+		const feed = (from: number) => Array.from({ length: 16 }, (_, i) => ({ at: from + i, who: i % 2 ? "agent" : "you", text: "m", tools: [] }));
+		const seen: Record<string, unknown> = {};
+		new Function("s", "seen", `seen[s.id]=${record}`)({ id: "a", feed: feed(0) }, seen);
+		/* three new replies arrive; the server keeps the last 16 (FEED_SIZE), so the length stays 16 */
+		const n = new Function("s", "seen", `return ${unread}`)({ id: "a", feed: feed(3) }, seen);
+		expect(n).toBe(3);
+	});
 });
 
 // keep helpers used
