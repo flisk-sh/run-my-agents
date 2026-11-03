@@ -237,13 +237,13 @@ export const podById = (podId: string) => {
  * One strike on a pod, and its reason as the container's lesson (once per order and reason). `fire` fires it at once
  * (firing by hand), and `keep` keeps the reason as a lesson even if it names no FAIL: the reason you typed.
  */
-export function strike(idOrSession: string, order: string, reason: string, o: { fire?: boolean; keep?: boolean } = {}): { container: string; pod: Pod; fired: boolean; gained: string[] } | undefined {
+export function strike(idOrSession: string, order: string, reason: string, o: { fire?: boolean; keep?: boolean; lessonOnly?: boolean } = {}): { container: string; pod: Pod; fired: boolean; gained: string[] } | undefined {
 	return store.update((all) => {
 		for (const c of all) {
 			// Try to find by pod's stable id first, then by session (for backward compat).
 			const p = c.pods.find((x) => (x.id === idOrSession || x.session === idOrSession) && x.status !== "evicted");
 			if (!p) continue;
-			p.strikes = o.fire ? Math.max(p.strikes + 1, c.maxStrikes) : p.strikes + 1;
+			if (!o.lessonOnly) p.strikes = o.fire ? Math.max(p.strikes + 1, c.maxStrikes) : p.strikes + 1;
 			// A lesson is a mistake to avoid. Refusals ("too vague", "resubmit", "will not reopen") taught agents to
 			// refuse more, so they count as a strike but are not kept as lessons.
 			if ((o.keep || isLesson(reason)) && !c.lessons.some((l) => l.order === order && l.reason === reason)) c.lessons.push({ at: Date.now(), order, reason, ...(o.keep ? { kept: true } : {}) });
@@ -269,7 +269,7 @@ export function strike(idOrSession: string, order: string, reason: string, o: { 
 		for (const c of all) {
 			const p = c.pods.find((x) => x.id === idOrSession && x.status === "evicted");
 			if (!p) continue;
-			p.strikes += 1;
+			if (!o.lessonOnly) p.strikes += 1;
 			if ((o.keep || isLesson(reason)) && !c.lessons.some((l) => l.order === order && l.reason === reason)) c.lessons.push({ at: Date.now(), order, reason, ...(o.keep ? { kept: true } : {}) });
 			writeShared(all, lessonsKeyOf(c), c.lessonsKey ? c.role : c.name);
 			return { container: c.id, pod: { ...p }, fired: false, gained: [] };

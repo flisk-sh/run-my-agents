@@ -219,4 +219,19 @@ describe("kitchen pipeline bugs", () => {
 		expect(test?.pods.reduce((a, p) => a + p.strikes, 0)).toBeGreaterThan(0);
 		expect(test?.lessons.some((l) => l.reason.includes("stopped without a PASS or FAIL line"))).toBe(true);
 	});
+
+	it("#236: when Review fails what Test passed, the Test container learns it, with no strike", async () => {
+		let reviews = 0;
+		const k = kitchen((text) => {
+			if (/\(review\)/.test(text) && reviews++ === 0) return "Read the diff.\n\nFAIL: range(0,0) returns [0], expected [].";
+			return undefined;
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run();
+		const test = readContainers().find((c) => c.stages.join() === "test");
+		expect(test?.lessons.map((l) => l.reason)).toEqual(["FAIL: Test passed it; Review found: range(0,0) returns [0], expected []."]);
+		expect(test?.pods.reduce((a, p) => a + p.strikes, 0)).toBe(0);
+		// Build still gets its strike and lesson.
+		expect(readContainers().find((c) => c.stages.join() === "build")?.lessons.length).toBe(1);
+	});
 });

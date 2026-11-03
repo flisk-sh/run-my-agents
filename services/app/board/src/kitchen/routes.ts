@@ -882,6 +882,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const why = failLine(said) || `FAIL: stopped without a PASS or FAIL line. Last said: ${said.split("\n").filter(Boolean).at(-1)?.slice(0, 200) || "(nothing)"}`;
 			updateTask(t.id, { failures: [...(t.failures ?? []), `${t.stage}: ${why}`].slice(-6) });
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
+			// Review found what Test passed: Test missed it, so the Test container learns it too, with no strike. Until now
+			// only Build ever learned, and every Spec, Test and Review container had 0 lessons (#236).
+			const tester = t.stage === "review" ? t.crew?.test?.id : undefined;
+			if (tester) strike(tester, `#${t.n} ${t.title}`, `FAIL: Test passed it; Review found: ${why.replace(/^FAIL\b[\s:—-]*/, "")}`, { lessonOnly: true });
 			// crew holds the pod's stable id; its chat is the pod's session (#245).
 			if (hit?.fired) k.close(hit.pod.session);
 			const back = sendBack(t);
