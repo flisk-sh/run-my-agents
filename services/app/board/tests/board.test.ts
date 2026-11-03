@@ -415,6 +415,29 @@ describe("send", () => {
 		expect(boardModel({ agent: "codex", model: "gpt-6" })).toBeUndefined();
 	});
 
+	it("starts agents without the Claude Code session variables the board inherited, so they use their own login", async () => {
+		const { sendToSession } = await import("../src/index");
+		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);
+		const keep = { ...process.env };
+		Object.assign(process.env, { CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "claude-desktop", CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH: "1", RMA_KEEP_ME: "yes" });
+		let env: NodeJS.ProcessEnv | undefined;
+		const fake = ((_: string, __: string[], o: { env?: NodeJS.ProcessEnv }) => {
+			env = o.env;
+			const child = new (require("node:events").EventEmitter)();
+			child.stdin = { end: () => setTimeout(() => child.emit("close"), 0) };
+			return child;
+		}) as never;
+		try {
+			if (s) await sendToSession(s, "hi", fake);
+		} finally {
+			for (const k of ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH", "RMA_KEEP_ME"]) if (!(k in keep)) delete process.env[k];
+			Object.assign(process.env, keep);
+		}
+		expect(Object.keys(env ?? {}).filter((k) => /^CLAUDE/.test(k))).toEqual([]);
+		expect(env?.RMA_KEEP_ME).toBe("yes");
+		expect(env?.HOME).toBe(process.env.HOME);
+	});
+
 	it("puts the prompt on stdin, not in the command line", async () => {
 		const { sendToSession } = await import("../src/index");
 		const s = parseSession("a", [ask("hi"), edit("/repo/x.ts")], now);

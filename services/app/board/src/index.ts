@@ -123,7 +123,7 @@ function runGrok(args: string[], text: string, cwd: string | undefined, run: typ
 		} catch {}
 	};
 	return new Promise((resolve, reject) => {
-		const child = run("grok", [...args, "--prompt-file", tmp], { cwd, stdio: ["ignore", "ignore", "ignore"] });
+		const child = run("grok", [...args, "--prompt-file", tmp], { cwd, stdio: ["ignore", "ignore", "ignore"], env: agentEnv() });
 		child.on("error", (e) => {
 			cleanup();
 			reject(e);
@@ -135,6 +135,15 @@ function runGrok(args: string[], text: string, cwd: string | undefined, run: typ
 	});
 }
 
+/**
+ * The environment an agent CLI starts with: the board's own, minus what a Claude Code session that started the board
+ * left in it. Inherited CLAUDECODE / CLAUDE_CODE_* variables make the child use its parent's host login, which stops
+ * working when that session ends, so every agent failed with "Not logged in · Please run /login" (orders #39-#44).
+ */
+export function agentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	return Object.fromEntries(Object.entries(env).filter(([k]) => !/^(CLAUDECODE$|CLAUDE_CODE_|CLAUDE_AGENT_SDK|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_PREVIEW_)/.test(k)));
+}
+
 export function sendToSession(s: Session, text: string, run = spawn, dirs: string[] = []): Promise<void> {
 	dirs = [...dirs, ...workDirs(s)];
 	// Grok has no `--add-dir`: a resumed copy only reaches its own folder.
@@ -144,7 +153,7 @@ export function sendToSession(s: Session, text: string, run = spawn, dirs: strin
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
 			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(boardModel(s) ? ["--model", boardModel(s) as string] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d]), ...(KITCHEN_CHAT.test(s.title ?? "") ? ["--allowedTools", ...KITCHEN_TOOLS] : [])]];
 	return new Promise((resolve, reject) => {
-		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"] });
+		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"], env: agentEnv() });
 		child.on("error", reject);
 		child.on("close", () => resolve());
 		child.stdin?.end(text);
@@ -324,7 +333,7 @@ export function askHaiku(question: string, cwd: string, run = spawn, web = false
 	return new Promise((resolveAsk, reject) => {
 		// A clean, light start: no project folder, settings, MCP servers or skills, and its own short system prompt,
 		// so it answers in seconds as the front desk instead of as whatever agent the folder describes.
-		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT, ...(skills ? ["--append-system-prompt", skills] : [])], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"] });
+		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT, ...(skills ? ["--append-system-prompt", skills] : [])], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: agentEnv() });
 		let out = "";
 		const timer = setTimeout(() => child.kill("SIGTERM"), web ? 120_000 : 90_000);
 		child.stdout?.on("data", (d) => {
@@ -350,7 +359,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
 			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : []), ...(n.allow?.length ? ["--allowedTools", ...n.allow] : [])]];
 	return new Promise((resolveStart, reject) => {
-		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"] });
+		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"], env: agentEnv() });
 		child.on("error", reject);
 		child.on("close", () => resolveStart());
 		child.stdin?.end(n.text);
