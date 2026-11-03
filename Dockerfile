@@ -1,5 +1,5 @@
-# Production image (Render, Fly, Railway or any container host). `flisk up` does not use this file: locally, Flisk
-# builds its own image from services/app/web/service.json.
+# Production image (Render, Fly, Railway or any container host). `flisk up` does not use this file: locally, every
+# service declares a `command`, so Flisk runs them as local processes with no Docker or Tilt.
 FROM oven/bun:1.4-slim
 ENV NODE_ENV=production
 WORKDIR /app

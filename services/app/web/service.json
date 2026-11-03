@@ -1,22 +1,15 @@
 {
-	"port": 4000,
-	"dependsOn": [],
-	"build": {
-		"dockerfile": "Dockerfile",
-		"context": "."
-	},
-	"dev": {
-		"command": "bun run dev",
-		"watch": ["src/**/*"]
-	},
-	"healthCheckPath": "/health",
 	"$schema": "https://flisk.sh/schema.service.json",
 	"schemaVersion": 1,
-	"appName": "web",
-	"appType": "backend",
-	"featuresEnabled": [],
 	"name": "web",
+	"appName": "web",
 	"type": "backend",
+	"appType": "backend",
 	"stack": "app",
-	"framework": "hono"
+	"framework": "hono",
+	"port": 4000,
+	"command": "bun run src/index.ts",
+	"healthCheckPath": "/health",
+	"dependsOn": [],
+	"featuresEnabled": []
 }
