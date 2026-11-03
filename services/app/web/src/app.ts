@@ -1,4 +1,5 @@
 // Routes: the home and about pages, the SEO files and icons, the install steps as JSON and over MCP.
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -12,6 +13,7 @@ import {
 	securityHeaders,
 } from "./guard";
 import { installSteps } from "./install";
+import { INSTALL_SH } from "./install-mac";
 import { handleMcp } from "./mcp";
 import { aboutPage, homePage, notFoundPage } from "./pages";
 import {
@@ -95,6 +97,10 @@ export function createApp(options: AppOptions = {}) {
 	app.get("/about", (c) => c.html(aboutPage(baseOf(c))));
 	// For search engines and AI assistants
 	app.get("/robots.txt", (c) => c.text(robotsTxt(baseOf(c))));
+	// The Mac install command (see install-mac.ts). Plain text so `curl | sh` and a browser both show the script.
+	app.get("/install.sh", (c) =>
+		c.text(INSTALL_SH, 200, { "cache-control": "public, max-age=300" }),
+	);
 	app.get("/sitemap.xml", (c) => {
 		const paths = ["", "about", "play"];
 		return c.body(sitemapXml(baseOf(c), paths, lastmod), 200, {

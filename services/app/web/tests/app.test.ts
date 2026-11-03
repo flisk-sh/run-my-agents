@@ -159,36 +159,36 @@ describe("live board demo", () => {
 	});
 });
 
-describe("Mac download", () => {
-	it("links the home page to the newest release's Mac app", async () => {
+describe("Mac install", () => {
+	it("makes a one-line install the main way, with the zip as the second", async () => {
 		const html = await (await app.request("/")).text();
+		expect(html).toContain(
+			"curl -fsSL https://run-my-agents.flisk.si/install.sh | sh",
+		);
 		expect(html).toContain(
 			'href="https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip"',
 		);
-		expect(html).toContain("Download for macOS");
-	});
-	it("shows an install command that skips macOS's damaged-app block", async () => {
-		const html = await (await app.request("/")).text();
-		// curl saves with no quarantine flag, so Gatekeeper does not reject the not-yet-notarized app
-		expect(html).toContain(
-			"curl -fsSL https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip",
-		);
-		expect(html).toContain("ditto -x -k /tmp/run-my-agents.zip /Applications");
 		expect(html).toContain("xattr -cr");
-		expect(html).toContain("macOS says it is damaged");
 	});
-});
-
-describe("hero", () => {
-	it("puts the kitchen behind the hero and makes the Mac download the main button", async () => {
-		const html = await (await app.request("/")).text();
-		expect(html).toContain('class="herobg"');
-		expect(html.indexOf('class="dlb"')).toBeLessThan(
-			html.indexOf('class="install"'),
+	it("serves an install script that fetches only the GitHub release and clears nothing else", async () => {
+		const res = await app.request("/install.sh");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("text/plain");
+		const sh = await res.text();
+		expect(sh.startsWith("#!/bin/sh\n")).toBe(true);
+		expect(sh).toContain("set -eu");
+		// curl saves with no quarantine flag, so macOS does not block the not-yet-notarized app
+		expect(sh).toContain(
+			'curl -fsSL "https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip"',
 		);
-		const img = await app.request("/hero-kitchen.jpg");
-		expect(img.status).toBe(200);
-		expect(img.headers.get("content-type")).toBe("image/jpeg");
+		expect(sh).toContain('ditto -x -k "$tmp/app.zip" "$dir"');
+		expect(sh).toContain('xattr -cr "$app"');
+		const urls = [...sh.matchAll(/https?:\/\/[^\s"')]+/g)].map((m) => m[0]);
+		expect(
+			urls.filter(
+				(u) => !u.startsWith("https://github.com/flisk-sh/run-my-agents"),
+			),
+		).toEqual([]);
 	});
 });
 

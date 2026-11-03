@@ -3,6 +3,7 @@
 // roadmap.flisk.si one: dark first, Satoshi and JetBrains Mono when installed, one green accent.
 import { AGENTS, type Agent, avatar } from "./avatars";
 import { installSteps } from "./install";
+import { MAC_ZIP as MAC_DOWNLOAD } from "./install-mac";
 import { esc, faqJsonLd, head, type PageMeta } from "./seo";
 import { SITE } from "./site";
 
@@ -26,12 +27,11 @@ pre{margin:0;padding:16px;font:.9rem/1.7 var(--mono);overflow-x:auto}.p{color:va
 .herobg{position:relative;background:linear-gradient(180deg,rgba(6,6,10,.62),rgba(6,6,10,.78) 55%,var(--bg) 100%),url(/hero-kitchen.jpg) center 40%/cover no-repeat;border-bottom:1px solid var(--line)}
 .herobg .hero{padding:80px 16px 48px}.herobg h1,.herobg .lede{text-shadow:0 2px 18px rgba(0,0,0,.6)}.herobg .lede{color:rgba(236,236,241,.86)}
 .dl details{margin-top:12px;max-width:44rem;font-size:.88rem;color:rgba(236,236,241,.78)}.dl summary{cursor:pointer;color:var(--accent-text)}.dl details p{margin:10px 0 6px}.dl pre{margin:0;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.45);border:1px solid var(--line);font:12.5px/1.5 var(--mono);white-space:pre-wrap;word-break:break-all;user-select:all}
+.dl .dlh{margin:0 0 8px;font-weight:800;font-size:1.35rem;letter-spacing:-.01em;color:var(--text)}
+.dl .dlcmd{margin:0;padding:18px 22px;border-radius:16px;background:rgba(5,20,10,.78);border:2px solid var(--accent);box-shadow:0 14px 40px rgba(34,197,94,.3);font:600 clamp(.82rem,2.4vw,1.15rem)/1.4 var(--mono);color:#eafff1;white-space:pre-wrap;word-break:break-all;user-select:all;cursor:copy}
 .dl{margin:8px 0 26px}.dl p{color:rgba(236,236,241,.66);font-size:.88rem;max-width:34rem;margin:12px 0 0}
-.dlb{display:inline-flex;flex-direction:column;gap:2px;background:var(--accent);color:#04130a;text-decoration:none;border-radius:16px;padding:18px 34px;box-shadow:0 14px 40px rgba(34,197,94,.35),0 2px 0 rgba(255,255,255,.25) inset;transition:transform .15s,filter .15s}
-.dlb b{font-size:1.35rem;font-weight:800;letter-spacing:-.01em}.dlb small{font-size:.85rem;font-weight:500;opacity:.8}
-.dlb:hover{filter:brightness(1.08);transform:translateY(-2px)}.dlb:focus-visible{outline:3px solid var(--accent-text);outline-offset:3px}
 .or{color:var(--faint);font-size:.9rem;margin:0 0 10px}
-@media (max-width:640px){.herobg .hero{padding:48px 16px 32px}.dlb{display:flex;width:100%;text-align:center;padding:16px 20px}}
+@media (max-width:640px){.herobg .hero{padding:48px 16px 32px}.dl .dlcmd{padding:14px 16px}}
 .shot{display:block;width:100%;max-width:800px;height:auto;margin:28px auto 0;border-radius:14px;box-shadow:0 0 0 1px var(--line,rgba(127,127,127,.25)),0 20px 50px -20px rgba(0,0,0,.6)}
 section{padding:40px 0}h2{font-size:1.6rem;letter-spacing:-.02em;margin:0 0 8px}.sub{color:var(--muted);margin:0 0 24px}
 .term{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;font:.85rem/1.7 var(--mono)}
@@ -114,15 +114,13 @@ ${head(base, meta)}
 </body></html>`;
 }
 
-/** The Mac app: the board in its own window, with the board built in. The link always points at the newest release. */
-/** Installs the Mac app from the terminal. A file curl saves has no quarantine flag, so macOS does not block the
- * (not yet notarized) app with its "damaged" message the way it does a browser download. */
-export const MAC_INSTALL = `curl -fsSL ${"https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip"} -o /tmp/run-my-agents.zip && ditto -x -k /tmp/run-my-agents.zip /Applications && open "/Applications/Run My Agents.app"`;
+/** The Mac app: the board in its own window, built in. The app is not notarized, so a browser download is blocked
+ * by macOS ("damaged"); the one-line install (install-mac.ts) saves it with curl, which macOS does not block. */
+export const MAC_INSTALL_CMD =
+	"curl -fsSL https://run-my-agents.flisk.si/install.sh | sh";
 export const MAC_UNBLOCK = 'xattr -cr "/Applications/Run My Agents.app"';
-export const MAC_DOWNLOAD =
-	"https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip";
 function downloadMac(): string {
-	return `<div class="dl"><a class="dlb" href="${MAC_DOWNLOAD}"><b>Download for macOS</b><small>Free · Apple Silicon and Intel · macOS 13+</small></a><p>The board in its own window, everything built in. It is not notarized by Apple yet.</p><details><summary>macOS says it is damaged or can't be opened?</summary><p>That is macOS blocking an app that did not come from the App Store. Install it from the terminal instead, which skips the block:</p><pre>${esc(MAC_INSTALL)}</pre><p>Already downloaded it in your browser? Move it to Applications and run:</p><pre>${esc(MAC_UNBLOCK)}</pre></details></div>`;
+	return `<div class="dl"><p class="dlh">Install on your Mac</p><pre class="dlcmd">${esc(MAC_INSTALL_CMD)}</pre><p>Open Terminal, paste it and press Enter. Free, Apple Silicon and Intel, macOS 13 or later. The board gets its own window, everything built in. Run it again to update.</p><details><summary>Prefer the zip?</summary><p><a href="${MAC_DOWNLOAD}">Download Run-My-Agents-macOS.zip</a>. The app is not notarized by Apple yet, so macOS blocks a browser download with "damaged" or "could not verify". After you move it to Applications, run this once:</p><pre>${esc(MAC_UNBLOCK)}</pre></details></div>`;
 }
 
 function installBox(): string {

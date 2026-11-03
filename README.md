@@ -90,21 +90,21 @@ refreshes `services/app/board/src/skills.json`).
 
 ## Mac app
 
-[Download for macOS](https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip)
-(Apple Silicon and Intel, macOS 13 or later). The board is built in, so it needs no Bun, Docker, Tilt or Flisk. Every
-`v*` tag builds and attaches a new one (`.github/workflows/release-mac.yml`).
-
-It is not notarized by Apple yet, so macOS may say a browser download is "damaged". Install from the terminal instead,
-which skips that block:
+Open Terminal and paste this (Apple Silicon and Intel, macOS 13 or later):
 
 ```
-curl -fsSL https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip -o /tmp/run-my-agents.zip && ditto -x -k /tmp/run-my-agents.zip /Applications && open "/Applications/Run My Agents.app"
+curl -fsSL https://run-my-agents.flisk.si/install.sh | sh
 ```
 
-Already downloaded it in your browser? Move it to Applications and run `xattr -cr "/Applications/Run My Agents.app"`.
+It downloads the [latest release](https://github.com/flisk-sh/run-my-agents/releases/latest), puts the app in
+`/Applications` and opens it. Run it again to update. The board is built in, so it needs no Bun, Docker, Tilt or
+Flisk. Every `v*` tag builds and attaches a new release (`.github/workflows/release-mac.yml`).
 
-`mac/build.sh` builds `mac/build/Run My Agents.app`: the board in a native window, plus a menu bar item. It starts
-the board itself if nothing answers on port 4100. See [mac/README.md](mac/README.md).
+The app is not notarized by Apple (that needs a paid developer account), so macOS blocks it when you download the
+zip in a browser, with "damaged" or "could not verify". The command above avoids that, because a file `curl` saves is
+not blocked. If you did download the zip, move the app to Applications and run
+`xattr -cr "/Applications/Run My Agents.app"` once. [docs/MAC_NOTARIZATION.md](docs/MAC_NOTARIZATION.md) has the
+optional way to notarize it later.
 
 ## Develop
 
