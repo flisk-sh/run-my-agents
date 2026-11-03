@@ -205,4 +205,18 @@ describe("kitchen pipeline bugs", () => {
 		expect(log).toContain("#1 build edited the shared checkout: asked to move it");
 		expect(t.failures.join("\n")).toContain("build: edited the shared checkout");
 	});
+
+	it("#235: a Test agent that goes quiet without a verdict does not strike the Build agent", async () => {
+		const k = kitchen((text) => (/\(test\)|You stopped without a verdict/.test(text) ? "Let me run the tests.\n\nNo response requested." : undefined));
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run(40, () => (k.tasks()[0].rounds ?? 0) >= 1 || !!k.tasks()[0].stuck || k.tasks()[0].stage === "done");
+		expect(k.tasks()[0].rounds ?? 0).toBe(0);
+		const build = readContainers().find((c) => c.stages.join() === "build");
+		expect(build?.pods.reduce((a, p) => a + p.strikes, 0)).toBe(0);
+		expect(build?.lessons.map((l) => l.reason) ?? []).toEqual([]);
+		// The Test agent that gave no verdict is the one struck and taught.
+		const test = readContainers().find((c) => c.stages.join() === "test");
+		expect(test?.pods.reduce((a, p) => a + p.strikes, 0)).toBeGreaterThan(0);
+		expect(test?.lessons.some((l) => l.reason.includes("stopped without a PASS or FAIL line"))).toBe(true);
+	});
 });

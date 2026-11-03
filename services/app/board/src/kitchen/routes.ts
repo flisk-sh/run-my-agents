@@ -816,7 +816,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * The agent is done. A finished spec waits at the pass. A FAIL in test or review strikes the pod that built it
 	 * and sends the order back to build.
 	 */
-	function serve(id: string, pass?: boolean): Out {
+	function serve(id: string, pass?: boolean, silent = false): Out {
 		let t = readTasks().find((x) => x.id === id);
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		// The Ship step finished: keep its pull request and serve the order.
@@ -856,6 +856,17 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const builder = t.crew?.build?.id;
 			// The lesson is the agent's FAIL line, not the tail of its reply.
 			const said = replyOf(t.assignee);
+			if (silent) {
+				// No verdict: the Test or Review agent did not do its job, so it gets the strike and the lesson, not the
+				// builder, and its stage runs again with a fresh agent; a second time in this run leaves the order stuck (#235).
+				const own = t.crew?.[t.stage]?.id;
+				const quiet = `FAIL: stopped without a PASS or FAIL line. Last said: ${said.split("\n").filter(Boolean).at(-1)?.slice(0, 200) || "(nothing)"}`;
+				const again = (t.failures ?? []).slice(t.carried ?? 0).some((f) => f.startsWith(`${t.stage}: FAIL: stopped without a PASS or FAIL line`));
+				updateTask(t.id, { failures: [...(t.failures ?? []), `${t.stage}: ${quiet}`].slice(-6) });
+				const hit = own ? strike(own, `#${t.n} ${t.title}`, quiet) : undefined;
+				if (hit?.fired) k.close(hit.pod.session);
+				return { status: 200, body: { ...updateTask(t.id, { assignee: "", sentAt: 0, answered: 0, stuck: again || t.stuck }), fired: !!hit?.fired } };
+			}
 			const why = failLine(said) || `FAIL: stopped without a PASS or FAIL line. Last said: ${said.split("\n").filter(Boolean).at(-1)?.slice(0, 200) || "(nothing)"}`;
 			updateTask(t.id, { failures: [...(t.failures ?? []), `${t.stage}: ${why}`].slice(-6) });
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
@@ -1081,8 +1092,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					continue;
 				}
 			}
-			const v = t.shipping ? true : t.stage === "test" || t.stage === "review" ? (verdictOf(s) ?? false) : true;
-			serve(t.id, v);
+			const verdict = t.shipping ? true : t.stage === "test" || t.stage === "review" ? verdictOf(s) : true;
+			const v = verdict ?? false;
+			// No verdict after the asks is the step's own failure, not the builder's (#235); a FAIL you give by hand is a FAIL.
+			serve(t.id, v, verdict === undefined);
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
 		}
 		did.push(...answerStrays(all, now));

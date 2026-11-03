@@ -337,7 +337,7 @@ describe("autopilot", () => {
 });
 
 describe("flow times", () => {
-	it("asks a test agent that stopped with no PASS or FAIL to finish, then counts it as FAIL with what it last said", async () => {
+	it("asks a test agent that stopped with no PASS or FAIL to finish, then runs Test again with what it last said (#235)", async () => {
 		const tester = { ...session("quiet-tester", "Bug"), updatedAt: Date.now() - 20_000 };
 		// Order #29: the agent ran the tests in the background and ended its turn before they finished.
 		tester.feed = [...tester.feed, { who: "agent", text: "Let me run the tests.\n\nNo response requested.", at: Date.now() - 20_000 } as never];
@@ -348,7 +348,8 @@ describe("flow times", () => {
 		order({ stage: "test", assignee: tester.id, sentAt: Date.now() - 60_000, answered: 2 });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 test FAIL");
 		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
-		expect(t).toMatchObject({ stage: "build", rounds: 1 });
+		// Not the builder's FAIL: Test runs again with a fresh agent, and the round count is untouched.
+		expect(t).toMatchObject({ stage: "test", rounds: 0, assignee: "", answered: 0 });
 		expect(t.failures.at(-1)).toBe("test: FAIL: stopped without a PASS or FAIL line. Last said: No response requested.");
 	});
 
