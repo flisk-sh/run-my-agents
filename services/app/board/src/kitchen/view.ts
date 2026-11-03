@@ -125,7 +125,7 @@ function kTabs(){const n=KD.tasks.filter(t=>t.stage!=="done").length;
  pRender(H(Frag,null,KT.map(([k,l])=>H("button",{key:k,class:"ktab"+(ktab===k?" on":""),"data-ktab":k},l,k!=="chat"&&n?H("i",null,n):null))),$("ktabs"));
  document.querySelector(".main").classList.toggle("kmode",ktab!=="chat");$("kview").hidden=ktab==="chat"}
 const sess=id=>S.find(s=>s.id===id);
-const kFace=(s,n)=>s?face(s,n):"";
+const kFace=(s,n)=>s?face(s,n):null;
 /* An agent is done with its step when it went quiet after the order was sent. */
 const kReady=t=>{const s=sess(t.assignee);return !!(s&&t.sentAt&&!s.sending&&state(s)!=="y"&&s.updatedAt>t.sentAt+3000&&Date.now()-s.updatedAt>8000)};
 const kSaid=t=>{const s=sess(t.assignee),m=s&&s.feed&&s.feed.filter(x=>x.who==="agent").at(-1);return m?String(m.text||""):""};
@@ -143,7 +143,7 @@ function kActs(t){const s=sess(t.assignee),r=[],B=(c,d,l,x)=>H("button",Object.a
  else if(t.assignee)r.push(B("go",{"data-kserve":t.id},"Done →"));
  if(s)r.push(B("",{"data-kopen":s.id},"Open"));
  r.push(B("",{"data-kdrop":t.id},"Drop"));return H("div",{class:"oacts"},r)}
-function kWho(t){const s=sess(t.assignee);if(!s&&t.why)return H("div",{class:"who",style:"color:#92400e"},"⏸ "+t.why);if(!s)return t.stuck?H("div",{class:"who"},"⚠ sent back "+t.rounds+" times"):t.stuckWarning?H("div",{class:"who",style:"color:#ea580c"},"⏱ "+Math.round((Date.now()-t.created)/1000)+"s"):null;return H("div",{class:"who"},Raw(kFace(s,22)),(t.assigneeLabel||s.role)+(kReady(t)?" · ready":" · cooking"))}
+function kWho(t){const s=sess(t.assignee);if(!s&&t.why)return H("div",{class:"who",style:"color:#92400e"},"⏸ "+t.why);if(!s)return t.stuck?H("div",{class:"who"},"⚠ sent back "+t.rounds+" times"):t.stuckWarning?H("div",{class:"who",style:"color:#ea580c"},"⏱ "+Math.round((Date.now()-t.created)/1000)+"s"):null;return H("div",{class:"who"},kFace(s,22),(t.assigneeLabel||s.role)+(kReady(t)?" · ready":" · cooking"))}
 /* Lead time: ordered to served (or now). Cycle time: first picked up to served. Plus time in the current stage. */
 const kDur=ms=>{if(!(ms>0))return "0s";const s=Math.round(ms/1e3);if(s<60)return s+"s";const m=Math.round(s/60);if(m<60)return m+"m";const h=Math.floor(m/60);return h<24?h+"h "+(m%60)+"m":Math.floor(h/24)+"d "+(h%24)+"h"};
 function kTimes(t){const end=t.stage==="done"&&t.servedAt?t.servedAt:Date.now(),lead=end-t.created,cyc=t.startedAt?end-t.startedAt:0,inSt=t.stageAt&&t.stage!=="done"?Date.now()-t.stageAt:0;return{lead,cyc,inSt}}
@@ -296,7 +296,7 @@ function kRatings(){const rs=SC.ratings||[];if(!rs.length)return H(Frag,null,H("
  return H(Frag,null,H("div",{class:"kh"},"Agent ratings · live, all orders"),H("div",{style:"overflow-x:auto"},H("div",{class:"rates"},
   H("div",{class:"rrow head"},["#","Agent","Steps","Working","Served","Fails","Stuck","Strikes"].map(h=>H("span",{key:h},h)),H("span",{style:"text-align:right"},"Rating")),
   rs.map((r,i)=>{const s=sess(r.id);return H("div",{key:r.id,class:"rrow"},H("span",{class:"n"},i+1),
-   H("span",{style:"display:flex;gap:6px;align-items:center;min-width:0"},s?Raw(kFace(s,22)):null,H("span",{style:"min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap",title:r.label},H("b",null,r.label)," ",H("small",{style:"color:var(--muted)"},r.role))),
+   H("span",{style:"display:flex;gap:6px;align-items:center;min-width:0"},s?kFace(s,22):null,H("span",{style:"min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap",title:r.label},H("b",null,r.label)," ",H("small",{style:"color:var(--muted)"},r.role))),
    [r.steps,r.working,r.served,r.fails,r.stuck,r.strikes].map((v,j)=>H("span",{key:j,class:"n",style:"color:"+(j>=3&&v?"#fca5a5":"inherit")},v)),
    H("span",{style:"display:grid;grid-template-columns:1fr 34px;gap:6px;align-items:center"},H("span",{class:"rmeter"},H("i",{style:"width:"+r.rating+"%;background:"+col(r.rating)})),H("span",{class:"rnum",style:"color:"+col(r.rating)},r.rating)))}))),
   H("p",{class:"knote"},"Starts at 50: +10 per order served, +3 per step done, −8 per FAIL on an order it built, −15 per stuck order it built, −10 per container strike."))}
@@ -315,8 +315,8 @@ const MCH=m=>m?H("span",{class:"mchip "+m},m):null;
 /* Crew: one row per stage, matching the kitchen's four agent types. Each row: the type, its model, its skill set,
    its agents per folder (with − / +), and the lessons every agent of that stage shares. */
 function kCrew(){if(!CR||!SS)return H("p",{class:"knote"},"Loading crew…");
- const typeFace=(role,n)=>{const t=(SS.types||[]).find(x=>x.role===role);return t?Raw(face({id:"type-"+role,face:{shape:t.shape,eyes:t.eyes,color:t.color,extra:t.extra||""},tokens:{used:0},updatedAt:0},n)):null};
- const pod=(x,p,i)=>{const s=sess(p.session),dead=p.status==="evicted";return H("div",{key:p.session||i,class:"pod"+(dead?" dead":""),title:p.reason||""},s?Raw(kFace(s,24)):H("span",{class:"ghost"},dead?"☠":"⏳"),H("span",{class:"nm2"},dead?"Fired: "+(p.reason||""):(s&&s.title)||"Starting…"),H("span",{class:"strk"},Array.from({length:x.maxStrikes},(_,j)=>H("i",{key:j,class:j<p.strikes?"on":""}))),dead?H("span"):H("button",{class:"kbtn sm bad","data-kfire":p.session},"Fire"))};
+ const typeFace=(role,n)=>{const t=(SS.types||[]).find(x=>x.role===role);return t?face({id:"type-"+role,face:{shape:t.shape,eyes:t.eyes,color:t.color,extra:t.extra||""},tokens:{used:0},updatedAt:0},n):null};
+ const pod=(x,p,i)=>{const s=sess(p.session),dead=p.status==="evicted";return H("div",{key:p.session||i,class:"pod"+(dead?" dead":""),title:p.reason||""},s?kFace(s,24):H("span",{class:"ghost"},dead?"☠":"⏳"),H("span",{class:"nm2"},dead?"Fired: "+(p.reason||""):(s&&s.title)||"Starting…"),H("span",{class:"strk"},Array.from({length:x.maxStrikes},(_,j)=>H("i",{key:j,class:j<p.strikes?"on":""}))),dead?H("span"):H("button",{class:"kbtn sm bad","data-kfire":p.session},"Fire"))};
  const rows=["spec","build","test","review"].map(st=>{const x=SS.stages[st],boxes=CR.containers.filter(c=>c.stages.length===1&&c.stages[0]===st),role={spec:"Spec",build:"Build",test:"Test",review:"Review"}[st];
   const lessons=boxes.reduce((a,c)=>a+c.lessons.length,0),ready=boxes.reduce((a,c)=>a+c.ready,0),want=boxes.reduce((a,c)=>a+c.replicas,0);
   const folders=boxes.map(c=>{const lv=c.pods.filter(p=>p.status!=="evicted"),dead=c.pods.filter(p=>p.status==="evicted").slice(-2);

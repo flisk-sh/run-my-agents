@@ -2,6 +2,25 @@ import { describe, expect, it } from "bun:test";
 import { createApp } from "../src/index";
 import { findClashes, guessRole, parseSession } from "../src/sessions";
 
+// The page builds its markup with Preact's h(). Tests that run a helper on its own pass this stand-in for h and
+// Fragment and read the HTML text back with ser, so they can still check structure and escaping.
+const Frag = Symbol("fragment");
+const hx = (type: unknown, props: Record<string, unknown> | null, ...kids: unknown[]) => ({ type, props: props || {}, kids });
+const escHtml = (x: unknown) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const ser = (n: unknown): string => {
+	if (n == null || typeof n === "boolean") return "";
+	if (Array.isArray(n)) return n.map(ser).join("");
+	if (typeof n !== "object") return escHtml(n);
+	const { type, props, kids } = n as { type: unknown; props: Record<string, unknown>; kids: unknown[] };
+	if (type === Frag) return kids.map(ser).join("");
+	const attrs = Object.entries(props)
+		.filter(([k, v]) => k !== "dangerouslySetInnerHTML" && k !== "key" && v != null && v !== false)
+		.map(([k, v]) => ` ${k}="${escHtml(v === true ? "" : v)}"`)
+		.join("");
+	const inner = props.dangerouslySetInnerHTML ? (props.dangerouslySetInnerHTML as { __html: string }).__html : kids.map(ser).join("");
+	return `<${type}${attrs}>${inner}</${type}>`;
+};
+
 const line = (o: object) => JSON.stringify(o);
 const now = Date.parse("2026-11-01T12:00:00Z");
 const edit = (file: string, ts = "2026-11-01T11:58:00Z") =>
@@ -514,8 +533,8 @@ describe("typing box", () => {
 			expect(panel.split(hook)[1].slice(0, 200)).toContain('"data-tip":');
 		}
 		expect(PAGE).toContain('id="tip"');
-		expect(PAGE).toMatch(/class="mdot" data-tip=/);
-		expect(PAGE).toMatch(/data-effort="'\+e\+'" data-tip=/);
+		expect(PAGE).toMatch(/class:"mdot","data-tip":/);
+		expect(PAGE).toMatch(/"data-effort":e,"data-tip":/);
 	});
 });
 
@@ -985,7 +1004,7 @@ describe("header", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ["function hb(", 'class:"mchips"', 'data-ctext="', ".hb span:hover", ".mc:hover", ".hd::after", ".proj span{", ".cnt i{", ".btn:active", "const IC="]) expect(PAGE).toContain(part);
+		for (const part of ["function hb(", 'class:"mchips"', '"data-ctext":', ".hb span:hover", ".mc:hover", ".hd::after", ".proj span{", ".cnt i{", ".btn:active", "const IC="]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -1150,7 +1169,7 @@ describe("formatted replies, close and delete in the panel, smaller gauges", () 
 		// the embedded renderer is the real one
 		const run = new Function(`${js.slice(0, js.indexOf("const SH="))}; return renderMarkdown("**bold** and \`code\`");`);
 		expect(run()).toBe("<p><strong>bold</strong> and <code>code</code></p>");
-		for (const part of ['class="rich', ".rich pre", ".rich table", ".cpb", 'data-copycode', ".msg .rich.long"]) expect(PAGE).toContain(part);
+		for (const part of ['class:"rich', ".rich pre", ".rich table", ".cpb", 'data-copycode', ".msg .rich.long"]) expect(PAGE).toContain(part);
 		expect(PAGE).not.toContain('(m.text?"<p>"+esc(m.text)+"</p>":"")');
 	});
 
@@ -1158,9 +1177,8 @@ describe("formatted replies, close and delete in the panel, smaller gauges", () 
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		const src = js.slice(js.indexOf("function richHtml("), js.indexOf("function toolRuns("));
-		const richHtml = new Function("renderMarkdown", `${src}; return richHtml;`)(
-			(t: string) => `<p>${t}</p>`,
-		) as (m: { text: string }) => string;
+		const richNode = new Function("renderMarkdown", "H", "Frag", `${src}; return richHtml;`)((t: string) => `<p>${t}</p>`, hx, Frag) as (m: { text: string }) => unknown;
+		const richHtml = (m: { text: string }) => ser(richNode(m));
 		const short = richHtml({ text: "one\ntwo\nthree\nfour" });
 		expect(short).toBe('<div class="rich"><p>one\ntwo\nthree\nfour</p></div>');
 		expect(short).not.toContain("rich-prev");
@@ -1258,7 +1276,7 @@ describe("class names", () => {
 	it("does not use the model tag's class (md) for the formatted reply text", async () => {
 		const { PAGE } = await import("../src/page");
 		expect(PAGE).toContain("function mtag(");
-		expect(PAGE).toContain('<span class="md" data-mpick=');
+		expect(PAGE).toContain('class:"md","data-mpick":s.id');
 		expect(PAGE).not.toMatch(/\.md (p|code|pre|table|a|ul|li)\b/);
 		expect(PAGE).not.toContain('class="md\'+(m.text.length');
 	});
@@ -1389,7 +1407,8 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
 		const src = js.slice(js.indexOf("const esc="), js.indexOf("const ago=")) + js.slice(js.indexOf("const TIER="), js.indexOf("function motion("));
-		const mtag = new Function(`${src}; return mtag;`)() as (s: object) => string;
+		const mtagNode = new Function("H", "Frag", `${src}; return mtag;`)(hx, Frag) as (s: object) => unknown;
+		const mtag = (s: object) => ser(mtagNode(s));
 		const plain = mtag({ id: "a", model: "claude-opus-5-5" });
 		expect(plain).toContain('data-mpick="a"');
 		expect(plain).toContain("OPUS");
@@ -1443,14 +1462,15 @@ describe("model tag switcher, PR hover, chat spacing", () => {
 
 	it("lists pull requests when you hover the branch", async () => {
 		const { PAGE } = await import("../src/page");
-		for (const part of ["data-prs=", "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class:"prn"']) expect(PAGE).toContain(part);
+		for (const part of ['"data-prs":', "function showPrs(", 'fetch("api/prs?id="', ".prpop{", ".prr:hover", ".prsk{", 'class:"prn"']) expect(PAGE).toContain(part);
 	});
 
 	it("shows more chat text: tighter spacing, wider bubbles, smaller tool labels that group repeats, no early cut-off", async () => {
 		const { PAGE } = await import("../src/page");
 		for (const part of [".bub{max-width:80%", ".rich p{margin:0 0 4px}", ".tool{font-size:9px", "function toolRuns(", "m.text.length>9000"]) expect(PAGE).toContain(part);
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
-		const runs = new Function("esc", `${js.slice(js.indexOf("function toolRuns("), js.indexOf("function pinSession("))}; return toolRuns;`)((x: string) => x) as (t: string[]) => string;
+		const runNodes = new Function("H", "Frag", "OPEN", `${js.slice(js.indexOf("function toolRuns("), js.indexOf("function pinSession("))}; return toolRuns;`)(hx, Frag, new Set()) as (t: string[]) => unknown;
+		const runs = (t: string[]) => ser(runNodes(t));
 		const html = runs(["Bash", "Bash", "Bash", "Edit page.ts", "Bash"]);
 		expect(html.match(/class="tool"/g)).toHaveLength(3);
 		expect(html).toContain("\u00d73");
@@ -1502,7 +1522,7 @@ describe("choices an agent offers", () => {
 		const { PAGE } = await import("../src/page");
 		const js = PAGE.split("<script>")[1].split("</script>")[0];
 		expect(() => new Function(js)).not.toThrow();
-		for (const part of ["function optsHtml(", "function answer(", 'data-opt="', ".obtn.first", "function armScroll(", "feedHover", "setTimeout(function tick()", 'id="newpill"', ".newpill.on", "messageHandlers.drag", "separate copy"]) expect(PAGE).toContain(part);
+		for (const part of ["function optsHtml(", "function answer(", '"data-opt":l', ".obtn.first", "function armScroll(", "feedHover", "setTimeout(function tick()", 'id="newpill"', ".newpill.on", "messageHandlers.drag", "separate copy"]) expect(PAGE).toContain(part);
 	});
 });
 
@@ -1521,13 +1541,13 @@ describe("tool chips", () => {
 		const html = await (await createApp(() => []).request("/")).text();
 		const src = html.slice(html.indexOf("function toolRuns("));
 		const fn = src.slice(0, src.indexOf("\nfunction pinSession"));
-		const esc = (x: string) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-		return new Function("esc", "OPEN", `${fn}; return toolRuns;`)(esc, new Set(open)) as (
+		const run = new Function("H", "Frag", "OPEN", `${fn}; return toolRuns;`)(hx, Frag, new Set(open)) as (
 			ts: string[],
 			sid: string,
 			fi: number,
 			calls?: { label: string; what?: string; detail: string }[],
-		) => string;
+		) => unknown;
+		return (ts: string[], sid: string, fi: number, calls?: { label: string; what?: string; detail: string }[]) => ser(run(ts, sid, fi, calls));
 	};
 	const calls = [{ label: "Bash", what: "run", detail: "ls <dir>" }];
 
@@ -1542,7 +1562,7 @@ describe("tool chips", () => {
 	it("an open chip lists the commands, escaped", async () => {
 		const html = (await load(["s1:2:0"]))(["Bash"], "s1", 2, calls);
 		expect(html).toContain('class="tool on"');
-		expect(html).toContain("<code>ls &lt;dir></code>");
+		expect(html).toContain("<code>ls &lt;dir&gt;</code>");
 	});
 
 	it("a chip with no kept calls is inert", async () => {
@@ -1566,7 +1586,7 @@ describe("page wiring", () => {
 	// tool chip did nothing until #196. Every attribute the markup emits must have a branch.
 	it("every data-act the markup emits has a branch in the click handler", async () => {
 		const h = await page();
-		const emitted = set(h, /data-act="([a-zA-Z]+)"/g);
+		const emitted = set(h, /data-act(?:="|":")([a-zA-Z]+)"/g);
 		const handled = set(h, /k==="([a-zA-Z]+)"/g);
 		expect(emitted.size).toBeGreaterThan(5);
 		expect([...emitted].filter((k) => !handled.has(k))).toEqual([]);
@@ -1574,7 +1594,7 @@ describe("page wiring", () => {
 
 	it("every data-pop the markup emits has a branch in popHtml", async () => {
 		const h = await page();
-		const emitted = set(h, /data-pop="([a-zA-Z]+)"/g);
+		const emitted = set(h, /data-pop(?:="|":")([a-zA-Z]+)"/g);
 		const handled = set(h, /kind==="([a-zA-Z]+)"/g);
 		expect(emitted.size).toBeGreaterThan(3);
 		expect([...emitted].filter((k) => !handled.has(k))).toEqual([]);
