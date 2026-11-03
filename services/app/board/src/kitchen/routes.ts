@@ -227,6 +227,15 @@ export const headOf = (wt: string) => {
 	}
 };
 /** Did Build change anything in the order's worktree: uncommitted edits, or commits since it started? */
+/** A repo with somewhere to push: a local-only repo (no remote) has no pull request to open. */
+export function hasRemote(dir: string): boolean {
+	try {
+		return git(dir, ["remote"]) !== "";
+	} catch {
+		return false;
+	}
+}
+
 export function worktreeChanged(wt: string, base?: string): boolean {
 	try {
 		if (git(wt, ["status", "--porcelain"])) return true;
@@ -780,8 +789,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (t.shipping) {
 			const said = replyOf(t?.assignee);
 			const pr = /https:\/\/github\.com\/[^\s)>\]]+\/pull\/\d+/.exec(said)?.[0];
-			// Without a PR, the ship failed. Send it back to be re-shipped once, or mark it stuck if it failed twice.
-			if (!pr && !t.pr) return { status: 200, body: { ...updateTask(t.id, { stage: "ship", shipping: false, assignee: "", sentAt: 0, stuck: t.stuck }) } };
+			// Without a PR, the ship failed. "ship" is not a stage, so nothing picked an order parked there (#42-#44 sat
+			// at it for good). Test runs again and its PASS ships again; a second ship with no PR leaves it stuck, with why.
+			if (!pr && !t.pr) {
+				const why = `ship: no pull request. ${failLine(said) || said.split("\n").filter(Boolean).at(-1)?.slice(0, 200) || "(nothing)"}`.slice(0, 300);
+				const failures = [...(t.failures ?? []), why].slice(-6);
+				const twice = (t.failures ?? []).some((f) => f.startsWith("ship:"));
+				return { status: 200, body: { ...updateTask(t.id, { stage: "test", shipping: false, assignee: "", sentAt: 0, failures, stuck: twice || t.stuck }) } };
+			}
 			// No new PR (the old one is fine), or a new PR was created: proceed to review.
 			return { status: 200, body: { ...updateTask(t.id, { stage: "review", shipping: false, ...(pr ? { pr } : {}), assignee: "", sentAt: 0 }) } };
 		}
@@ -826,7 +841,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// worktree (shipping from the shared checkout would commit everyone's edits), and only when it holds a change:
 		// an empty worktree has nothing to ship, and its agent would only ask what to do. The change is what ships, not
 		// the Build agent's summary: order #30 left 114 changed lines that were never shipped because its summary was empty.
-		if (to === "review" && t.kind === "task" && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && k.ship !== false) {
+		// A local-only repo has no pull request to open: Review reads the branch's diff instead.
+		if (to === "review" && t.kind === "task" && t.worktree && isDir(t.worktree) && worktreeChanged(t.worktree, t.base) && hasRemote(t.worktree) && k.ship !== false) {
 			const branch = `kitchen/order-${t.n}`;
 			const how = t.pr
 				? `commit any new change with \`git commit -s\` and a short conventional message, and push the branch: pull request ${t.pr} updates by itself. Reply with its URL.`
@@ -901,6 +917,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// Autopilot: a finished spec crosses the pass by itself, and an order stuck after MAX_ROUNDS is closed as
 		// failed (a gutter on the scoreboard) so it never blocks the belt.
 		for (const t of readTasks()) {
+			// Orders a failed ship parked at "ship" before it sent them back to Test.
+			if ((t.stage as string) === "ship" && !t.shipping) {
+				updateTask(t.id, { stage: "test", assignee: "", sentAt: 0 });
+				did.push(`#${t.n} was parked at ship: back to test`);
+				continue;
+			}
 			if (t.atPass) {
 				updateTask(t.id, { atPass: false, approved: true, stage: "build", assignee: "", sentAt: 0 });
 				did.push(`#${t.n} approved`);

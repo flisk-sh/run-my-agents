@@ -158,12 +158,17 @@ describe("agent containers", () => {
 		for (const n of gained) expect(text).toContain(`/${n}`);
 	});
 
-	it("sends a failed ship back to ship, not to review without a PR", async () => {
+	it("sends a failed ship back to Test with why, never to review without a PR or to a 'ship' stage nothing picks", async () => {
 		const { post } = setup([]);
 		order({ stage: "test", shipping: true, assignee: "ship", sentAt: 1, cwd: "/repo" });
 		const r = await post("/api/tasks/serve", { id: "t" });
-		expect(r.body.stage).toBe("ship");
+		expect(r.body).toMatchObject({ stage: "test", shipping: false, assignee: "" });
 		expect(r.body.pr).toBeUndefined();
+		expect(r.body.stuck).toBeFalsy();
+		expect(r.body.failures.at(-1)).toMatch(/^ship: no pull request/);
+		// A second ship with no PR leaves it stuck, so autopilot closes it as failed.
+		order({ stage: "test", shipping: true, assignee: "ship", sentAt: 1, cwd: "/repo", failures: r.body.failures });
+		expect((await post("/api/tasks/serve", { id: "t" })).body).toMatchObject({ stage: "test", stuck: true });
 	});
 
 	it("counts an order a pod sat on past its miss time as a strike, and puts it back on the belt", async () => {
@@ -741,17 +746,26 @@ describe("lanes, scores and crew clean-up", () => {
 });
 
 describe("ship and the skill sidecar", () => {
+	/** A worktree with a remote: only those ship a pull request (a local-only repo goes straight to Review). */
+	let pushable = "";
+	beforeEach(async () => {
+		const { execFileSync } = await import("node:child_process");
+		pushable = mkdtempSync(join(tmpdir(), "rma-push-"));
+		execFileSync("git", ["init", "-q", pushable]);
+		execFileSync("git", ["-C", pushable, "remote", "add", "origin", "https://github.com/acme/demo.git"]);
+		writeFileSync(join(pushable, "a.ts"), "export const a = 1;\n"); // what Build left
+	});
 	it("opens a PR when tests pass, then the Review agent reviews that PR, and a fix after a FAIL goes to the same PR", async () => {
 		const sessions: Session[] = [];
 		const { post, started, sent } = setup(sessions);
 		// No worktree (built before the board made them): it goes to review without shipping, never from the shared checkout.
 		order({ kind: "task", stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: { build: "x" } });
 		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "review", assignee: "" });
-		order({ kind: "task", worktree: tmpdir(), stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: { build: "Changed src/a.ts" }, crew: { build: { id: "b", role: "Build", name: "Build · repo b000" } } });
+		order({ kind: "task", worktree: pushable, stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: { build: "Changed src/a.ts" }, crew: { build: { id: "b", role: "Build", name: "Build · repo b000" } } });
 		const r = (await post("/api/tasks/serve", { id: "t", pass: true })).body;
 		expect(r).toMatchObject({ stage: "test", shipping: true });
 		const ship = started.at(-1);
-		expect(ship).toMatchObject({ id: r.assignee, mode: "acceptEdits", model: "haiku", cwd: tmpdir() });
+		expect(ship).toMatchObject({ id: r.assignee, mode: "acceptEdits", model: "haiku", cwd: pushable });
 		expect(ship?.text).toContain("git commit -s");
 		expect(ship?.text).toContain("gh pr create");
 		expect(ship?.text).toContain("kitchen/order-1");
@@ -779,7 +793,7 @@ describe("ship and the skill sidecar", () => {
 	it("ships the change in the worktree even when the Build agent's summary is empty", async () => {
 		// Order #30: 114 changed lines sat in its worktree, never shipped, because its build hand-off was empty.
 		const { post, started } = setup([]);
-		order({ kind: "task", worktree: tmpdir(), stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: {} });
+		order({ kind: "task", worktree: pushable, stage: "test", assignee: "tst", sentAt: 1, cwd: "/repo", notes: {} });
 		expect((await post("/api/tasks/serve", { id: "t", pass: true })).body).toMatchObject({ stage: "test", shipping: true });
 		expect(started.at(-1)?.text).toContain("gh pr create");
 		expect(started.at(-1)?.text).not.toContain("From the Build agent");

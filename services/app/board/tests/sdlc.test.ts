@@ -17,10 +17,11 @@ beforeEach(() => {
 	process.env.RUN_MY_AGENTS_SKILLS_DIR = mkdtempSync(join(tmpdir(), "rma-sdlc-skills-"));
 });
 
-function repo() {
+function repo(remote = true) {
 	const r = realpathSync(mkdtempSync(join(tmpdir(), "rma-sdlc-repo-")));
 	const g = (...a: string[]) => execFileSync("git", ["-C", r, ...a], { stdio: "ignore" });
 	g("init", "-q", "-b", "main");
+	if (remote) g("remote", "add", "origin", "https://github.com/acme/demo.git");
 	writeFileSync(join(r, "math.ts"), "export const range = (a: number, b: number) => { const o = []; for (let i = a; i < b; i++) o.push(i); return o; };\n");
 	g("add", ".");
 	g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init");
@@ -29,7 +30,9 @@ function repo() {
 
 type Agent = (text: string, cwd: string) => string;
 /** The scripted agents. `build` decides whether the builder really changes the file. */
-function kitchen(build: "fix" | "nothing") {
+/** `ship` decides how many ship attempts fail (no PR in the reply) before one opens a PR. */
+function kitchen(build: "fix" | "nothing", ship = 0) {
+	let shipFails = ship;
 	const reply: Agent = (text, cwd) => {
 		if (/^You are a \w+ agent/.test(text)) return "ready";
 		if (/\(spec\)/.test(text)) return "Goal: range includes its end.\nWhy: callers expect 1..3 to give 3 numbers.\nChecks: range(1,3) is [1,2,3].\nFiles: math.ts";
@@ -41,6 +44,7 @@ function kitchen(build: "fix" | "nothing") {
 		if (/\(test\)/.test(text)) return "Ran range(1,3): [1,2,3].\n\nPASS — the end is included.";
 		if (/\(review\)/.test(text)) return "Diff is one character in math.ts and matches the spec.\n\nPASS — correct and minimal.";
 		if (/^Ship order/.test(text)) {
+			if (shipFails-- > 0) return "git push failed: could not read Username for 'https://github.com'.";
 			execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "fix: range includes its end", "-s"], { stdio: "ignore" });
 			return "Committed and pushed. Opened https://github.com/acme/demo/pull/42";
 		}
@@ -129,6 +133,55 @@ describe("full SDLC, end to end", () => {
 		const said = k.sessions.flatMap((s) => s.feed.filter((m) => m.who === "you").map((m) => String((m as { text?: string }).text)));
 		expect(said.find((m) => m.startsWith("Order #1 (review)"))).toContain("From the Build agent:\nChanged math.ts");
 		expect(said.find((m) => m.startsWith("Order #1 (review)"))).toContain("gh pr diff https://github.com/acme/demo/pull/42");
+	});
+
+	const run = async (k: ReturnType<typeof kitchen>) => {
+		const stages: string[] = [];
+		const log: string[] = [];
+		for (let i = 0; i < 40 && k.tasks()[0].stage !== "done"; i++) {
+			log.push(...(await k.tick()));
+			const st = k.tasks()[0].shipping ? "ship" : k.tasks()[0].stage;
+			if (stages.at(-1) !== st) stages.push(st);
+		}
+		return { stages, log, t: k.tasks()[0] };
+	};
+
+	it("serves a local-only repo (no remote) without a pull request: Review reads the branch", async () => {
+		const k = kitchen("fix");
+		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: repo(false) });
+		const { stages, t } = await run(k);
+		expect(stages).toEqual(["spec", "build", "test", "review", "done"]);
+		expect(t.failed).toBeFalsy();
+		expect(t.pr).toBeUndefined();
+	});
+
+	it("ships again after a ship that opened no pull request, instead of parking the order", async () => {
+		const k = kitchen("fix", 1);
+		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: repo() });
+		const { stages, t } = await run(k);
+		expect(stages).toEqual(["spec", "build", "test", "ship", "test", "ship", "review", "done"]);
+		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/42" });
+		expect(t.failed).toBeFalsy();
+		expect(t.failures).toEqual(["ship: no pull request. git push failed: could not read Username for 'https://github.com'."]);
+	});
+
+	it("fails an order whose ship opens no pull request twice, saying why", async () => {
+		const k = kitchen("fix", 9);
+		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: repo() });
+		const { stages, t } = await run(k);
+		expect(stages).toEqual(["spec", "build", "test", "ship", "test", "ship", "done"]);
+		expect(t).toMatchObject({ stage: "done", failed: true, followUp: 2 });
+		expect(t.failures.filter((f: string) => f.startsWith("ship: no pull request"))).toHaveLength(2);
+	});
+
+	it("moves an order a failed ship parked at 'ship' back to Test", async () => {
+		const k = kitchen("fix");
+		const r = repo(false);
+		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: r });
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify(k.tasks().map((t: object) => ({ ...t, stage: "ship", approved: true, assignee: "", shipping: false }))));
+		const { log, t } = await run(k);
+		expect(log).toContain("#1 was parked at ship: back to test");
+		expect(t.stage).toBe("done");
 	});
 
 	it("never hands an empty build to Test: asks again, then fails the order and opens a follow-up", async () => {
