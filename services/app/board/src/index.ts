@@ -54,6 +54,58 @@ const FONTS = new Map<string, Buffer>([
 
 /** Sessions with a message on its way, so a second send waits for the first reply. */
 const sending = new Set<string>();
+
+/**
+ * Agent processes the board started, on disk: `sending` is in memory, and the live board restarts on every merge (it
+ * runs under --watch) while its `claude -p` children keep running. After a restart every running step looked
+ * finished at its first quiet gap, so Test started on half-built worktrees (#172). A chat is busy while its process
+ * is alive; an entry older than RUNNING_MAX_MS is dropped, so a reused PID never holds a chat for good.
+ */
+const RUNNING_MAX_MS = 3 * 3_600_000;
+const runningFile = () => join(dataDir(), "running.json");
+const readRunning = (): Record<string, { pid: number; at: number }> => {
+	try {
+		return JSON.parse(readFileSync(runningFile(), "utf8"));
+	} catch {
+		return {};
+	}
+};
+const writeRunning = (all: Record<string, { pid: number; at: number }>) => {
+	try {
+		mkdirSync(dataDir(), { recursive: true });
+		writeFileSync(runningFile(), JSON.stringify(all));
+	} catch {}
+};
+export function markRunning(id: string, pid: number | undefined) {
+	if (!pid) return;
+	writeRunning({ ...readRunning(), [id]: { pid, at: Date.now() } });
+}
+export function markDone(id: string, pid?: number) {
+	const all = readRunning();
+	if (!all[id] || (pid && all[id].pid !== pid)) return;
+	delete all[id];
+	writeRunning(all);
+}
+export function stillRunning(id: string): boolean {
+	const r = readRunning()[id];
+	if (!r) return false;
+	try {
+		if (Date.now() - r.at > RUNNING_MAX_MS) throw new Error("too old");
+		process.kill(r.pid, 0);
+		return true;
+	} catch {
+		markDone(id, r.pid);
+		return false;
+	}
+}
+/** Wraps spawn so the child is recorded as the running process of chat `id` until it exits. */
+const tracked = (id: string, run: typeof spawn = spawn): typeof spawn =>
+	((cmd: string, args: string[], opts: object) => {
+		const child = run(cmd, args, opts);
+		markRunning(id, child.pid);
+		child.on?.("close", () => markDone(id, child.pid));
+		return child;
+	}) as typeof spawn;
 const PROMPT_LIMIT = 20_000;
 
 /**
@@ -491,7 +543,7 @@ export function createApp(
 		if (appBusy(s)) return new Response(JSON.stringify({ error: `${s.role} is working in the Claude app right now. Wait for it to finish, or message it there.` }), { status: 409, headers: { "content-type": "application/json" } });
 		running.get(s.id)?.kill("SIGINT");
 		const run = ((cmd: string, args: string[], opts: object) => {
-			const child = spawn(cmd, args, opts);
+			const child = tracked(s.id)(cmd, args, opts);
 			running.set(s.id, child);
 			return child;
 		}) as typeof spawn;
@@ -837,12 +889,12 @@ export function createApp(
 			queues.set(s.id, [...(queues.get(s.id) ?? []), item]);
 			return new Response(JSON.stringify({ queued: true, qid: item.qid }), { status: 202, headers: { "content-type": "application/json" } });
 		},
-		busy: (s) => sending.has(s.id) || appBusy(s) || likelyMidTurn(s),
+		busy: (s) => sending.has(s.id) || appBusy(s) || stillRunning(s.id) || likelyMidTurn(s),
 		start: (n) => {
 			setRole(n.id, n.role);
 			sending.add(n.id);
 			launched.add(n.id);
-			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode, allow: KITCHEN_TOOLS })
+			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode, allow: KITCHEN_TOOLS }, tracked(n.id as string))
 				.catch((e) => console.error("container start failed:", e))
 				.finally(() => sending.delete(n.id));
 		},
