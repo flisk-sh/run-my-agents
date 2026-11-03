@@ -582,6 +582,20 @@ describe("failure causes found in the agents' chats", () => {
 		expect(whereOf("seems agents not picking up orders in the inbox", "/x/flisk", [])).toBe(BOARD_ROOT);
 		expect(whereOf("fix the release script in flisk", "/x/other", ["/x/flisk", "/x/other"])).toBe("/x/flisk");
 		expect(whereOf("fix the release script", "/x/flisk", ["/x/flisk"])).toBe("/x/flisk");
+		expect(whereOf("the crew tab buttons do nothing", "/x/flisk", [])).toBe(BOARD_ROOT);
+	});
+
+	it("keeps an order in its own folder when its title only uses a plain word like 'order' or 'board' (#230)", async () => {
+		const { whereOf } = await import("../src/kitchen/routes");
+		const repo = mkdtempSync(join(tmpdir(), "rma-where-"));
+		(await import("node:fs")).mkdirSync(join(repo, "src"));
+		writeFileSync(join(repo, "src", "math.ts"), "export {};\n");
+		// #51: "in first-seen order" sent it to the board's repo, where its agents made a new src/math.ts and a PR.
+		expect(whereOf("add unique(xs) to src/math.ts: the numbers without duplicates, in first-seen order, with tests", repo, [])).toBe(repo);
+		expect(whereOf("sort the orders by date on the dashboard", repo, [])).toBe(repo);
+		expect(whereOf("add a board game page with tickets", repo, [])).toBe(repo);
+		// It names a file its folder has, so it stays even with a board phrase in it.
+		expect(whereOf("the kitchen menu in src/math.ts is wrong", repo, [])).toBe(repo);
 	});
 
 	it("hands on the whole spec reply, not its closing line, and lets the spec move the folder (#21)", async () => {

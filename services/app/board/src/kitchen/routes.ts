@@ -285,13 +285,18 @@ export const sameRepo = (agentCwd: string | undefined, repo: string) => {
 /** Where the Run My Agents board's own code lives, for orders about the board itself. */
 export const BOARD_ROOT = resolvePath(import.meta.dir, "../../../../..");
 /** Orders about the board (its kitchen, agents, orders, tabs) belong in the board's repo, whatever chat was selected. */
-const BOARD_WORDS = /\b(board|kitchen|autopilot|front desk|run[- ]my[- ]agents|crew tab|lanes|scores tab|queue tab|orders?|tickets?|idle agents?|agents? (?:without work|not picking|idle))\b/i;
+// Only phrases about the board itself: plain words ("order", "ticket", "board", "lanes") moved #51, "in first-seen
+// order", out of its own repo and into this one (#230).
+const BOARD_WORDS = /\b(the board|board (?:page|ui|tab|server)|kitchen|autopilot|front desk|run[- ]my[- ]agents|crew tab|lanes tab|scores tab|queue tab|kitchen orders?|orders? (?:in|on) the (?:inbox|belt|queue)|idle agents?|agents? (?:without work|not picking|idle))\b/i;
+/** Files a title names (src/math.ts, README.md): an order that names a file its folder has stays in that folder. */
+const NAMED_FILE = /(?:^|[\s`'"(])((?:[\w.-]+\/)*[\w-]+\.[a-z]{1,5})(?=$|[\s`'"),:;])/gi;
 export function whereOf(title: string, cwd: string, folders: string[]): string {
 	const named = folders.find((f) => {
 		const base = f.split("/").filter(Boolean).pop() ?? "";
 		return base.length > 3 && new RegExp(`\\b${base.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")}\\b`, "i").test(title);
 	});
 	if (named) return named;
+	if (cwd && [...title.matchAll(NAMED_FILE)].some((m) => existsSync(resolvePath(cwd, m[1])))) return cwd;
 	if (BOARD_WORDS.test(title) && existsSync(resolvePath(BOARD_ROOT, "services/app/board"))) return BOARD_ROOT;
 	return cwd;
 }
