@@ -1,11 +1,14 @@
 // #172: after a board restart the in-memory busy set is empty while agents' `claude -p` processes keep running.
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { type ChildProcess, execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp, markDone, markRunning, stillRunning } from "../src/index";
 import { parseSession, type Session } from "../src/sessions";
+
+// Each case runs the real autopilot for up to 40 ticks: the preload's 30 s default did not reach this file in a full run (#313).
+setDefaultTimeout(30_000);
 
 let dir = "";
 beforeEach(() => {

@@ -1,6 +1,6 @@
 // Kitchen pipeline bugs found in a bug hunt: each test failed on main before its fix (issue number in its name).
 // The harness is the scripted SDLC kitchen from sdlc.test.ts, with a per-test override of what an agent answers.
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,9 @@ import { join } from "node:path";
 import { createApp } from "../src/index";
 import { readContainers } from "../src/kitchen/containers";
 import { parseSession, type Session } from "../src/sessions";
+
+// Each case runs the real autopilot for up to 40 ticks: the preload's 30 s default did not reach this file in a full run (#313).
+setDefaultTimeout(30_000);
 
 let dir = "";
 beforeEach(() => {
