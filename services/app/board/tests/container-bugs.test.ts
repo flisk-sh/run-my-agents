@@ -174,7 +174,23 @@ describe("agent container bugs", () => {
 		await post("/api/kitchen", { auto: true });
 		expect(readContainers()[0].skills).toContain("find-bugs");
 	});
-
+	it("#242: scales down by letting an idle agent go, not the one cooking an order", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		const box = (await post("/api/containers", { name: "Builders", role: "Code", stages: ["build"], replicas: 2, cwd: "/repo" })).body;
+		await post("/api/containers/reconcile", {});
+		for (const s of started) sessions.push(session(s.id as string, "Code"));
+		await post("/api/containers/reconcile", {});
+		const [older] = readContainers()[0].pods;
+		// The older pod takes an order in a fresh chat (what dispatch does for every step after a pod's first).
+		freshChat(older.session, "busy-chat", "t");
+		sessions.push(session("busy-chat", "Code"));
+		order({ stage: "build", cwd: "/repo", assignee: "busy-chat", sentAt: Date.now() });
+		await post("/api/containers/reconcile", {});
+		await post("/api/containers/scale", { id: box.id, replicas: 1 });
+		const busy = readContainers()[0].pods.find((p) => p.id === older.id);
+		expect(busy?.status).not.toBe("evicted");
+	});
 });
 
 // keep imports used

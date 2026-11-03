@@ -326,6 +326,8 @@ export type ReconcileCtx = {
 	name?: (id: string, label: string) => void;
 	/** Sets a pod's agent type on the board to its container's type. */
 	type?: (id: string, role: string) => void;
+	/** Chats that hold an order now: scaling down lets the others go first. */
+	holding?: Set<string>;
 	now?: number;
 };
 
@@ -362,8 +364,10 @@ export function reconcile(ctx: ReconcileCtx) {
 				}
 			}
 			const pods = live(c);
-			// Too many: fire the newest, the way a ReplicaSet scales down.
-			for (const p of pods.sort((a, b) => b.started - a.started).slice(0, Math.max(0, pods.length - c.replicas))) {
+			// Too many: let agents that hold no order go first, then the newest, the way a ReplicaSet scales down. Newest
+			// alone fired the agent that had just taken an order (a fresh chat resets `started`) and kept the idle one (#242).
+			const holds = (p: Pod) => Number(ctx.holding?.has(p.session) ?? false);
+			for (const p of pods.sort((a, b) => holds(a) - holds(b) || b.started - a.started).slice(0, Math.max(0, pods.length - c.replicas))) {
 				Object.assign(p, { status: "evicted", reason: c.downReason ?? "Scaled down", evictedAt: now });
 				ctx.close(p.session);
 				did.push(`${c.name}: scaled down ${p.session.slice(0, 8)}`);

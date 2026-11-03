@@ -418,7 +418,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const tick = () => {
 		missed();
 		auto();
-		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close, name: k.name, type: k.type });
+		const holding = new Set(readTasks().filter((t) => t.assignee && t.stage !== "done").map((t) => t.assignee));
+		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close, name: k.name, type: k.type, holding });
 	};
 	if (k.every) setInterval(tick, k.every).unref?.();
 
