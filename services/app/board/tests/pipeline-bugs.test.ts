@@ -273,7 +273,13 @@ describe("kitchen pipeline bugs", () => {
 	});
 
 	it("#184: moving an order that is shipping back to Build makes Build's reply a build, not a ship", async () => {
-		const k = kitchen();
+		let builds = 0;
+		// The second build (after the move) makes a further change, as a real fix round would.
+		const k = kitchen((text, cwd) => {
+			if (!/^Order #1 \(build\)/.test(text) || builds++ === 0) return undefined;
+			writeFileSync(join(cwd, "math.ts"), `${readFileSync(join(cwd, "math.ts"), "utf8")}// range includes its end\n`);
+			return "Added a note on range().";
+		});
 		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
 		await k.run(40, () => !!k.tasks()[0].shipping);
 		const moved = await k.post("/api/tasks/move", { id: k.tasks()[0].id, stage: "build" });
@@ -420,5 +426,19 @@ describe("kitchen pipeline bugs", () => {
 		// Still no verdict when two lines disagree, or one line says both.
 		expect(verdictIn("FAIL: range(1,3) gave [1,2]\nPASS")).toBeUndefined();
 		expect(verdictIn("PASS looks fine. Wait, FAIL: the date check returns 2013.")).toBeUndefined();
+	});
+
+	it("#187: a build round that changes nothing after Ship committed the last one is caught", async () => {
+		let builds = 0;
+		let reviews = 0;
+		const k = kitchen((text) => {
+			if (/^Order #1 \(build\)|no changes in this order's worktree/.test(text) && builds++ > 0) return "Looked again; the code already does this.";
+			if (/\(review\)/.test(text) && reviews++ === 0) return "Read the PR.\n\nFAIL: range(0,0) returns [0], expected [].";
+			return undefined;
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const { log } = await k.run();
+		// Round 1 shipped a commit; round 2 changed nothing, which must not pass as a change.
+		expect(log).toContain("#1 build made no changes: failed");
 	});
 });

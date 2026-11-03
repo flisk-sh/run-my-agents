@@ -831,6 +831,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// nothing a stage writes lands in the shared checkout.
 		const wt = order.kind === "task" && ["spec", "build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
+		// Each build round is judged on its own: after Ship committed round 1, HEAD never equals base again (#187).
+		if (wt && order.stage === "build") updateTask(order.id, { roundBase: headOf(wt) });
 		// Kept from the first build round: a retry after a leak must still see the leak.
 		if (wt && order.stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
 		const text = orderText(order, use, wt, box ? lessonsFor(lessonsKeyOf(box)) : []);
@@ -869,6 +871,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const who = `flisk:${sid}`;
 		const wt = ["spec", "build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
+		// Each build round is judged on its own: after Ship committed round 1, HEAD never equals base again (#187).
+		if (wt && order.stage === "build") updateTask(order.id, { roundBase: headOf(wt) });
 		if (wt && stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
 		const policy = policyFor(stage);
 		const text = orderText(order, skillset(stage, order.skills), wt);
@@ -917,9 +921,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			}
 			// A build that changed nothing is asked once more, then fails; Test never gets an empty branch.
 			const wt = readTasks().find((x) => x.id === id)?.worktree;
-			if (stage === "build" && wt && isDir(wt) && !worktreeChanged(wt, readTasks().find((x) => x.id === id)?.base)) {
+			if (stage === "build" && wt && isDir(wt) && !worktreeChanged(wt, (() => { const x = readTasks().find((y) => y.id === id); return x?.roundBase ?? x?.base; })())) {
 				reply = await turn(sid, envelope(NO_CHANGES, { from: "Orchestrator", to: asker, type: "nudge", order: t0.n, stage, expects: "record" }));
-				if (!worktreeChanged(wt, readTasks().find((x) => x.id === id)?.base)) {
+				if (!worktreeChanged(wt, (() => { const x = readTasks().find((y) => y.id === id); return x?.roundBase ?? x?.base; })())) {
 					const cur = readTasks().find((x) => x.id === id);
 					const why = `build: no changes made in the worktree. ${failLine(reply) || reply.split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
 					fliskReplies.set(who, reply);
@@ -1220,7 +1224,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			}
 			// A build that left nothing in its worktree is not ready for Test: ask once more to make the change, then
 			// fail it, so Test is never handed an empty branch.
-			if (t.stage === "build" && !t.shipping && t.worktree && isDir(t.worktree) && !worktreeChanged(t.worktree, t.base)) {
+			if (t.stage === "build" && !t.shipping && t.worktree && isDir(t.worktree) && !worktreeChanged(t.worktree, t.roundBase ?? t.base)) {
 				if ((t.answered ?? 0) < MAX_ANSWERS && s && post(s, `#${t.n}: no changes`, NO_CHANGES, t, "nudge").status < 400) {
 					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });
 					did.push(`#${t.n} build left no changes: asked again`);
