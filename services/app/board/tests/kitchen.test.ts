@@ -337,10 +337,29 @@ describe("fail-rate KPI", () => {
 	const done = (n: number, bad: boolean) => ({ n, kind: "task", stage: "done", servedAt: n, updated: n, failed: false, failures: bad ? ["test: FAIL: x"] : [] }) as never;
 	it("counts finished task orders with any FAIL, and sets the next goal on the 70/50/30/15/5 ladder", () => {
 		const orders = Array.from({ length: 10 }, (_, i) => done(i, i < 4));
-		expect(failRate(orders)).toEqual({ failRate: 40, failOrders: 10, failGoal: 30 });
+		expect(failRate(orders)).toEqual({ failRate: 40, failOrders: 10, failBoard: 0, failGoal: 30 });
 		expect(failRate(Array.from({ length: 10 }, (_, i) => done(i, i < 9))).failGoal).toBe(70);
 		expect(failRate([done(1, false)]).failGoal).toBeNull();
 	});
+	it("counts only an order's own run: failures carried from a requeue or a parent order do not count", () => {
+		const login = "build: no changes made in the worktree. Not logged in · Please run /login";
+		const parent = { ...(done(1, true) as object), failed: true, failures: [login] } as never;
+		// a follow-up that copied its parent's failure, then passed (made before `carried` was recorded)
+		const follow = { ...(done(2, false) as object), retryOf: 1, failures: [login] } as never;
+		// requeued with two old failures, passed this time
+		const requeued = { ...(done(3, false) as object), carried: 2, failures: [login, login] } as never;
+		// requeued with one old failure, and failed again this run
+		const again = { ...(done(4, false) as object), carried: 1, failures: [login, "test: FAIL: clamp(5,0,3) gave 5"] } as never;
+		// #1 failed only because the board could not log in: left out. Of the other three, #4 failed its own run.
+		expect(failRate([parent, follow, requeued, again])).toMatchObject({ failRate: 33, failOrders: 3, failBoard: 1 });
+		// Served after a login failure in the same run: the agents did it, so it counts as served.
+		const served = { ...(done(6, false) as object), failures: [login] } as never;
+		expect(failRate([served])).toMatchObject({ failRate: 0, failOrders: 1, failBoard: 0 });
+		// A real FAIL next to a login failure still counts.
+		const mixed = { ...(done(5, false) as object), failed: true, failures: [login, "review: FAIL: no test for x==max"] } as never;
+		expect(failRate([mixed])).toMatchObject({ failRate: 100, failOrders: 1, failBoard: 0 });
+	});
+
 	it("looks only at the last 20 orders and leaves questions out", () => {
 		const old = Array.from({ length: 20 }, (_, i) => done(i, true));
 		const recent = Array.from({ length: 20 }, (_, i) => done(100 + i, false));

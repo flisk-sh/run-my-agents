@@ -568,6 +568,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			lane: kind === "task" ? laneOf(t.title) : undefined,
 			zachman: zachman({ title: t.title, cwd, priority: t.priority, route, skills, kind, lane: kind === "task" ? laneOf(t.title) : undefined }),
 			requeued: (t.requeued ?? 0) + 1,
+			carried: (t.failures ?? []).length,
 		});
 		const back = readTasks().find((x) => x.id === t.id);
 		if (back) frontDesk(back);
@@ -1156,7 +1157,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const route = t.route;
 		const next = addTask({ title: t.title, cwd: t.cwd, priority: t.priority, skills: t.skills, route, kind: "task", lane: "full", zachman: t.zachman });
 		stock(t.skills, k.fetch);
-		updateTask(next.id, { retryOf: t.n, failures: t.failures ?? [], ...(t.notes?.spec ? { notes: { spec: t.notes.spec } } : {}) });
+		updateTask(next.id, { retryOf: t.n, failures: t.failures ?? [], carried: (t.failures ?? []).length, ...(t.notes?.spec ? { notes: { spec: t.notes.spec } } : {}) });
 		updateTask(t.id, { followUp: next.n });
 		return next;
 	}

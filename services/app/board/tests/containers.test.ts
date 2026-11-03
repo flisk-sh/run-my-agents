@@ -898,9 +898,14 @@ describe("follow-up on failure", () => {
 		const did = (await post("/api/kitchen", { auto: true })).body.did;
 		expect(did).toContain("#1 closed as failed");
 		expect(did).toContain("#1 followed up as #2");
+		// Requeued, it keeps its failures for the agents to read, but marks them as an earlier run's (for the KPI).
+		const before = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+		const re = (await post("/api/tasks/requeue", { id: "t" })).body;
+		expect(re).toMatchObject({ stage: "inbox", failed: false, carried: 1, failures: before[0].failures });
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify(before));
 		const [old, next] = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
 		expect(old).toMatchObject({ failed: true, followUp: 2 });
-		expect(next).toMatchObject({ n: 2, title: "fix it", lane: "full", retryOf: 1, failures: old.failures, notes: { spec: "Goal: include the end." } });
+		expect(next).toMatchObject({ n: 2, title: "fix it", lane: "full", retryOf: 1, failures: old.failures, carried: 1, notes: { spec: "Goal: include the end." } });
 		// Its agents are told what went wrong last time.
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([old, { ...next, stage: "build", approved: true }]));
 		await post("/api/tasks/dispatch", { id: next.id, session: "bld" });

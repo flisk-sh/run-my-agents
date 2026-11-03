@@ -143,19 +143,31 @@ export function flow(tasks: Task[], now = Date.now()) {
 	};
 }
 
+/** Failures that were the board's, not the agent's: an agent that could not log in never got to work. */
+export const BOARD_FAULT = /Not logged in|authentication_failed/;
+
 /** The fail-rate goals, in order: once the rate is at or under one, the next is the goal. */
 export const FAIL_GOALS = [70, 50, 30, 15, 5];
 
 /**
- * KPI: the share of the last `last` finished task orders (questions left out) that had a FAIL in any step or closed
- * as failed, and the next goal on the ladder it has not reached yet.
+ * KPI: the share of the last `last` finished task orders (questions left out) that had a FAIL in any step of their own
+ * run or closed as failed, and the next goal on the ladder it has not reached yet.
  */
 export function failRate(tasks: Task[], last = 20) {
 	const ended = tasks
 		.filter((t) => t.kind === "task" && t.stage === "done")
-		.sort((a, b) => (a.servedAt ?? a.updated) - (b.servedAt ?? b.updated))
-		.slice(-last);
-	const bad = ended.filter((t) => t.failed || (t.failures ?? []).length > 0).length;
-	const rate = ended.length ? Math.round((bad / ended.length) * 100) : 0;
-	return { failRate: rate, failOrders: ended.length, failGoal: ended.length ? (FAIL_GOALS.find((g) => rate > g) ?? null) : FAIL_GOALS[0] };
+		.sort((a, b) => (a.servedAt ?? a.updated) - (b.servedAt ?? b.updated));
+	// A requeued order or a follow-up carries the failures of the run before it; only this run's count. A follow-up
+	// made before `carried` was recorded brought all of its parent's.
+	const byN = new Map(tasks.map((t) => [t.n, t]));
+	const carried = (t: Task) => t.carried ?? (t.retryOf ? (byN.get(t.retryOf)?.failures ?? []).length : 0);
+	// Only the agents' own failures: a board fault in this run (an agent that could not log in) is not one.
+	const own = (t: Task) => (t.failures ?? []).slice(carried(t)).filter((f) => !BOARD_FAULT.test(f));
+	// An order closed as failed with nothing but board faults says nothing about the agents: left out, counted apart.
+	const boardOnly = (t: Task) => !!t.failed && own(t).length === 0 && (t.failures ?? []).slice(carried(t)).length > 0;
+	const counted = ended.filter((t) => !boardOnly(t)).slice(-last);
+	const board = ended.slice(-last).filter(boardOnly).length;
+	const bad = counted.filter((t) => own(t).length > 0 || t.failed).length;
+	const rate = counted.length ? Math.round((bad / counted.length) * 100) : 0;
+	return { failRate: rate, failOrders: counted.length, failBoard: board, failGoal: counted.length ? (FAIL_GOALS.find((g) => rate > g) ?? null) : FAIL_GOALS[0] };
 }

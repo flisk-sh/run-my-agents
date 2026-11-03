@@ -74,6 +74,8 @@ export type Task = {
 	talk?: { at: number; from: string; to: string; text: string }[];
 	/** What this step's agent said before the orchestrator last wrote to it; its hand-off is this plus its reply. */
 	draft?: string;
+	/** How many of its failures it brought from an earlier run (a requeue, or the order it follows up): not this run's. */
+	carried?: number;
 	/** This order is the follow-up of failed order #retryOf. */
 	retryOf?: number;
 	/** The failed order was followed up as #followUp. */
@@ -120,7 +122,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "retryOf" | "followUp" | "answered" | "base" | "waitingOn" | "asked" | "talk" | "draft">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "waitingOn" | "asked" | "talk" | "draft">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
