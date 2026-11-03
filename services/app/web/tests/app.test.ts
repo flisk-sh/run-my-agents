@@ -169,6 +169,19 @@ describe("Mac download", () => {
 	});
 });
 
+describe("hero", () => {
+	it("puts the kitchen behind the hero and makes the Mac download the main button", async () => {
+		const html = await (await app.request("/")).text();
+		expect(html).toContain('class="herobg"');
+		expect(html.indexOf('class="dlb"')).toBeLessThan(
+			html.indexOf('class="install"'),
+		);
+		const img = await app.request("/hero-kitchen.jpg");
+		expect(img.status).toBe(200);
+		expect(img.headers.get("content-type")).toBe("image/jpeg");
+	});
+});
+
 describe("Kitchen Rush game", () => {
 	it("serves the game with a script-only policy and links it from the nav", async () => {
 		const res = await app.request("/play");

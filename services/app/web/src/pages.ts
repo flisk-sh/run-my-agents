@@ -23,8 +23,14 @@ h1{font-size:clamp(2.4rem,7vw,4rem);line-height:1.05;letter-spacing:-.03em;margi
 .install .bar{padding:10px 16px;border-bottom:1px solid var(--line);font-size:.8rem;color:var(--faint)}
 pre{margin:0;padding:16px;font:.9rem/1.7 var(--mono);overflow-x:auto}.p{color:var(--faint);user-select:none}
 .meta{margin-top:14px;color:var(--faint);font-size:.9rem}
-.dl{margin-top:16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}.dl span{color:var(--faint);font-size:.85rem;flex:1 1 260px}
-.dlb{display:inline-block;background:var(--accent);color:#04130a;font-weight:600;text-decoration:none;border-radius:10px;padding:10px 18px}.dlb:hover{filter:brightness(1.1)}.dlb:focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
+.herobg{position:relative;background:linear-gradient(180deg,rgba(6,6,10,.62),rgba(6,6,10,.78) 55%,var(--bg) 100%),url(/hero-kitchen.jpg) center 40%/cover no-repeat;border-bottom:1px solid var(--line)}
+.herobg .hero{padding:80px 16px 48px}.herobg h1,.herobg .lede{text-shadow:0 2px 18px rgba(0,0,0,.6)}.herobg .lede{color:rgba(236,236,241,.86)}
+.dl{margin:8px 0 26px}.dl p{color:rgba(236,236,241,.66);font-size:.88rem;max-width:34rem;margin:12px 0 0}
+.dlb{display:inline-flex;flex-direction:column;gap:2px;background:var(--accent);color:#04130a;text-decoration:none;border-radius:16px;padding:18px 34px;box-shadow:0 14px 40px rgba(34,197,94,.35),0 2px 0 rgba(255,255,255,.25) inset;transition:transform .15s,filter .15s}
+.dlb b{font-size:1.35rem;font-weight:800;letter-spacing:-.01em}.dlb small{font-size:.85rem;font-weight:500;opacity:.8}
+.dlb:hover{filter:brightness(1.08);transform:translateY(-2px)}.dlb:focus-visible{outline:3px solid var(--accent-text);outline-offset:3px}
+.or{color:var(--faint);font-size:.9rem;margin:0 0 10px}
+@media (max-width:640px){.herobg .hero{padding:48px 16px 32px}.dlb{display:flex;width:100%;text-align:center;padding:16px 20px}}
 .shot{display:block;width:100%;max-width:800px;height:auto;margin:28px auto 0;border-radius:14px;box-shadow:0 0 0 1px var(--line,rgba(127,127,127,.25)),0 20px 50px -20px rgba(0,0,0,.6)}
 section{padding:40px 0}h2{font-size:1.6rem;letter-spacing:-.02em;margin:0 0 8px}.sub{color:var(--muted);margin:0 0 24px}
 .term{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;font:.85rem/1.7 var(--mono)}
@@ -111,7 +117,7 @@ ${head(base, meta)}
 export const MAC_DOWNLOAD =
 	"https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip";
 function downloadMac(): string {
-	return `<p class="dl"><a class="dlb" href="${MAC_DOWNLOAD}">Download for macOS</a><span>Apple Silicon and Intel, macOS 13 or later. Not notarized yet: the first time, open it from System Settings, Privacy &amp; Security, Open Anyway.</span></p>`;
+	return `<div class="dl"><a class="dlb" href="${MAC_DOWNLOAD}"><b>Download for macOS</b><small>Free · Apple Silicon and Intel · macOS 13+</small></a><p>The board in its own window, everything built in. Not notarized yet: the first time, open it from System Settings, Privacy &amp; Security, Open Anyway.</p></div>`;
 }
 
 function installBox(): string {
@@ -203,12 +209,13 @@ export function homePage(base: string): string {
 			title: `${SITE.name}: ${SITE.tagline}`,
 			description: SITE.description,
 		},
-		`<div class="wrap"><div class="hero"><div class="faces">${AGENTS.map((a) => avatar(a, 40)).join("")}</div><span class="pill">Free Claude Code plugin</span>
+		`<div class="herobg"><div class="wrap hero"><div class="faces">${AGENTS.map((a) => avatar(a, 40)).join("")}</div><span class="pill">Free Claude Code plugin</span>
 <h1>Run My <span>Agents</span></h1>
 <p class="lede">Run many Claude Code sessions on one repo, and stop them overwriting each other's work.</p>
-${installBox()}
 ${downloadMac()}
-<p class="meta">No server. No account. No keys. Everything stays on your computer.</p><div class="mac"><div class="mbar"><i></i><i></i><i></i><span>Run My Agents</span></div><iframe class="live" src="/demo/" title="Run My Agents board, live demo with made-up sessions" loading="lazy"></iframe></div><p class="meta">That is the real board, running on made-up sessions. Click an agent, answer a question, send a message.</p></div>
+<p class="or">Or add the plugin in Claude Code, no app needed:</p>
+${installBox()}
+<p class="meta">No server. No account. No keys. Everything stays on your computer.</p></div></div><div class="wrap"><div><div class="mac"><div class="mbar"><i></i><i></i><i></i><span>Run My Agents</span></div><iframe class="live" src="/demo/" title="Run My Agents board, live demo with made-up sessions" loading="lazy"></iframe></div><p class="meta">That is the real board, running on made-up sessions. Click an agent, answer a question, send a message.</p></div>
 <section><h2>Your agent team, on one repo</h2><p class="sub">Every agent has its own job. Click one to see what it's working on.</p>${demoBoard()}<p class="meta">A preview of five agents' chats. Install it and this runs for real, on your own repo.</p></section>
 <section><h2>What your agent sees</h2><p class="sub">Session 2 tries to edit a file session 1 changed two minutes ago.</p>
 <div class="term"><div><span class="who">session 1 ·</span> Edit api.ts <span class="ok">✓</span></div>

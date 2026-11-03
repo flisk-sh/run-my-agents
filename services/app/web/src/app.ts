@@ -156,6 +156,14 @@ export function createApp(options: AppOptions = {}) {
 			"cache-control": "public, max-age=31536000, immutable",
 		});
 	});
+	// The kitchen behind the home page's hero, a screenshot of the board's Kitchen tab.
+	const heroKitchen = readFileSync(join(import.meta.dir, "hero-kitchen.jpg"));
+	app.get("/hero-kitchen.jpg", (c) =>
+		c.body(heroKitchen as unknown as Uint8Array<ArrayBuffer>, 200, {
+			"content-type": "image/jpeg",
+			"cache-control": "public, max-age=3600",
+		}),
+	);
 	// Kitchen Rush, the browser game (see game.ts). One inline script and nothing else; X may frame it, so the
 	// game plays inside a post.
 	const card = readFileSync(join(import.meta.dir, "play-card.png"));

@@ -179,7 +179,7 @@ function kKitchen(){return H(Frag,null,kAdd(),H("div",{class:"kgame"},H("canvas"
 const KG={chefs:{},parts:[],clouds:[0,1,2,3,4].map(i=>({x:i*240,y:30+((i*97)%380),w:90+(i*37)%80,v:6+i%3*4})),hits:[],t0:performance.now(),raf:0};
 /* Stations in scene units (1000 x 580). Island 1 is Discovery, island 2 is Delivery. */
 const ISL=[{x:40,y:150,w:330,h:330,name:"DISCOVERY"},{x:560,y:120,w:400,h:380,name:"DELIVERY"}];
-const ST={front:{x:70,y:205,kind:"desk"},inbox:{x:110,y:205,kind:"crate"},spec:{x:290,y:205,kind:"board"},orchestrator:{x:465,y:300,kind:"bell"},build:{x:630,y:175,kind:"stove"},test:{x:760,y:175,kind:"taste"},review:{x:890,y:175,kind:"sink"},done:{x:890,y:440,kind:"hatch"}};
+const ST={front:{x:98,y:205,kind:"desk"},inbox:{x:205,y:205,kind:"crate"},spec:{x:312,y:205,kind:"board"},orchestrator:{x:465,y:300,kind:"bell"},build:{x:630,y:175,kind:"stove"},test:{x:760,y:175,kind:"taste"},review:{x:890,y:175,kind:"sink"},done:{x:890,y:440,kind:"hatch"}};
 const PASS={x:465,y:300};
 function kRR(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
 function kIsland(c,I,t){/* shadow, basket rim, planks, wall */
@@ -214,30 +214,34 @@ function kStation(c,k,s,t,hot,busy){const x=s.x,y=s.y;
  else if(s.kind==="hatch"){c.fillStyle="#1f2937";kRR(c,x-34,y-18,68,36,6);c.fill();c.fillStyle="#22c55e";for(let i=0;i<5;i++){c.fillRect(x-30+((i*14+t*30)%60),y-3,8,6)}}
  else if(s.kind==="desk"){c.fillStyle="#8b5e34";kRR(c,x-32,y-20,64,40,8);c.fill();c.fillStyle="#d2b48c";for(let i=0;i<3;i++){c.fillRect(x-28+i*18,y-16,14,30)}}
  else if(s.kind==="bell"){c.fillStyle="#fbbf24";c.beginPath();c.arc(x,y-14,16,0,7);c.fill();c.fillStyle="#f59e0b";c.beginPath();c.arc(x,y+6,12,0,7);c.fill();c.fillStyle="#e2d6bf";c.fillRect(x-8,y+6,16,6)}
- c.fillStyle="#0f172a";kRR(c,x-34,y+32,68,16,5);c.fill();c.fillStyle="#fff";c.font="700 10px monospace";c.textAlign="center";c.fillText(STN[k].toUpperCase(),x,y+44);c.textAlign="left";
+ c.font="700 10px monospace";const lb=STN[k].toUpperCase(),lw=Math.max(68,c.measureText(lb).width+14);c.fillStyle="#0f172a";kRR(c,x-lw/2,y+32,lw,16,5);c.fill();c.fillStyle="#fff";c.textAlign="center";c.fillText(lb,x,y+44);c.textAlign="left";
  if(busy&&(s.kind==="stove"||s.kind==="board")&&Math.random()<.25)KG.parts.push({x:x-20+Math.random()*20,y:y-18,vx:(Math.random()-.5)*8,vy:-24-Math.random()*16,life:1.4,kind:"steam"});
  if(hot&&Math.random()<.7)KG.parts.push({x:x-30+Math.random()*60,y:y-20,vx:(Math.random()-.5)*14,vy:-40-Math.random()*40,life:.9,kind:"fire"})}
 function kPlate(c,x,y,label,glow){c.fillStyle="rgba(0,0,0,.2)";c.beginPath();c.ellipse(x+2,y+5,17,8,0,0,7);c.fill();
  if(glow){c.strokeStyle="#fbbf24";c.lineWidth=3;c.beginPath();c.arc(x,y,21,0,7);c.stroke()}
  c.fillStyle="#fff";c.beginPath();c.arc(x,y,16,0,7);c.fill();c.strokeStyle="#d6cbb6";c.lineWidth=3;c.beginPath();c.arc(x,y,12,0,7);c.stroke();
  c.fillStyle="#22180e";c.font="700 10px monospace";c.textAlign="center";c.fillText(label,x,y+4);c.textAlign="left"}
+/* The sidebar's own avatar (shape, eyes, extra), drawn once per face into an image the canvas reuses. */
+const KAVA={};function kAva(f){if(!f||!SH[f.shape])return null;const k=f.shape+"|"+f.eyes+"|"+f.extra+"|"+f.color;if(KAVA[k])return KAVA[k].complete?KAVA[k]:null;
+ const img=new Image();img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="'+vb(f)+'"><defs>'+((document.querySelector("svg defs")||{}).innerHTML||"")+"</defs>"+SH[f.shape](f.color)+(EY[f.eyes]||"")+(XT[f.extra]||"")+"</svg>");KAVA[k]=img;return null}
 function kChefDraw(c,ch,s,t){c.save();c.translate(ch.x,ch.y);c.scale(1.45,1.45);const x=0,y=0,walk=Math.hypot(ch.tx-ch.x,ch.ty-ch.y)>3,bob=walk?Math.abs(Math.sin(t*10+ch.seed))*4:Math.sin(t*2+ch.seed)*1.5,col=(s.face&&s.face.color)||"#60a5fa";
  c.fillStyle="rgba(0,0,0,.22)";c.beginPath();c.ellipse(x,y+16,16,6,0,0,7);c.fill();
  if(ch.ring){c.strokeStyle=ch.ring;c.lineWidth=4;c.beginPath();c.ellipse(x,y+14,22,9,0,0,7);c.stroke()}
  /* feet */c.fillStyle="#1f2937";const fs=walk?Math.sin(t*12+ch.seed)*4:0;c.beginPath();c.ellipse(x-7,y+12+fs,5,4,0,0,7);c.ellipse(x+7,y+12-fs,5,4,0,0,7);c.fill();
- const yy=y-bob;c.fillStyle=col;c.beginPath();c.arc(x,yy,15,0,7);c.fill();c.fillStyle="rgba(255,255,255,.25)";c.beginPath();c.arc(x-5,yy-6,6,0,7);c.fill();
- /* apron */c.fillStyle="#f8fafc";c.beginPath();c.arc(x,yy+4,10,0,Math.PI);c.fill();
- /* eyes look where it walks */const lx=Math.max(-2,Math.min(2,(ch.tx-ch.x)/20));c.fillStyle="#0b0b10";c.beginPath();c.arc(x-5+lx,yy-3,2.4,0,7);c.arc(x+5+lx,yy-3,2.4,0,7);c.fill();
- /* hat */c.fillStyle="#fff";c.fillRect(x-9,yy-22,18,8);c.beginPath();c.arc(x-6,yy-24,6,0,7);c.arc(x+6,yy-24,6,0,7);c.arc(x,yy-28,7,0,7);c.fill();
+ const yy=y-bob,fi=kAva(s.face);if(fi)c.drawImage(fi,x-17,yy-17,34,34);else{c.fillStyle=col;c.beginPath();c.arc(x,yy,15,0,7);c.fill();
+ /* eyes look where it walks */const lx=Math.max(-2,Math.min(2,(ch.tx-ch.x)/20));c.fillStyle="#0b0b10";c.beginPath();c.arc(x-5+lx,yy-3,2.4,0,7);c.arc(x+5+lx,yy-3,2.4,0,7);c.fill()}
+ /* hat */c.fillStyle="#fff";c.fillRect(x-9,yy-24,18,8);c.beginPath();c.arc(x-6,yy-26,6,0,7);c.arc(x+6,yy-26,6,0,7);c.arc(x,yy-30,7,0,7);c.fill();
  /* working arm */if(ch.work){c.strokeStyle=col;c.lineWidth=5;c.lineCap="round";const a=Math.sin(t*12+ch.seed)*.8;c.beginPath();c.moveTo(x+12,yy+2);c.lineTo(x+12+Math.cos(a)*12,yy+2+Math.sin(a)*12);c.stroke()}
- c.fillStyle="rgba(11,11,16,.75)";const nm=(s.role||"Agent").slice(0,10);c.font="700 10px monospace";const w=c.measureText(nm).width+10;kRR(c,x-w/2,y+22,w,15,5);c.fill();c.fillStyle="#fff";c.textAlign="center";c.fillText(nm,x,y+33);c.textAlign="left";
- if(ch.plate)kPlate(c,x+18,yy-18,ch.plate,false);
+ c.fillStyle="rgba(11,11,16,.75)";const nm=(s.role||"Agent").slice(0,14);c.font="700 10px monospace";const w=c.measureText(nm).width+10;kRR(c,x-w/2,y+22,w,15,5);c.fill();c.fillStyle="#fff";c.textAlign="center";c.fillText(nm,x,y+33);c.textAlign="left";
+ if(ch.plate){c.save();c.translate(x+24,yy+2);c.scale(.62,.62);kPlate(c,0,0,ch.plate,false);c.restore()}
  c.restore();KG.hits.push({x:ch.x,y:ch.y,r:30,act:"open",id:s.id})}
+/* Text that fits w pixels: whole words, then an ellipsis. */
+function kFit(c,s,w){if(c.measureText(s).width<=w)return s;const ws=s.split(" ");let o="";for(const x of ws){const n=o?o+" "+x:x;if(c.measureText(n+"\u2026").width>w)break;o=n}return (o||s.slice(0,12))+"\u2026"}
 function kTickets(c,t){const open=KD.tasks.filter(x=>x.stage!=="done").slice(0,6);open.forEach((o,i)=>{const x=14+i*112,y=12;
  c.fillStyle="#7a4a22";kRR(c,x,y+3,104,60,8);c.fill();c.fillStyle="#fff8ec";kRR(c,x,y,104,58,8);c.fill();
  c.fillStyle=o.priority==="P0"?"#ef4444":o.priority==="P1"?"#f59e0b":"#64748b";kRR(c,x+6,y+6,22,12,3);c.fill();c.fillStyle="#fff";c.font="700 9px monospace";c.fillText(o.priority,x+9,y+15);
  c.fillStyle="#22180e";c.font="700 10px monospace";c.fillText("#"+o.n+" "+STN[o.stage],x+32,y+15);
- c.font="600 10px sans-serif";c.fillText(o.title.slice(0,18),x+6,y+29);const tm=kTimes(o);c.font="600 9px monospace";c.fillStyle=tm.inSt>15*60e3?"#b91c1c":"#5b4a35";c.fillText("\u23f1 "+kDur(tm.lead)+(tm.inSt?" \u00b7 "+STN[o.stage]+" "+kDur(tm.inSt):""),x+6,y+39);
+ c.font="600 10px sans-serif";c.fillText(kFit(c,o.title,92),x+6,y+29);const tm=kTimes(o);c.font="600 9px monospace";c.fillStyle=tm.inSt>15*60e3?"#b91c1c":"#5b4a35";c.fillText("\u23f1 "+kDur(tm.lead)+(tm.inSt?" \u00b7 "+STN[o.stage]+" "+kDur(tm.inSt):""),x+6,y+39);
  const age=(Date.now()-o.created)/6e5,left=Math.max(0,1-age);c.fillStyle="#e2d6bf";kRR(c,x+6,y+45,92,7,3);c.fill();c.fillStyle=o.stuck||left<.25?"#ef4444":left<.5?"#f59e0b":"#22c55e";kRR(c,x+6,y+45,Math.max(6,92*left),7,3);c.fill();
  if(o.stuck){c.save();c.translate(x+52,y+29);c.rotate(Math.sin(t*20)*.03);c.restore()}})}
 function kHud(c,t){const tok=S.reduce((a,s)=>a+(s.tokens?s.tokens.used:0),0),served=KD.tasks.filter(x=>x.stage==="done").length;
@@ -257,7 +261,7 @@ function kFrame(now){const cv=$("kcv");if(!cv||ktab!=="kitchen"){KG.raf=0;return
  for(const o of KD.tasks)if(o.assignee)byStage[o.stage]=(byStage[o.stage]||[]).concat(o);
  for(const k of Object.keys(ST)){const busy=(byStage[k]||[]).length>0,hot=(byStage[k]||[]).some(o=>hotIds.has(o.assignee));kStation(c,k,ST[k],t,hot,busy)}
  /* orders waiting at a station with no chef sit on its counter */
- for(const k of Object.keys(ST)){const w=KD.tasks.filter(o=>o.stage===k&&!o.assignee&&!o._atPass&&(k!=="done"||o.updated>Date.now()-864e5)).slice(0,4);w.forEach((o,i)=>kPlate(c,ST[k].x-30+i*20,ST[k].y-40-(i%2)*6,"#"+o.n,false))}
+ for(const k of Object.keys(ST)){const all=KD.tasks.filter(o=>o.stage===k&&!o.assignee&&!o._atPass&&(k!=="done"||o.updated>Date.now()-864e5)),w=all.slice(-3);w.forEach((o,i)=>kPlate(c,ST[k].x-34+i*34,ST[k].y-46,"#"+o.n,false));if(all.length>3){c.fillStyle="#0f172a";kRR(c,ST[k].x+50,ST[k].y-54,30,16,5);c.fill();c.fillStyle="#fff";c.font="700 10px monospace";c.textAlign="center";c.fillText("+"+(all.length-3),ST[k].x+65,ST[k].y-42);c.textAlign="left"}}
  /* plates at the pass sit on the bridge, waiting for your OK */
  KD.tasks.filter(o=>o._atPass).forEach((o,i)=>{const x=PASS.x-30+i*30,y=PASS.y+(i%2?6:-6)+Math.sin(t*3+i)*2;kPlate(c,x,y,"#"+o.n,true);KG.hits.push({x,y,r:18,act:"approve",id:o.id})});
  /* chefs walk to their station, idle ones wander their island */
@@ -265,8 +269,8 @@ function kFrame(now){const cv=$("kcv");if(!cv||ktab!=="kitchen"){KG.raf=0;return
  live.slice(0,14).forEach((s,i)=>{seen.add(s.id);const o=KD.tasks.find(x=>x.assignee===s.id);let ch=KG.chefs[s.id];
   const home=s.role==="Front"||s.role==="Orchestrator"?ISL[0]:(s.role==="Planner"||s.role==="Calls"||s.role==="Calendar"?ISL[0]:ISL[1]);
   if(!ch)ch=KG.chefs[s.id]={x:home.x+home.w/2,y:home.y+home.h-60,tx:0,ty:0,seed:i*1.7,next:0};
-  if(o){const st=ST[o.stage]||ST.inbox,n=(byStage[o.stage]||[]).indexOf(o);ch.tx=st.x-30+n*44;ch.ty=st.y+88;ch.work=Math.hypot(ch.tx-ch.x,ch.ty-ch.y)<6&&!kReady(o);ch.plate="#"+o.n}
-  else{ch.work=false;ch.plate="";if(now>ch.next){ch.tx=home.x+40+Math.random()*(home.w-80);ch.ty=home.y+home.h-130+Math.random()*90;ch.next=now+3000+Math.random()*4000}}
+  if(o){const st=ST[o.stage]||ST.inbox,n=(byStage[o.stage]||[]).indexOf(o);ch.tx=st.x-30+n*44;ch.ty=st.y+104;ch.work=Math.hypot(ch.tx-ch.x,ch.ty-ch.y)<6&&!kReady(o);ch.plate="#"+o.n}
+  else{ch.work=false;ch.plate="";if(now>ch.next){ch.tx=home.x+40+Math.random()*(home.w-(home===ISL[1]?190:80));ch.ty=home.y+home.h-130+Math.random()*90;ch.next=now+3000+Math.random()*4000}}
   ch.ring=hotIds.has(s.id)?"#ef4444":ch.work?"#22c55e":o&&kReady(o)?"#fbbf24":"";
   /* chefs cross between islands over the bridge, never through the sky */
   let gx=ch.tx,gy=ch.ty;if((ch.x<465)!==(ch.tx<465)){const near=ch.x<465?365:565,far=ch.x<465?565:365;gx=Math.abs(ch.y-PASS.y)>4&&Math.abs(ch.x-near)>4&&(ch.x<360||ch.x>570)?near:far;gy=PASS.y}
@@ -274,9 +278,9 @@ function kFrame(now){const cv=$("kcv");if(!cv||ktab!=="kitchen"){KG.raf=0;return
  for(const id of Object.keys(KG.chefs))if(!seen.has(id))delete KG.chefs[id];
  const drawn=new Set(Object.keys(KG.chefs));
  /* synthetic front-desk figure for tasks assigned to "front-desk" */
- const fdTasks=KD.tasks.filter(o=>o.assignee==="front-desk"&&o.stage!=="done");if(fdTasks.length){if(!KG.chefs["front-desk"])KG.chefs["front-desk"]={x:ST.front.x,y:ST.front.y+88,tx:ST.front.x,ty:ST.front.y+88,seed:99,ring:"",work:false,plate:""};const fd=KG.chefs["front-desk"];fd.plate="#"+fdTasks[0].n;fd.work=true;drawn.add("front-desk")}
+ const fdTasks=KD.tasks.filter(o=>o.assignee==="front-desk"&&o.stage!=="done");if(fdTasks.length){if(!KG.chefs["front-desk"])KG.chefs["front-desk"]={x:ST.front.x,y:ST.front.y+104,tx:ST.front.x,ty:ST.front.y+104,seed:99,ring:"",work:false,plate:""};const fd=KG.chefs["front-desk"];fd.plate="#"+fdTasks[0].n;fd.work=true;drawn.add("front-desk")}
  /* synthetic orchestrator figure for spec and answered tasks */
- const orchTasks=KD.tasks.filter(o=>(o.stage==="spec"||o.answered>0)&&o.stage!=="done");if(orchTasks.length){if(!KG.chefs["orchestrator"])KG.chefs["orchestrator"]={x:ST.orchestrator.x,y:ST.orchestrator.y+88,tx:ST.orchestrator.x,ty:ST.orchestrator.y+88,seed:98,ring:"",work:false,plate:""};const orch=KG.chefs["orchestrator"];orch.plate="#"+orchTasks[0].n;orch.work=true;drawn.add("orchestrator")}
+ const orchTasks=KD.tasks.filter(o=>(o.stage==="spec"||o.answered>0)&&o.stage!=="done");if(orchTasks.length){if(!KG.chefs["orchestrator"])KG.chefs["orchestrator"]={x:ST.orchestrator.x,y:ST.orchestrator.y+112,tx:ST.orchestrator.x,ty:ST.orchestrator.y+112,seed:98,ring:"",work:false,plate:""};const orch=KG.chefs["orchestrator"];orch.plate="#"+orchTasks[0].n;orch.work=true;drawn.add("orchestrator")}
  Object.entries(KG.chefs).filter(([id])=>drawn.has(id)).sort((a,b)=>a[1].y-b[1].y).forEach(([id,ch])=>{const s=S.find(x=>x.id===id)||{id,role:id==="front-desk"?"Front":"Orchestrator",face:{color:id==="front-desk"?"#fbbf24":"#a78bfa"}};kChefDraw(c,ch,s,t)});
  /* steam and fire */
  KG.parts=KG.parts.filter(p=>(p.life-=dt)>0);for(const p of KG.parts){p.x+=p.vx*dt;p.y+=p.vy*dt;

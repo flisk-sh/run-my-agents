@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import { KITCHEN_JS } from "../src/kitchen/view";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -389,5 +390,19 @@ describe("fail-rate KPI", () => {
 		const recent = Array.from({ length: 20 }, (_, i) => done(100 + i, false));
 		const question = { ...(done(200, true) as object), kind: "question" } as never;
 		expect(failRate([...old, ...recent, question])).toMatchObject({ failRate: 0, failOrders: 20 });
+	});
+});
+
+describe("kitchen scene layout", () => {
+	it("keeps stations apart, sizes labels to their text, and draws chefs with their sidebar face", () => {
+		const st = KITCHEN_JS.match(/const ST=\{(.*?)\};/)?.[1] ?? "";
+		const xs = (name: string) => Number(st.match(new RegExp(`${name}:\\{x:(\\d+)`))?.[1]);
+		// Stations are 92 wide, so neighbours on Discovery need more than 92 between their centres.
+		expect(xs("inbox") - xs("front")).toBeGreaterThan(92);
+		expect(xs("spec") - xs("inbox")).toBeGreaterThan(92);
+		expect(KITCHEN_JS).toContain("c.measureText(lb).width+14");
+		// The chef's face is the sidebar avatar (SH/EY/XT), not a plain circle.
+		expect(KITCHEN_JS).toMatch(/function kAva\(f\)\{[^\n]*SH\[f\.shape\]/);
+		expect(KITCHEN_JS).toContain("fi=kAva(s.face)");
 	});
 });
