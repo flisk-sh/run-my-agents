@@ -91,6 +91,27 @@ describe("board UI bugs", () => {
 		const umuxUsesFill = JS.includes('(i<=v?" fill":"")');
 		expect(fillIsGlobal && umuxUsesFill).toBe(false);
 	});
+	it("#269: dropping a card back on its own lane does not take it off its agent", async () => {
+		const src = handler(KITCHEN_JS, "drop", "async e=>{if(!kdrag)return;", ",true);");
+		const posts: [string, Record<string, unknown>][] = [];
+		const task = { id: "t1", n: 103, stage: "build", assignee: "agent-1" };
+		const lane = { dataset: { klane: "build" } };
+		const run = new Function("kdrag", "KD", "post", "toast", "setPass", "kLoad", "kGo", `return (${src})`)(
+			"t1",
+			{ stages: ["inbox", "spec", "build", "test", "review", "done"], tasks: [task] },
+			async (u: string, b: Record<string, unknown>) => {
+				posts.push([u, b]);
+				return {};
+			},
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+		);
+		await run({ target: { closest: (s: string) => (s === "[data-klane]" ? lane : null) }, preventDefault() {}, stopPropagation() {} });
+		/* the server clears assignee and sentAt whenever a move carries a stage */
+		expect(posts.filter(([u, b]) => u === "api/tasks/move" && b.stage === task.stage)).toEqual([]);
+	});
 });
 
 // keep helpers used

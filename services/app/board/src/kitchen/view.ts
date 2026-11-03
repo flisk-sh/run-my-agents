@@ -387,7 +387,7 @@ document.addEventListener("dragend",()=>{kdrag="";document.querySelectorAll(".la
 document.addEventListener("dragover",e=>{const l=e.target.closest&&(e.target.closest("[data-klane]")||e.target.closest("#side [data-sel]"));if(l&&kdrag){e.preventDefault();if(l.dataset.klane)l.classList.add("over")}});
 document.addEventListener("dragleave",e=>{const l=e.target.closest&&e.target.closest("[data-klane]");if(l)l.classList.remove("over")});
 document.addEventListener("drop",async e=>{if(!kdrag)return;const id=kdrag;kdrag="";const l=e.target.closest("[data-klane]"),a=e.target.closest("#side [data-sel]");
- if(l){e.preventDefault();e.stopPropagation();const r=await post("api/tasks/move",{id,stage:l.dataset.klane,...(KD.stages.indexOf(l.dataset.klane)>=2?{approved:true}:{})});if(r.error)toast(r.error);setPass(id,false);kLoad()}
+ if(l){e.preventDefault();e.stopPropagation();const was=KD.tasks.find(t=>t.id===id);if(was&&was.stage===l.dataset.klane)return;const r=await post("api/tasks/move",{id,stage:l.dataset.klane,...(KD.stages.indexOf(l.dataset.klane)>=2?{approved:true}:{})});if(r.error)toast(r.error);setPass(id,false);kLoad()}
  else if(a){e.preventDefault();e.stopPropagation();kGo(id,a.dataset.sel)}},true);
 setInterval(kLoad,3000);kLoad();
 `;
