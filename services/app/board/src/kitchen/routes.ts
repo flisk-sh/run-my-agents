@@ -1233,9 +1233,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const own = new Set(box.stages.flatMap((st) => STAGE_SKILLS[st]));
 			const stats = skillStats(box, tasks);
 			const learned = box.skills.filter((n) => !own.has(n));
+			// A skill gained when an agent was fired has had no order yet to earn a score: it goes first, until it has one.
+			// Sorted last with score 0, it was cut on the next pass whenever the container already had 6 (#241).
+			const fresh = new Set(box.pods.flatMap((p) => p.gained ?? []).filter((n) => !stats[n]?.uses));
 			const keep = learned
-				.filter((n) => (stats[n]?.score ?? 0) > -2)
-				.sort((a, b) => (stats[b]?.score ?? 0) - (stats[a]?.score ?? 0))
+				.filter((n) => fresh.has(n) || (stats[n]?.score ?? 0) > -2)
+				.sort((a, b) => Number(fresh.has(b)) - Number(fresh.has(a)) || (stats[b]?.score ?? 0) - (stats[a]?.score ?? 0))
 				.slice(0, SIDECAR_KEEP);
 			// Every container carries its stages' own skill set, then the learned skills that are earning their place.
 			const next = [...own, ...keep];

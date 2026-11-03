@@ -125,6 +125,20 @@ describe("agent container bugs", () => {
 		expect((await post("/api/tasks/serve", { id: "t", pass: false })).body.fired).toBe(true);
 		expect(readHidden()).toContain(pod.session);
 	});
+	it("#241: keeps the skills a container gained when it fired an agent, even when it already has 6 learned skills", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		const learned = ["find-bugs", "flisk-ports", "flisk-starlark-perf", "flisk-agents", "flisk-release", "flisk-import-procfile"];
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo", maxStrikes: 1, skills: learned });
+		await post("/api/containers/reconcile", {});
+		const hit = strike(started[0].id as string, "#1 fix it", "FAIL: range(1,3) gave [1,2], the loop end is off by one.");
+		expect(hit?.fired).toBe(true);
+		expect(hit?.gained).toContain("verification-loop");
+		expect(readContainers()[0].skills).toEqual(expect.arrayContaining(hit?.gained ?? []));
+		// One autopilot pass later (the sidecar runs in it):
+		await post("/api/kitchen", { auto: true });
+		expect(readContainers()[0].skills).toEqual(expect.arrayContaining(hit?.gained ?? []));
+	});
 });
 
 // keep imports used
