@@ -389,7 +389,11 @@ export function skillStats(box: Pick<Container, "name" | "skills">, tasks: Task[
 	return stats;
 }
 
-/** The most agents the autoscaler runs per folder. */
+/**
+ * The most agents the autoscaler runs in one stage container, so up to 4 × MAX_AGENTS in a folder (one container per
+ * stage). Per stage on purpose: each step runs in a fresh chat, so running steps side by side costs no more tokens
+ * than running them one after another, and an idle agent costs only its one-word boot turn (#247).
+ */
 export const MAX_AGENTS = 3;
 /** The stage that has to staff an order next: an inbox task goes to spec, or straight to build on the fast lane. */
 const staffStage = (t: Task) => (t.stage === "inbox" ? (t.lane === "fast" ? "build" : "spec") : t.stage);
@@ -1132,8 +1136,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * the kitchen's four agent types (Spec, Build, Test, Review). Each has its stage's skill set, and all containers
 	 * of a stage share one lessons skill (rma-lessons-<stage>).
 	 * A stage container is made the first time an order needs that stage, grows while every agent in it is busy (up
-	 * to MAX_AGENTS) and shrinks back to its floor when the stage has no orders. Containers you made yourself are
-	 * used and scaled the same way, never deleted.
+	 * to MAX_AGENTS agents in that container) and shrinks back to its floor when the stage has no orders. A size you set
+	 * by hand holds (#243). Containers you made yourself are used the same way, never deleted.
 	 */
 	function autoscale() {
 		const did: string[] = [];
