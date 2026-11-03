@@ -139,5 +139,23 @@ export function flow(tasks: Task[], now = Date.now()) {
 		cycleP85: pct(cycle, 85),
 		/** Orders served in the last 24 hours. */
 		throughput24h: done.filter((t) => now - (t.servedAt as number) < 86_400_000).length,
+		...failRate(tasks),
 	};
+}
+
+/** The fail-rate goals, in order: once the rate is at or under one, the next is the goal. */
+export const FAIL_GOALS = [70, 50, 30, 15, 5];
+
+/**
+ * KPI: the share of the last `last` finished task orders (questions left out) that had a FAIL in any step or closed
+ * as failed, and the next goal on the ladder it has not reached yet.
+ */
+export function failRate(tasks: Task[], last = 20) {
+	const ended = tasks
+		.filter((t) => t.kind === "task" && t.stage === "done")
+		.sort((a, b) => (a.servedAt ?? a.updated) - (b.servedAt ?? b.updated))
+		.slice(-last);
+	const bad = ended.filter((t) => t.failed || (t.failures ?? []).length > 0).length;
+	const rate = ended.length ? Math.round((bad / ended.length) * 100) : 0;
+	return { failRate: rate, failOrders: ended.length, failGoal: ended.length ? (FAIL_GOALS.find((g) => rate > g) ?? null) : FAIL_GOALS[0] };
 }

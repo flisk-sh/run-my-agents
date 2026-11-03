@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createApp } from "../src/index";
 import { parseSession, type Session } from "../src/sessions";
 import { beltOrder, MAX_ROUNDS, nextStage, sendBack, type Task } from "../src/kitchen/pipeline";
-import { bowl, scoreboard } from "../src/kitchen/scores";
+import { bowl, failRate, scoreboard } from "../src/kitchen/scores";
 import { kindOf, quickMath } from "../src/kitchen/triage";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
@@ -310,5 +310,21 @@ describe("order progress estimate", () => {
 		expect(Math.round(kEst({ stage: "build", stageAt: now - 60 * min }, 10 * min).left / min)).toBe(21); // late build, test and review still ahead
 		expect(kEst({ stage: "done" }, 10 * min).pct).toBe(100);
 		expect(KITCHEN_JS).toContain("kEstLine(t)");
+	});
+});
+
+describe("fail-rate KPI", () => {
+	const done = (n: number, bad: boolean) => ({ n, kind: "task", stage: "done", servedAt: n, updated: n, failed: false, failures: bad ? ["test: FAIL: x"] : [] }) as never;
+	it("counts finished task orders with any FAIL, and sets the next goal on the 70/50/30/15/5 ladder", () => {
+		const orders = Array.from({ length: 10 }, (_, i) => done(i, i < 4));
+		expect(failRate(orders)).toEqual({ failRate: 40, failOrders: 10, failGoal: 30 });
+		expect(failRate(Array.from({ length: 10 }, (_, i) => done(i, i < 9))).failGoal).toBe(70);
+		expect(failRate([done(1, false)]).failGoal).toBeNull();
+	});
+	it("looks only at the last 20 orders and leaves questions out", () => {
+		const old = Array.from({ length: 20 }, (_, i) => done(i, true));
+		const recent = Array.from({ length: 20 }, (_, i) => done(100 + i, false));
+		const question = { ...(done(200, true) as object), kind: "question" } as never;
+		expect(failRate([...old, ...recent, question])).toMatchObject({ failRate: 0, failOrders: 20 });
 	});
 });
