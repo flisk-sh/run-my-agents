@@ -630,6 +630,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			zachman: zachman({ title: t.title, cwd, priority: t.priority, route, skills, kind, lane: kind === "task" ? laneOf(t.title) : undefined }),
 			requeued: (t.requeued ?? 0) + 1,
 			carried: (t.failures ?? []).length,
+			// A new run starts from where the last one left the worktree: against the old base, the shipped diff counted as
+			// this run's change and it was served again with no new work; and the old run's notes were handed to Spec (#178).
+			// The PR stays: it is the same branch, so new commits update it.
+			...(t.worktree && isDir(t.worktree) ? { base: headOf(t.worktree) } : {}),
+			notes: undefined,
+			baseDirty: undefined,
+			draft: undefined,
 		});
 		const back = readTasks().find((x) => x.id === t.id);
 		if (back) frontDesk(back);

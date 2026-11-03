@@ -358,4 +358,19 @@ describe("kitchen pipeline bugs", () => {
 		expect(builds[0]).not.toContain("range(1,3) gave [1,2]");
 		expect(t.stage).toBe("done");
 	});
+
+	it("#178: a requeued served order whose new build changes nothing is not served again on the old diff and PR", async () => {
+		const k = kitchen();
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		expect((await k.run()).t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/42" });
+		// "Not what you asked for?" → Requeue. This time the builder makes no change.
+		await k.post("/api/tasks/requeue", { id: k.tasks()[0].id });
+		k.mode.build = "nothing";
+		const { log, t } = await k.run();
+		// The no-change guard compares with the first run's base, so the old (shipped) diff counts as this run's change.
+		expect(log).toContain("#1 build made no changes: failed");
+		expect(t.failed).toBe(true);
+		// The spec step of the new run was handed the old run's verdicts, though it is told they do not apply.
+		expect(k.said.filter((m) => m.startsWith("Order #1 (spec)")).at(-1)).not.toContain("From the Test agent");
+	});
 });
