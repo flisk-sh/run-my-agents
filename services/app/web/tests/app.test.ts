@@ -157,11 +157,15 @@ describe("Kitchen Rush game", () => {
 		);
 		const html = await res.text();
 		expect(html).toContain("KITCHEN RUSH");
+		// shipping is not binary: flaky tests let slip away are counted on the ship screen
+		expect(html).toContain("Waved through: flaky test marked done");
+		expect(html).toContain("SHIPPED, WITH DEBT");
+		expect(html).toContain("CLEAN SHIP");
 		expect(html).toContain('<canvas id="g"');
 		expect(html).toContain('name="twitter:card" content="player"');
 		expect(html).toContain('"@type":"VideoGame"');
-		// a fixed flaky test comes back once
-		expect(html).toContain("Passed... then failed");
+		// a fixed flaky test comes back once, as "marked done?"
+		expect(html).toContain("Marked done?");
 		expect(html).toContain('content="https://tool.test/play/card.png"');
 		expect(res.headers.get("content-security-policy")).toContain(
 			"https://x.com",
