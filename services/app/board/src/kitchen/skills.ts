@@ -45,18 +45,42 @@ const STOP = new Set("the and for with from that this into your have what when w
  * Catalog skills that fit an order's own words: a word in the skill's name counts 3, in its description 1. Only
  * words of four letters or more count, and a skill needs 3 points, so a passing mention never pulls one in.
  */
+/** How many catalog skill names each name part appears in. */
+const PART_USE = (() => {
+	const m = new Map<string, number>();
+	for (const s of SKILLS) for (const p of new Set(s.name.toLowerCase().split(/[-_.]/))) m.set(p, (m.get(p) ?? 0) + 1);
+	return m;
+})();
 export function matchSkills(title: string, n = 3): CatalogSkill[] {
 	const words = [...new Set(title.toLowerCase().match(/[a-z][a-z0-9+#.-]{3,}/g) ?? [])].filter((w) => !STOP.has(w));
 	if (!words.length) return [];
+	const low = title.toLowerCase();
+	const every = low.match(/[a-z][a-z0-9+#.-]{3,}/g) ?? [];
 	return SKILLS.map((s) => {
 		// Whole words only: "work" must not match "workers", "agents" must not match "agents-md".
 		const parts = s.name.toLowerCase().split(/[-_.]/);
 		const what = s.what.toLowerCase();
 		const same = (a: string, b: string) => a === b || a === `${b}s` || b === `${a}s`;
-		const score = words.reduce((a, w) => a + (parts.some((p) => same(p, w)) ? 3 : 0) + (new RegExp(`(^|[^a-z0-9])${w.replace(/[.+#]/g, "\\$&")}s?([^a-z0-9]|$)`).test(what) ? 1 : 0), 0);
-		return { s, score };
+		let hits = 0;
+		const score = words.reduce((a, w) => {
+			// A word many skill names share ("flisk", "test") says little about which one fits.
+			const name = parts.some((p) => same(p, w)) ? ((PART_USE.get(w) ?? 0) >= 5 ? 1 : 3) : 0;
+			// One long, rare name word is enough by itself ("playwright"); a short or common one ("loop", "flisk") is not.
+			if (name === 3 && w.length >= 6 && (PART_USE.get(w) ?? 0) <= 4) hits += 1;
+			const desc = new RegExp(`(^|[^a-z0-9])${w.replace(/[.+#]/g, "\\$&")}s?([^a-z0-9]|$)`).test(what) ? 1 : 0;
+			if (name || desc) hits += 1;
+			return a + name + desc;
+		}, 0);
+		// One word is a passing mention: "flisk" pulled in every flisk-* skill, "loop" a LangGraph one (#237). A skill
+		// needs two of the title's words, or its whole name in the title.
+		// The whole name as a word, and only a name of two parts or more: "pr" is inside "product", "review" is any review.
+		// Two of the skill's own name parts in the title ("terraform" and "tests" for terraform-test) is a strong match
+		// even when each part is common.
+		const both = parts.filter((p) => every.some((w) => same(p, w))).length >= 2 && words.some((w) => parts.some((p) => same(p, w)));
+		const named = (/[-_]/.test(s.name) || s.name.length >= 7) && new RegExp(`(^|[^a-z0-9-])${s.name.toLowerCase().replace(/[.+#]/g, "\\$&")}([^a-z0-9-]|$)`).test(low);
+		return { s, score: named ? score + 10 : both ? score + 4 : hits >= 2 ? score : 0 };
 	})
-		.filter((x) => x.score >= 3)
+		.filter((x) => x.score >= 4)
 		.sort((a, b) => b.score - a.score || Number(b.s.source.startsWith("flisk-sh/")) - Number(a.s.source.startsWith("flisk-sh/")))
 		// The catalog lists some skills from more than one repo; an order needs each name once.
 		.filter((x, i, all) => all.findIndex((y) => y.s.name === x.s.name) === i)

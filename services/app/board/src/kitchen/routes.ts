@@ -362,6 +362,18 @@ const settings = (): Settings => ({ auto: true, idleMinutes: 10, ...(SETTINGS.re
 const SIDECAR_KEEP = 6;
 
 /** How the orders that carried each of a container's skills ended: served +1, failed or stuck -1. */
+/** How a container's orders ended, all of them: the baseline a learned skill must beat. */
+export function boxOutcomes(box: Pick<Container, "name">, tasks: Task[]) {
+	let score = 0;
+	let orders = 0;
+	for (const t of tasks) {
+		if (t.kind !== "task" || !Object.values(t.crew ?? {}).some((c) => c && crewKey(c).label === box.name)) continue;
+		orders += 1;
+		score += t.failed || t.stuck ? -1 : t.stage === "done" ? 1 : 0;
+	}
+	return { score, orders };
+}
+
 export function skillStats(box: Pick<Container, "name" | "skills">, tasks: Task[]) {
 	const stats: Record<string, { score: number; uses: number }> = {};
 	for (const t of tasks) {
@@ -1236,8 +1248,17 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// A skill gained when an agent was fired has had no order yet to earn a score: it goes first, until it has one.
 			// Sorted last with score 0, it was cut on the next pass whenever the container already had 6 (#241).
 			const fresh = new Set(box.pods.flatMap((p) => p.gained ?? []).filter((n) => !stats[n]?.uses));
+			// A learned skill stays only while its orders go better than the container's other orders: +1 for every
+			// served order made /terraform-test look useful in a TypeScript repo (#237). Three orders decide.
+			const all = boxOutcomes(box, tasks);
+			const earns = (n: string) => {
+				const x = stats[n];
+				if (!x || x.uses < 3) return (x?.score ?? 0) > -2;
+				const rest = all.orders - x.uses;
+				return rest <= 0 ? x.score > 0 : x.score / x.uses > (all.score - x.score) / rest;
+			};
 			const keep = learned
-				.filter((n) => fresh.has(n) || (stats[n]?.score ?? 0) > -2)
+				.filter((n) => fresh.has(n) || earns(n))
 				.sort((a, b) => Number(fresh.has(b)) - Number(fresh.has(a)) || (stats[b]?.score ?? 0) - (stats[a]?.score ?? 0))
 				.slice(0, SIDECAR_KEEP);
 			// Every container carries its stages' own skill set, then the learned skills that are earning their place.

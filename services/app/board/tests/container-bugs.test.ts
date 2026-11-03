@@ -139,6 +139,42 @@ describe("agent container bugs", () => {
 		await post("/api/kitchen", { auto: true });
 		expect(readContainers()[0].skills).toEqual(expect.arrayContaining(hit?.gained ?? []));
 	});
+
+	it("#237: matches a skill on two of the title's words or its whole name, not on one shared word", async () => {
+		const { matchSkills } = await import("../src/kitchen/skills");
+		const names = (t: string) => matchSkills(t, 3).map((x) => x.name);
+		// Live titles that used to pull in unrelated skills.
+		expect(names("Find bugs in queueus and if flisk here works with agetns")).toEqual(["find-bugs"]);
+		expect(names("fix ci failed https://github.com/flisk-sh/flisk/pull/3150")).toEqual([]);
+		expect(names("FAIL: range(1,3) gave [1,2], the loop end is off by one.")).toEqual([]);
+		expect(names("add product(xs) to src/math.ts: multiply all numbers, 1 for an empty list, with tests")).toEqual([]);
+		// Skills that fit still match.
+		expect(names("do new release https://github.com/flisk-sh/flisk")).toContain("flisk-release");
+		expect(names("write playwright e2e tests for the login page")).toContain("playwright");
+		expect(names("do a security review of the auth code")).toContain("security-review");
+	});
+
+	it("#237: keeps a learned skill only while its orders go better than the container's others", async () => {
+		const { post } = setup([]);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo", skills: ["terraform-test"] });
+		const crew = { build: { id: "x", role: "Build", name: "Build · repo abcd" } };
+		const done = (n: number, skills: string[], failed = false) => task({ id: `t${n}`, n, cwd: "/repo", stage: "done", failed, skills, crew });
+		// terraform-test rode along on 3 served orders, and the container's other orders were served too: no better.
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([done(1, ["terraform-test"]), done(2, ["terraform-test"]), done(3, ["terraform-test"]), done(4, []), done(5, [])]));
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("Build · repo: sidecar dropped /terraform-test");
+		expect(readContainers()[0].skills).toContain("focused-fix");
+	});
+
+	it("#237: keeps a learned skill whose orders went better than the rest", async () => {
+		const { post } = setup([]);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo", skills: ["find-bugs"] });
+		const crew = { build: { id: "x", role: "Build", name: "Build · repo abcd" } };
+		const done = (n: number, skills: string[], failed = false) => task({ id: `t${n}`, n, cwd: "/repo", stage: "done", failed, skills, crew });
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([done(1, ["find-bugs"]), done(2, ["find-bugs"]), done(3, ["find-bugs"]), done(4, [], true), done(5, [])]));
+		await post("/api/kitchen", { auto: true });
+		expect(readContainers()[0].skills).toContain("find-bugs");
+	});
+
 });
 
 // keep imports used
