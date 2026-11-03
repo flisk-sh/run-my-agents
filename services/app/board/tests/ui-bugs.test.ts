@@ -112,6 +112,30 @@ describe("board UI bugs", () => {
 		/* the server clears assignee and sentAt whenever a move carries a stage */
 		expect(posts.filter(([u, b]) => u === "api/tasks/move" && b.stage === task.stage)).toEqual([]);
 	});
+	it("#273: Alt+Up/Down in the rename box does not switch agents and drop the typed name", () => {
+		const start = 'document.addEventListener("keydown",e=>{const typing=';
+		const at = JS.indexOf(start);
+		const src = JS.slice(at + 'document.addEventListener("keydown",'.length, JS.indexOf("}});", at) + 2);
+		const moved: number[] = [];
+		const run = new Function("hideAct", "$", "goAgent", "showKeys", `return (${src})`)(
+			() => {},
+			() => null,
+			(d: number) => moved.push(d),
+			() => {},
+		);
+		run({ altKey: true, key: "ArrowDown", target: { id: "rnmIn", matches: (s: string) => /\binput\b/.test(s) }, preventDefault() {} });
+		expect(moved).toEqual([]);
+	});
+	it("#271: share no unscoped class names (who, idle, pass, empty, plist)", () => {
+		const kitchenMarkup = new Set([...KITCHEN_JS.matchAll(/class:"([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean));
+		/* kitchen rules that restyle page elements: .who (chat bubble header), .idle (idle sidebar rows), .pass (the
+		   green PR check dot, .ck.pass, grows to 12 px) */
+		const kitchenLeaks = [...unscoped(KITCHEN_CSS)].filter((c) => styles(PAGE_CSS, c));
+		/* page rules that restyle kitchen markup: .who (order card agent line goes light grey on cream), .empty (score
+		   frames get padding:40px and spill over the next rows), .plist (pass bar list turns into a column) */
+		const pageLeaks = [...unscoped(PAGE_CSS)].filter((c) => kitchenMarkup.has(c));
+		expect({ kitchenLeaks, pageLeaks }).toEqual({ kitchenLeaks: [], pageLeaks: [] });
+	});
 });
 
 // keep helpers used
