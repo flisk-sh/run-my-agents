@@ -1126,8 +1126,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					did.push(`created ${box.name}`);
 					continue;
 				}
-				// Grow while every agent is busy; shrinking is the idle timer's job (see letIdleGo).
-				const want = Math.min(MAX_AGENTS, working + waiting);
+				// Grow while every agent is busy; shrinking is the idle timer's job (see letIdleGo). An agent a waiting order
+				// already missed can't take it again, so it is not room for that order: a 1-agent container whose turn hung
+				// kept its order waiting for good (#255).
+				const shunned = box.pods.filter((p) => p.status !== "evicted" && here.some((t) => !t.assignee && t.missedBy?.includes(p.session))).length;
+				const want = Math.min(MAX_AGENTS, working + waiting + shunned);
 				if (want > box.replicas) {
 					patchContainer(box.id, { replicas: want, downReason: undefined });
 					did.push(`${box.name}: ${box.replicas} → ${want} agents`);

@@ -155,4 +155,19 @@ describe("kitchen pipeline bugs", () => {
 		expect(endsInFail("Ran jest.\nFAIL src/math.test.ts")).toBeUndefined();
 		expect(endsInFail("FAIL: early\nThen I fixed it. Changed math.ts.")).toBeUndefined();
 	});
+
+	it("#255: an order taken back from an agent whose turn never ends goes to another agent", async () => {
+		let hang = true;
+		const k = kitchen(() => undefined, { hang: (text) => hang && text.startsWith("Order #1 (build)") });
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run(30, () => k.tasks()[0].stage === "build" && !!k.tasks()[0].assignee);
+		// 31 minutes with no progress: the miss timer strikes the agent and puts the order back on the belt.
+		k.setTasks(k.tasks().map((t: object) => ({ ...t, sentAt: Date.now() - 31 * 60_000 })));
+		for (const s of k.sessions) s.updatedAt = Date.now() - 31 * 60_000;
+		await k.post("/api/containers/reconcile", {});
+		expect(k.tasks()[0].assignee).toBe("");
+		hang = false;
+		const { t } = await k.run(30);
+		expect(t.stage).toBe("done");
+	});
 });
