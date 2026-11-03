@@ -182,6 +182,15 @@ describe("scoreboard", () => {
 		// X: 10 + 10 + 4 = 24; /: 10 + 4 = 14; 4; gutter 0
 		expect(f.map((x) => x.total)).toEqual([24, 38, 42, 42]);
 	});
+	it("scores a checker's PASS that was sent back as a gutter, not a strike", () => {
+		const reviewer = { id: "r", role: "Review", name: "Review · kitchen-practice" };
+		const builder = { id: "b", role: "Build", name: "Build · kitchen-practice" };
+		const passed = (n: number, extra: Partial<Task> = {}): Task => ({ ...served(n, 0, ["a"]), crew: { review: reviewer, build: builder }, ...extra });
+		const sb = scoreboard([passed(1), passed(2, { requeued: 1 })]);
+		const review = sb.agents.find((r) => r.sub === "Review");
+		expect(review?.frames.map((f) => f.mark)).toEqual(["X", "-"]);
+		expect(sb.agents.find((r) => r.sub === "Build")?.frames.map((f) => f.mark)).toEqual(["X", "X"]);
+	});
 	it("ranks agents, pairs and skills from served orders only", () => {
 		const open = { ...served(9, 0, ["a", "b"]), stage: "build" as const };
 		const sb = scoreboard([served(1, 0, ["a", "b"]), served(2, 1, ["b"]), open]);

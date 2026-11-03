@@ -56,7 +56,10 @@ export function scoreboard(tasks: Task[]) {
 		const crew = [...new Map(Object.values(t.crew ?? {}).filter(Boolean).map((c) => crewKey(c!)).map((c) => [c.key, c])).values()];
 		for (const c of crew) {
 			const a = agents.get(c.key) ?? { label: c.label, sub: c.role, orders: [] };
-			a.orders.push(t);
+			// A checker's PASS that was sent back for rework missed a defect: a gutter, not a strike (order #82's Review passed a
+			// doc with invented facts and scored 300). Builders keep the order's own mark.
+			const checker = c.role === "Test" || c.role === "Review";
+			a.orders.push(checker && t.requeued ? { ...t, stuck: true } : t);
 			agents.set(c.key, a);
 		}
 		for (let i = 0; i < crew.length; i++)
