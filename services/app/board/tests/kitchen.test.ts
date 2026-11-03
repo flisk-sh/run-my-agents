@@ -221,7 +221,7 @@ describe("kitchen page", () => {
 		const { PAGE } = await import("../src/page");
 		/* the composer is drawn into #boxhost (display:contents), so hiding only #box left it over the Crew tab */
 		expect(PAGE).toContain('<div id="boxhost"');
-		expect(KITCHEN_CSS).toContain(".main.kmode>#boxhost{display:none!important}");
+		expect(KITCHEN_CSS).toMatch(/\.main\.kmode>#boxhost[,{][^}]*display:none!important/);
 		expect(KITCHEN_CSS).toMatch(/\.rep\{display:flex;flex-wrap:wrap;/);
 		/* .crewfolder .cf{flex:1} comes later, so the name line needs the more specific selector */
 		expect(KITCHEN_CSS).toContain(".crewfolder .rep .cf{flex:1 1 100%}");
