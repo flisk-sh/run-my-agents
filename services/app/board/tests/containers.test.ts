@@ -889,6 +889,22 @@ describe("ship and the skill sidecar", () => {
 });
 
 describe("follow-up on failure", () => {
+	it("opens no follow-up for an order Spec blocked, so no agent invents the missing code", async () => {
+		const { post } = setup([]);
+		const blocked = "spec: blocked: src/geometry.ts and area() do not exist in this repo";
+		order({ kind: "task", stage: "spec", stuck: true, cwd: "/repo", failures: [blocked] });
+		const did = (await post("/api/kitchen", { auto: true })).body.did;
+		expect(did).toContain("#1 closed as failed");
+		expect(did).toContain("#1 not followed up: Spec blocked it");
+		const tasks = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+		expect(tasks).toHaveLength(1);
+		expect(tasks[0]).toMatchObject({ failed: true });
+		expect(tasks[0].followUp).toBeUndefined();
+		// A block carried from an earlier run does not stop this run's follow-up.
+		order({ kind: "task", stage: "test", stuck: true, cwd: "/repo", carried: 1, failures: [blocked, "test: FAIL: area(-1) threw"] });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 followed up as #2");
+	});
+
 	it("records each FAIL, then opens one follow-up task that carries the reasons and the old spec", async () => {
 		const tester = { ...session("tst", "Test"), feed: [{ who: "you", text: "Order", at: 1 } as never, { who: "agent", text: "Ran it.\n**FAIL** — range(1,3) returned [1,2], expected [1,2,3].", at: 2 } as never] };
 		const { post, sent } = setup([tester, { ...session("bld", "Build"), updatedAt: Date.now() - 60_000 }]);
