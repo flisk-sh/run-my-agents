@@ -218,6 +218,12 @@ describe("agent container bugs", () => {
 		expect(readContainers()[0].pods.map((p) => [p.status, p.reason])).toEqual([["ready", undefined]]);
 		expect(started).toHaveLength(1);
 	});
+	it("#246: does not make a second Build container for an order filed from a subfolder of the same repo", async () => {
+		const { post } = setup([]);
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([task({ id: "a", n: 1, cwd: "/work/repo" }), task({ id: "b", n: 2, cwd: "/work/repo/services/app/board/src/kitchen" })]));
+		await post("/api/kitchen", { auto: true });
+		expect(readContainers().filter((x) => x.stages.length === 1 && x.stages[0] === "build").map((x) => x.name)).toEqual(["Build · repo"]);
+	});
 });
 
 // keep imports used

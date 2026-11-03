@@ -1138,12 +1138,26 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	function autoscale() {
 		const did: string[] = [];
 		const open = readTasks().filter((t) => t.stage !== "done" && !t.stuck && !t.atPass && t.assignee !== FRONT_DESK);
-		const folders = new Set([...open.map((t) => t.cwd), ...readContainers().map((x) => x.cwd)]);
+		// One set of stage containers per repo: an order filed from a subfolder (…/src/kitchen) made a second set next to
+		// the repo's own, with its own agents and lessons (#246). An order belongs to the outermost known folder above it.
+		const known = [...open.map((t) => t.cwd), ...readContainers().map((x) => x.cwd)].filter(Boolean) as string[];
+		const home = (cwd: string) => {
+			const top = (() => {
+				try {
+					return isDir(cwd) ? realpathSync(git(cwd, ["rev-parse", "--show-toplevel"])) : cwd;
+				} catch {
+					return cwd;
+				}
+			})();
+			return [top, ...known].filter((f) => cwd === f || cwd.startsWith(`${f}/`)).sort((a, b) => a.length - b.length)[0] ?? cwd;
+		};
+		const homes = new Map(open.map((t) => [t.id, home(t.cwd)]));
+		const folders = new Set([...homes.values(), ...readContainers().map((x) => x.cwd)]);
 		for (const cwd of folders) {
 			if (!cwd) continue;
 			const folder = cwd.split("/").filter(Boolean).pop() ?? "folder";
 			for (const stage of WORK_STAGES) {
-				const here = open.filter((t) => t.cwd === cwd && staffStage(t) === stage);
+				const here = open.filter((t) => homes.get(t.id) === cwd && staffStage(t) === stage);
 				const waiting = here.filter((t) => !t.assignee).length;
 				const working = here.filter((t) => t.assignee).length;
 				let box = readContainers().find((x) => x.cwd === cwd && x.stages.length === 1 && x.stages[0] === stage);
