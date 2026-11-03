@@ -408,7 +408,9 @@ describe("Zachman intake triage", () => {
 		const asked: string[] = [];
 		let fail = false;
 		const app = createApp(() => [], async () => {}, {
-			ask: async (q) => {
+			ask: async (q, _c, o) => {
+				// The pass check (#317) asks too; it says the answer is fine.
+				if (o?.system) return '{"ok": true}';
 				asked.push(q);
 				if (fail) throw new Error("down");
 				return "Doing well, thanks.";
@@ -489,12 +491,65 @@ describe("skills and tools that fit the order", () => {
 		expect(needsWeb("what is the latest bun version?")).toBe(true);
 		expect(needsWeb("how are you")).toBe(false);
 		const asked: { q: string; web?: boolean }[] = [];
-		const app = createApp(() => [], async () => {}, { ask: async (q, _c, o) => (asked.push({ q, web: o?.web }), "Sunny, 24°C.") });
+		const app = createApp(() => [], async () => {}, { ask: async (q, _c, o) => (o?.system ? '{"ok": true}' : (asked.push({ q, web: o?.web }), "Sunny, 24°C.")) });
 		const post = (b: object) => app.request("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
 		await post({ title: "whats the weather in Australia?", cwd: "/repo" });
 		await post({ title: "how are you", cwd: "/repo" });
 		await Bun.sleep(5);
-		expect(asked).toEqual([{ q: "whats the weather in Australia?", web: true }, { q: "how are you", web: false }]);
+		// Always with web search: a word list missed "weateher in London?" (#315).
+		expect(asked).toEqual([{ q: "whats the weather in Australia?", web: true }, { q: "how are you", web: true }]);
+	});
+
+	it("checks every answer before serving it, installs the skill that was missing, and asks again (#317)", async () => {
+		const calls: { q: string; skills?: string; check: boolean }[] = [];
+		const fetched: string[] = [];
+		const app = createApp(() => [], async () => {}, {
+			fetch: (async (u: string) => (fetched.push(String(u)), new Response("---\nname: x\n---\nUse the forecast API."))) as unknown as typeof fetch,
+			ask: async (q, _c, o) => {
+				calls.push({ q, skills: o?.skills, check: !!o?.system });
+				if (o?.system) return q.includes("Reply: 12°C") ? '{"ok": true}' : '{"ok": false, "missing": "a stripe checkout integration skill"}';
+				return calls.filter((x) => !x.check).length === 1 ? "Sure, I can help with that." : "12°C in London.";
+			},
+		});
+		await app.request("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "what is the price of my plan?", cwd: "/repo" }) });
+		await Bun.sleep(40);
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		// The first reply was checked and missed; the skill that fits what was missing was installed and passed in.
+		expect(calls.filter((x) => x.check)).toHaveLength(2);
+		expect(t.skills.some((n: string) => n.includes("stripe"))).toBe(true);
+		expect(fetched.some((u) => u.includes("stripe"))).toBe(true);
+		expect(calls.filter((x) => !x.check)[1].skills).toContain("Use the forecast API.");
+		expect(t).toMatchObject({ stage: "done", answer: "12°C in London." });
+	});
+
+	it("does not serve an answer that still misses after the retries: a kitchen agent takes it (#317)", async () => {
+		const app = createApp(() => [], async () => {}, {
+			ask: async (_q, _c, o) => (o?.system ? '{"ok": false, "missing": "the answer itself"}' : "Hmm, interesting question."),
+		});
+		await app.request("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "what does the board do at night?", cwd: "/repo" }) });
+		await Bun.sleep(40);
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t.stage).not.toBe("done");
+		expect(t.assignee).toBe("");
+		expect(t.failures.at(-1)).toContain("front desk: not an answer (the answer itself)");
+	});
+
+	it("asks again with web search when the front desk says it can't look the answer up (#315)", async () => {
+		const asked: { q: string; web?: boolean }[] = [];
+		const app = createApp(() => [], async () => {}, {
+			ask: async (q, _c, o) => {
+				if (o?.system) return '{"ok": true}';
+				asked.push({ q, web: o?.web });
+				return asked.length === 1 ? "I don't have web search available to check live weather data for you right now." : "London: 12°C and cloudy.";
+			},
+		});
+		await app.request("/api/tasks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "weateher in London?", cwd: "/repo" }) });
+		await Bun.sleep(20);
+		expect(asked.map((a) => a.web)).toEqual([true, true]);
+		expect(asked[1].q).toContain("You have WebSearch and WebFetch");
+		expect(asked[1].q).toContain("What was missing: live information from the web");
+		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
+		expect(t).toMatchObject({ stage: "done", answer: "London: 12°C and cloudy." });
 	});
 });
 

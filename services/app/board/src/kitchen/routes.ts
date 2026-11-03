@@ -14,8 +14,8 @@ import { addTask, beltOrder, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, remov
 import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
-import { kindOf, laneOf, needsWeb, quickMath, zachman, zachmanLines } from "./triage";
-import { clip, haikuFit, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
+import { kindOf, laneOf, quickMath, zachman, zachmanLines } from "./triage";
+import { clip, haikuFit, installSkill, lessonsSkill, matchSkills, POLICY, readSkill, policyFor, SKILLS, skillset, skillsFor, skillState, STAGE_SKILLS, stock } from "./skills";
 
 export type KitchenCtx = {
 	read: () => Session[];
@@ -30,7 +30,7 @@ export type KitchenCtx = {
 	/** Ship served tasks as pull requests (default on). */
 	ship?: boolean;
 	/** The front desk: one short model call that answers a question, with no tools and no session. */
-	ask?: (question: string, cwd: string, opts?: { web?: boolean; skills?: string }) => Promise<string>;
+	ask?: (question: string, cwd: string, opts?: { web?: boolean; skills?: string; system?: string }) => Promise<string>;
 	/** Names a session on the board (container agents get their container's name). */
 	name?: (id: string, label: string) => void;
 	/** Sets a session's agent type on the board (container agents get their stage's type). */
@@ -307,6 +307,10 @@ const BOARD_WORDS = /\b(the board|board (?:page|ui|tab|server)|kitchen|autopilot
 /** Files a title names (src/math.ts, README.md): an order that names a file its folder has stays in that folder. */
 const NAMED_FILE = /(?:^|[\s`'"(])((?:[\w.-]+\/)*[\w-]+\.[a-z]{1,5})(?=$|[\s`'"),:;])/gi;
 const STN_NAME: Record<string, string> = { inbox: "Inbox", spec: "Spec", build: "Build", test: "Test", review: "Review", done: "Served" };
+/** The front desk's pass check: a second short call that reads the reply against the question (#317). */
+export const CHECK_PROMPT = "You check a reply before it is served to the person who asked. You never answer the question yourself. Reply with one line of JSON only.";
+/** A front-desk reply that says it could not look the answer up. */
+export const CANT_LOOK = /\b(?:(?:don'?t|do not) have (?:web|internet|live|real-time|access)|(?:can'?t|cannot|unable to) (?:access|browse|check|look up|search|get) (?:the )?(?:web|internet|live|real-time|current))/i;
 export function whereOf(title: string, cwd: string, folders: string[]): string {
 	const named = folders.find((f) => {
 		const base = f.split("/").filter(Boolean).pop() ?? "";
@@ -514,17 +518,72 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		}
 		if (!k.ask) return;
 		updateTask(t.id, { assignee: FRONT_DESK, sentAt: now, startedAt: now });
-		// The front desk gets the skills that fit the question too: installed, and their text in its prompt.
-		const picks = matchSkills(t.title, 2).map((x) => x.name);
-		if (picks.length) {
-			stock(picks, k.fetch);
-			updateTask(t.id, { skills: picks });
+		void answerChecked(t).catch(() => updateTask(t.id, { assignee: "", sentAt: 0 }));
+	}
+
+	/** The skills' text for a prompt, installing any that are missing first. */
+	async function skillText(names: string[]) {
+		await Promise.all(names.map((n) => SKILLS.find((x) => x.name === n)).filter((x) => !!x).map((x) => installSkill(x as (typeof SKILLS)[number], k.fetch)));
+		const texts = names.map((n) => [n, readSkill(n)] as const).filter(([, body]) => body);
+		return texts.length ? `Skills you can use:\n\n${texts.map(([n, body]) => `## /${n}\n${body.slice(0, 3000)}`).join("\n\n")}` : "";
+	}
+
+	/**
+	 * The front desk, with the pass check a kitchen does before a dish goes out (#317): every answer is checked against
+	 * the question by a second short call. A miss names what was missing; the skills that fit it are installed and the
+	 * question is asked again, with web search and those skills (twice at most). An answer that still misses is not
+	 * served: it goes on the belt to a kitchen agent with full tools. Always with the read-only web tools: a word list
+	 * decided it, and "weateher in London?" got no tools (#315).
+	 */
+	async function answerChecked(t: Task) {
+		if (!k.ask) return;
+		let picks = matchSkills(t.title, 2).map((x) => x.name);
+		if (picks.length) updateTask(t.id, { skills: picks });
+		let answer = (await k.ask(t.title, t.cwd, { web: true, skills: await skillText(picks) })).trim();
+		let why = "";
+		for (let round = 0; round < 3; round++) {
+			const v = await checkAnswer(t.title, answer);
+			if (v.ok) {
+				updateTask(t.id, { stage: "done", answer: answer || "(no answer)", servedAt: Date.now(), assignee: "", sentAt: 0 });
+				return;
+			}
+			why = v.missing || "it did not answer the question";
+			if (round === 2) break;
+			// Self-install: the catalog skills that fit what was missing join this question's skills.
+			const more = matchSkills(`${t.title} ${why}`, 3).map((x) => x.name).filter((n) => !picks.includes(n));
+			picks = [...picks, ...more].slice(0, 4);
+			if (more.length) {
+				stock(more, k.fetch);
+				updateTask(t.id, { skills: picks });
+			}
+			answer = (
+				await k.ask(
+					`${t.title}\n\nYour last reply did not answer this: "${clip(answer, 400)}". What was missing: ${why}. You have WebSearch and WebFetch${picks.length ? " and the skills below" : ""}: use them, then reply with the answer itself.`,
+					t.cwd,
+					{ web: true, skills: await skillText(picks) },
+				)
+			).trim();
 		}
-		const texts = picks.map((n) => [n, readSkill(n)] as const).filter(([, body]) => body);
-		const skills = texts.length ? `Skills you can use:\n\n${texts.map(([n, body]) => `## /${n}\n${body.slice(0, 3000)}`).join("\n\n")}` : "";
-		k.ask(t.title, t.cwd, { web: needsWeb(t.title), ...(skills ? { skills } : {}) })
-			.then((answer) => updateTask(t.id, { stage: "done", answer: answer.trim() || "(no answer)", servedAt: Date.now(), assignee: "", sentAt: 0 }))
-			.catch(() => updateTask(t.id, { assignee: "", sentAt: 0 }));
+		// Not served: a kitchen agent, with its full tools, takes it, told why the front desk could not.
+		const cur = readTasks().find((x) => x.id === t.id) ?? t;
+		updateTask(t.id, { assignee: "", sentAt: 0, failures: [...(cur.failures ?? []), `front desk: not an answer (${clip(why, 160)}): ${clip(answer, 200)}`].slice(-6) });
+	}
+
+	/** The pass check: does this reply answer the question, and if not, what is missing? */
+	async function checkAnswer(question: string, answer: string): Promise<{ ok: boolean; missing?: string }> {
+		if (!answer || CANT_LOOK.test(answer)) return { ok: false, missing: CANT_LOOK.test(answer) ? "live information from the web" : "an answer" };
+		try {
+			const said = await (k.ask as NonNullable<typeof k.ask>)(
+				`Question: ${question}\n\nReply: ${answer}\n\nDoes the reply give the person what they asked for: a real answer, not "I can't", not "check elsewhere", not a made-up guess? Answer with one line of JSON only: {"ok": true} or {"ok": false, "missing": "<the tool, data or skill that is missing>"}`,
+				"",
+				{ web: false, system: CHECK_PROMPT },
+			);
+			const m = /\{[^{}]*\}/.exec(said);
+			const v = m ? (JSON.parse(m[0]) as { ok?: unknown; missing?: unknown }) : undefined;
+			if (v && typeof v.ok === "boolean") return { ok: v.ok, missing: typeof v.missing === "string" ? v.missing : undefined };
+		} catch {}
+		// The checker itself failed: serve it, as before, rather than hold the question.
+		return { ok: true };
 	}
 
 	// ---------- orders ----------

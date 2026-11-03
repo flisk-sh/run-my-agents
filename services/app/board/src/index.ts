@@ -381,11 +381,11 @@ const MODELS = ["opus", "sonnet", "haiku"];
  */
 const FRONT_DESK_PROMPT = "You are the front desk of a team of coding agents. Answer the user's question in one or two short sentences. When you have web search, use it for anything that needs live information and name the source. If it needs code changes, say it should be sent as a task.";
 
-export function askHaiku(question: string, cwd: string, run = spawn, web = false, skills = ""): Promise<string> {
+export function askHaiku(question: string, cwd: string, run = spawn, web = false, skills = "", system = FRONT_DESK_PROMPT): Promise<string> {
 	return new Promise((resolveAsk, reject) => {
 		// A clean, light start: no project folder, settings, MCP servers or skills, and its own short system prompt,
 		// so it answers in seconds as the front desk instead of as whatever agent the folder describes.
-		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", FRONT_DESK_PROMPT, ...(skills ? ["--append-system-prompt", skills] : [])], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: agentEnv() });
+		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", system, ...(skills ? ["--append-system-prompt", skills] : [])], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: agentEnv() });
 		let out = "";
 		const timer = setTimeout(() => child.kill("SIGTERM"), web ? 120_000 : 90_000);
 		child.stdout?.on("data", (d) => {
@@ -510,7 +510,7 @@ export async function linkPreview(url: string, get: typeof fetch = fetch): Promi
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { agent?: import("./kitchen/routes").AgentCall; fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
+	deps: { agent?: import("./kitchen/routes").AgentCall; fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string; system?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -903,7 +903,7 @@ export function createApp(
 		name: (id, label) => setName(id, label),
 		type: (id, role) => setRole(id, role),
 		agent: deps.agent,
-		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd, o) => askHaiku(q, cwd, spawn, !!o?.web, o?.skills ?? "") : undefined),
+		ask: deps.ask ?? (deps.kitchenEvery ? (q, cwd, o) => askHaiku(q, cwd, spawn, !!o?.web, o?.skills ?? "", o?.system) : undefined),
 		guessRole: (title) => guessRole(title, []),
 		sameOrigin,
 		fetch: deps.fetch,
