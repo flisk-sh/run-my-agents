@@ -30,8 +30,11 @@ function repo(remote = true) {
 
 type Agent = (text: string, cwd: string) => string;
 /** The scripted agents. `build` decides whether the builder really changes the file. */
-/** `ship` decides how many ship attempts fail (no PR in the reply) before one opens a PR. */
-function kitchen(build: "fix" | "nothing", ship = 0) {
+/**
+ * `ship` decides how many ship attempts fail (no PR in the reply) before one opens a PR. `tools`: every agent reply
+ * comes with its tool calls, as a real turn's last feed item does.
+ */
+function kitchen(build: "fix" | "nothing", ship = 0, o: { tools?: boolean } = {}) {
 	let shipFails = ship;
 	const reply: Agent = (text, cwd) => {
 		if (/^You are a \w+ agent/.test(text)) return "ready";
@@ -53,7 +56,7 @@ function kitchen(build: "fix" | "nothing", ship = 0) {
 	const sessions: Session[] = [];
 	const talk = (s: Session, text: string) => {
 		const answer = reply(text, s.cwd as string);
-		s.feed = [...s.feed, { who: "you", text, at: Date.now() } as never, { who: "agent", text: answer, at: Date.now() } as never];
+		s.feed = [...s.feed, { who: "you", text, at: Date.now() } as never, { who: "agent", text: answer, at: Date.now(), ...(o.tools ? { tools: [{ name: "Bash", input: "bun test" }] } : {}) } as never];
 		s.updatedAt = Date.now();
 	};
 	const app = createApp(
@@ -182,6 +185,15 @@ describe("full SDLC, end to end", () => {
 		const { log, t } = await run(k);
 		expect(log).toContain("#1 was parked at ship: back to test");
 		expect(t.stage).toBe("done");
+	});
+
+	it("moves on as soon as a step's agent is quiet, even though its last message carries tool calls (#228)", async () => {
+		// A parsed turn is one feed item with all its tool calls; the board read every finished step as mid-turn for 30 s.
+		const k = kitchen("fix", 0, { tools: true });
+		await k.post("/api/tasks", { title: "fix the off-by-one in range() in math.ts so the end is included", cwd: repo(false) });
+		const { stages, t } = await run(k);
+		expect(stages).toEqual(["spec", "build", "test", "review", "done"]);
+		expect(t.failed).toBeFalsy();
 	});
 
 	it("never hands an empty build to Test: asks again, then fails the order and opens a follow-up", async () => {

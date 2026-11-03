@@ -476,7 +476,12 @@ export function createApp(
 	const appBusy = (s: Session) => s.viaApp === true && !s.awaiting && Date.now() - s.updatedAt < 20_000;
 	// After a board restart the in-memory `sending` set is wiped. A session that was mid-turn still appears not busy.
 	// If its last update was recent and its last feed item is from the agent, it's likely still running.
+	// Only for chats this board did not start or message since it came up: for its own, `sending` knows. A parsed turn
+	// is one feed item with all its tool calls, so every finished step "had tool calls" and looked mid-turn for 30 s,
+	// which held each order 30 s after every step (#45-#47 spent ~2 of their 7-8 minutes on it).
+	const launched = new Set<string>();
 	const likelyMidTurn = (s: Session) => {
+		if (launched.has(s.id)) return false;
 		if (Date.now() - s.updatedAt > 30_000) return false; // older than 30 seconds is unlikely to be mid-turn
 		const last = s.feed[s.feed.length - 1];
 		return last?.who === "agent" && (last?.tools?.length ?? 0) > 0; // agent's last message had tool calls
@@ -493,6 +498,7 @@ export function createApp(
 		const turn = Symbol();
 		turns.set(s.id, turn);
 		sending.add(s.id);
+		launched.add(s.id);
 		send(s, item.body, run, item.dirs)
 			.catch((e) => console.error(`send to ${s.id} failed:`, e))
 			.finally(() => {
@@ -835,6 +841,7 @@ export function createApp(
 		start: (n) => {
 			setRole(n.id, n.role);
 			sending.add(n.id);
+			launched.add(n.id);
 			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode, allow: KITCHEN_TOOLS })
 				.catch((e) => console.error("container start failed:", e))
 				.finally(() => sending.delete(n.id));
