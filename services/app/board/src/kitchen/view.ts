@@ -363,7 +363,7 @@ async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).j
 function markPass(){for(const t of KD.tasks)t._atPass=!!t.atPass}
 function setPass(){}
 async function kServe(t,pass){
- const r=await post("api/tasks/serve",{id:t.id,pass});if(r.error)toast(r.error);else toast(pass===false?(r.stuck?"#"+t.n+" is stuck: look at it":"#"+t.n+" back to build"):"#"+t.n+" → "+STN[r.stage]);kLoad()}
+ const r=await post("api/tasks/serve",{id:t.id,pass,stage:t.stage,assignee:t.assignee||""});if(r.error)toast(r.error);else toast(pass===false?(r.stuck?"#"+t.n+" is stuck: look at it":"#"+t.n+" back to build"):"#"+t.n+" → "+STN[r.stage]);kLoad()}
 async function kGo(id,session){const r=await post("api/tasks/dispatch",session?{id,session}:{id});if(r.error)toast(r.error);else toast("#"+r.n+" sent to "+((sess(r.assignee)||{}).role||"an agent"));kLoad()}
 document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-krequeue],[data-kapproveall],[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
  if(d.ktab){ktab=d.ktab;if(ktab==="scores")kScoreLoad();if(ktab==="crew")kCrewLoad();try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}

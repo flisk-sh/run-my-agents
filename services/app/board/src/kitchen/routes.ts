@@ -306,6 +306,7 @@ export const BOARD_ROOT = resolvePath(import.meta.dir, "../../../../..");
 const BOARD_WORDS = /\b(the board|board (?:page|ui|tab|server)|kitchen|autopilot|front desk|run[- ]my[- ]agents|crew tab|lanes tab|scores tab|queue tab|kitchen orders?|orders? (?:in|on) the (?:inbox|belt|queue)|idle agents?|agents? (?:without work|not picking|idle))\b/i;
 /** Files a title names (src/math.ts, README.md): an order that names a file its folder has stays in that folder. */
 const NAMED_FILE = /(?:^|[\s`'"(])((?:[\w.-]+\/)*[\w-]+\.[a-z]{1,5})(?=$|[\s`'"),:;])/gi;
+const STN_NAME: Record<string, string> = { inbox: "Inbox", spec: "Spec", build: "Build", test: "Test", review: "Review", done: "Served" };
 export function whereOf(title: string, cwd: string, folders: string[]): string {
 	const named = folders.find((f) => {
 		const base = f.split("/").filter(Boolean).pop() ?? "";
@@ -1359,7 +1360,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.post("/api/tasks/serve", async (c) => {
 		const no = guard(c);
 		if (no) return no;
-		const { id, pass } = await body<{ id?: string; pass?: boolean }>(c);
+		const { id, pass, stage, assignee } = await body<{ id?: string; pass?: boolean; stage?: string; assignee?: string }>(c);
+		// The step the page showed: a Done click on a card that has moved on would serve the next agent's unfinished
+		// step (#261). The page sends what it showed; the agent loop never does.
+		const now = readTasks().find((x) => x.id === String(id));
+		if (now && stage !== undefined && (now.stage !== stage || (assignee !== undefined && now.assignee !== assignee)))
+			return c.json({ ...now, error: `#${now.n} moved on to ${STN_NAME[now.stage] ?? now.stage} since your page loaded. Look again.` }, 409);
 		const r = serve(String(id), pass);
 		return c.json(r.body, r.status as 200);
 	});

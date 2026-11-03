@@ -306,4 +306,22 @@ describe("kitchen pipeline bugs", () => {
 		expect(res).toMatchObject({ stage: "test", shipping: false });
 		expect(res.stuck).toBe(false);
 	});
+
+	it("#261: a Done click for a step that already moved on does not serve the next agent's unfinished step", async () => {
+		const k = kitchen();
+		await k.post("/api/kitchen", { auto: false });
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const id = k.tasks()[0].id;
+		// Autopilot moved it on and the Build agent started a second ago; your page still shows the spec card's "Done →".
+		k.sessions.push({ ...(parseSession("b1", [JSON.stringify({ type: "user", cwd: "/x", message: { content: "Order #1 (build)" } })], Date.now()) as Session), role: "Build" });
+		k.setTasks(k.tasks().map((t: object) => ({ ...t, stage: "build", approved: true, assignee: "b1", sentAt: Date.now() })));
+		const r = await (await k.post("/api/tasks/serve", { id, stage: "spec", assignee: "spec-agent" }));
+		expect(r.stage).toBe("build");
+		expect(k.tasks()[0]).toMatchObject({ stage: "build", assignee: "b1" });
+	});
+
+	it("#261: the page's Done and Fail buttons send the step they showed", async () => {
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		expect(KITCHEN_JS).toContain('post("api/tasks/serve",{id:t.id,pass,stage:t.stage,assignee:t.assignee||""})');
+	});
 });
