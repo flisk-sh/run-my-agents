@@ -1,0 +1,3 @@
+[test]
+# Scripted-kitchen tests run up to 40 ticks of the real autopilot with git worktrees (#313): see tests/setup.ts.
+preload = ["./tests/setup.ts"]
