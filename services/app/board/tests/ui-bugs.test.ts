@@ -67,6 +67,10 @@ describe("board UI bugs", () => {
 		const ratings = /H\("div",\{style:"([^"]*)"\},H\("div",\{class:"rates"\}/.exec(KITCHEN_JS)?.[1] ?? "";
 		expect(all || (kgame && /flex(-shrink)?:(none|0)/.test(ratings))).toBe(true);
 	});
+	it("#272: hides the chat's own message queue on the kitchen tabs", () => {
+		/* #queue sits in .main next to #feed; on Queue/Kitchen/... it still showed the agent's queued messages with Send now */
+		expect(/\.main\.kmode>#queue[,{]/.test(KITCHEN_CSS)).toBe(true);
+	});
 });
 
 // keep helpers used
