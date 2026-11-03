@@ -438,7 +438,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (!home) {
 				const s = all.find((x) => x.id === t.assignee);
 				const quiet = now - Math.max(t.sentAt, s?.updatedAt ?? 0);
-				if (quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, missedBy: [...(t.missedBy ?? []), t.assignee] });
+				// Taken back from a Ship agent too: `shipping` goes, or the next Test agent's PASS is read as the ship's reply (#258).
+				if (quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
 				continue;
 			}
 			const s = all.find((x) => x.id === t.assignee);
@@ -446,7 +447,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (quiet < home.container.missMinutes * 60_000) continue;
 			const r = strike(t.assignee, `#${t.n} ${t.stage}`, `Missed: no progress on "${t.title}" for ${home.container.missMinutes} min.`);
 			if (r?.fired) k.close(t.assignee);
-			updateTask(t.id, { assignee: "", sentAt: 0, missedBy: [...(t.missedBy ?? []), t.assignee] });
+			updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
 		}
 	}
 

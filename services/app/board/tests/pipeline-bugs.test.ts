@@ -234,4 +234,20 @@ describe("kitchen pipeline bugs", () => {
 		// Build still gets its strike and lesson.
 		expect(readContainers().find((c) => c.stages.join() === "build")?.lessons.length).toBe(1);
 	});
+
+	it("#258: a Ship step reclaimed after 30 min does not read the next Test agent's PASS as the ship's reply", async () => {
+		let drop = true;
+		const k = kitchen(() => undefined, { drop: (text) => drop && text.startsWith("Ship order") });
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		// Run to the ship step; its agent never shows up on the board.
+		await k.run(30, () => !!k.tasks()[0].shipping);
+		expect(k.tasks()[0]).toMatchObject({ stage: "test", shipping: true });
+		// 31 minutes later the miss timer reclaims it.
+		k.setTasks(k.tasks().map((t: object) => ({ ...t, sentAt: Date.now() - 31 * 60_000 })));
+		await k.post("/api/containers/reconcile", {});
+		drop = false;
+		const { t } = await k.run();
+		expect((t.failures ?? []).filter((f: string) => f.includes("PASS"))).toEqual([]);
+		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/42" });
+	});
 });
