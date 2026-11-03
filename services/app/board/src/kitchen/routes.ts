@@ -62,8 +62,10 @@ const handOff = (s: Session | undefined) => {
 /** The reason, when a reply's last line is a FAIL line ("FAIL: the decision that is missing: …"). */
 export function endsInFail(text: string): string | undefined {
 	const last = text.split("\n").map((l) => l.replace(/[*_`>#]/g, "").trim()).filter(Boolean).at(-1) ?? "";
-	// A verdict-style line only ("FAIL: …", "FAIL — …"), not a test runner's "FAIL src/x.test.ts".
-	return /^FAIL\s*[:—–-]/.test(last) ? last.replace(/^FAIL\s*[:—–-]\s*/, "") || last : undefined;
+	// A verdict-style line only ("FAIL: …", "FAIL — …", "Verdict: FAIL: …"), not a test runner's "FAIL src/x.test.ts".
+	// #72's spec ended "Verdict: FAIL: …" and went on to Build (#327).
+	const m = /^(?:(?:verdict|result)\s*:\s*)?FAIL\s*[:—–-]\s*/i.exec(last);
+	return m && /FAIL/.test(m[0]) ? last.slice(m[0].length) || last : undefined;
 }
 
 /** The line that says FAIL and why, without markdown, for a lesson. */

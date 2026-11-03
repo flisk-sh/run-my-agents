@@ -157,6 +157,11 @@ describe("kitchen pipeline bugs", () => {
 		expect(endsInFail("Ran the suite.\nFAIL — no test runner in this repo")).toBe("no test runner in this repo");
 		expect(endsInFail("Ran jest.\nFAIL src/math.test.ts")).toBeUndefined();
 		expect(endsInFail("FAIL: early\nThen I fixed it. Changed math.ts.")).toBeUndefined();
+		// #327: #72's spec, word for word.
+		expect(endsInFail("Listed the worktree.\n\nVerdict: FAIL: Listed the worktree: only src/math.ts (range, sum) and tests/math.test.ts exist.")).toBe("Listed the worktree: only src/math.ts (range, sum) and tests/math.test.ts exist.");
+		expect(endsInFail("**Verdict:** FAIL — src/geometry.ts does not exist")).toBe("src/geometry.ts does not exist");
+		expect(endsInFail("Result: FAIL: no area() in this repo")).toBe("no area() in this repo");
+		expect(endsInFail("Verdict: PASS")).toBeUndefined();
 	});
 
 	it("#255: an order taken back from an agent whose turn never ends goes to another agent", async () => {
