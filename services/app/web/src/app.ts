@@ -13,7 +13,7 @@ import {
 	securityHeaders,
 } from "./guard";
 import { installSteps } from "./install";
-import { INSTALL_SH } from "./install-mac";
+import { DL_SCRIPT_HASH, INSTALL_SH } from "./install-mac";
 import { handleMcp } from "./mcp";
 import { aboutPage, homePage, notFoundPage } from "./pages";
 import {
@@ -93,7 +93,14 @@ export function createApp(options: AppOptions = {}) {
 	app.get("/ready", (c) => c.json({ ready: true }));
 
 	// Pages
-	app.get("/", (c) => c.html(homePage(baseOf(c))));
+	// The home page runs one script, the Download button's copy (install-mac.ts), named by its hash: nothing else may run.
+	app.get("/", (c) => {
+		c.header(
+			"content-security-policy",
+			`default-src 'none'; script-src ${DL_SCRIPT_HASH}; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
+		);
+		return c.html(homePage(baseOf(c)));
+	});
 	app.get("/about", (c) => c.html(aboutPage(baseOf(c))));
 	// For search engines and AI assistants
 	app.get("/robots.txt", (c) => c.text(robotsTxt(baseOf(c))));

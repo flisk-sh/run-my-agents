@@ -3,7 +3,7 @@
 // roadmap.flisk.si one: dark first, Satoshi and JetBrains Mono when installed, one green accent.
 import { AGENTS, type Agent, avatar } from "./avatars";
 import { installSteps } from "./install";
-import { MAC_ZIP as MAC_DOWNLOAD } from "./install-mac";
+import { DL_SCRIPT, MAC_ZIP as MAC_DOWNLOAD } from "./install-mac";
 import { esc, faqJsonLd, head, type PageMeta } from "./seo";
 import { SITE } from "./site";
 
@@ -27,11 +27,18 @@ pre{margin:0;padding:16px;font:.9rem/1.7 var(--mono);overflow-x:auto}.p{color:va
 .herobg{position:relative;background:linear-gradient(180deg,rgba(6,6,10,.62),rgba(6,6,10,.78) 55%,var(--bg) 100%),url(/hero-kitchen.jpg) center 40%/cover no-repeat;border-bottom:1px solid var(--line)}
 .herobg .hero{padding:80px 16px 48px}.herobg h1,.herobg .lede{text-shadow:0 2px 18px rgba(0,0,0,.6)}.herobg .lede{color:rgba(236,236,241,.86)}
 .dl details{margin-top:12px;max-width:44rem;font-size:.88rem;color:rgba(236,236,241,.78)}.dl summary{cursor:pointer;color:var(--accent-text)}.dl details p{margin:10px 0 6px}.dl pre{margin:0;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.45);border:1px solid var(--line);font:12.5px/1.5 var(--mono);white-space:pre-wrap;word-break:break-all;user-select:all}
-.dl .dlh{margin:0 0 8px;font-weight:800;font-size:1.35rem;letter-spacing:-.01em;color:var(--text)}
-.dl .dlcmd{margin:0;padding:18px 22px;border-radius:16px;background:rgba(5,20,10,.78);border:2px solid var(--accent);box-shadow:0 14px 40px rgba(34,197,94,.3);font:600 clamp(.82rem,2.4vw,1.15rem)/1.4 var(--mono);color:#eafff1;white-space:pre-wrap;word-break:break-all;user-select:all;cursor:copy}
+.dl .dlb{display:inline-flex;flex-direction:column;gap:2px;background:var(--accent);color:#04130a;text-decoration:none;border-radius:16px;padding:18px 34px;box-shadow:0 14px 40px rgba(34,197,94,.35),0 2px 0 rgba(255,255,255,.25) inset;transition:transform .15s,filter .15s}
+.dl .dlb b{font-size:1.35rem;font-weight:800;letter-spacing:-.01em}.dl .dlb small{font-size:.85rem;font-weight:500;opacity:.8}
+.dl .dlb:hover{filter:brightness(1.08);transform:translateY(-2px)}.dl .dlb:focus-visible{outline:3px solid var(--accent-text);outline-offset:3px}.dl .dlb.copied{background:var(--accent-text)}
+.dl .steps{display:none;margin-top:14px;padding:16px 18px;max-width:38rem;border-radius:14px;background:rgba(6,6,10,.78);border:1px solid var(--line-strong)}
+.dl .steps:target,.dl .steps.open{display:block}
+.dl .ok{margin:0 0 8px;color:var(--accent-text);font-weight:700;font-size:1.05rem}
+.dl ol{margin:0 0 12px;padding-left:20px;color:var(--text);font-size:.98rem;line-height:1.75}
+.dl .dlcmd{margin:0;padding:14px 16px;border-radius:12px;background:rgba(5,20,10,.85);border:2px solid var(--accent);font:600 .95rem/1.4 var(--mono);color:#eafff1;white-space:pre-wrap;word-break:break-all;user-select:all}
+.dl .small{margin:10px 0 0;font-size:.82rem;color:rgba(236,236,241,.6)}
 .dl{margin:8px 0 26px}.dl p{color:rgba(236,236,241,.66);font-size:.88rem;max-width:34rem;margin:12px 0 0}
 .or{color:var(--faint);font-size:.9rem;margin:0 0 10px}
-@media (max-width:640px){.herobg .hero{padding:48px 16px 32px}.dl .dlcmd{padding:14px 16px}}
+@media (max-width:640px){.herobg .hero{padding:48px 16px 32px}.dl .dlb{display:flex;width:100%;text-align:center;padding:16px 20px}.dl .dlcmd{font-size:.8rem}}
 .shot{display:block;width:100%;max-width:800px;height:auto;margin:28px auto 0;border-radius:14px;box-shadow:0 0 0 1px var(--line,rgba(127,127,127,.25)),0 20px 50px -20px rgba(0,0,0,.6)}
 section{padding:40px 0}h2{font-size:1.6rem;letter-spacing:-.02em;margin:0 0 8px}.sub{color:var(--muted);margin:0 0 24px}
 .term{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;font:.85rem/1.7 var(--mono)}
@@ -120,7 +127,7 @@ export const MAC_INSTALL_CMD =
 	"curl -fsSL https://run-my-agents.flisk.si/install.sh | sh";
 export const MAC_UNBLOCK = 'xattr -cr "/Applications/Run My Agents.app"';
 function downloadMac(): string {
-	return `<div class="dl"><p class="dlh">Install on your Mac</p><pre class="dlcmd">${esc(MAC_INSTALL_CMD)}</pre><p>Open Terminal, paste it and press Enter. Free, Apple Silicon and Intel, macOS 13 or later. The board gets its own window, everything built in. Run it again to update.</p><details><summary>Prefer the zip?</summary><p><a href="${MAC_DOWNLOAD}">Download Run-My-Agents-macOS.zip</a>. The app is not notarized by Apple yet, so macOS blocks a browser download with "damaged" or "could not verify". After you move it to Applications, run this once:</p><pre>${esc(MAC_UNBLOCK)}</pre></details></div>`;
+	return `<div class="dl"><a class="dlb" id="dlb" href="#mac-steps" data-cmd="${esc(MAC_INSTALL_CMD)}"><b>Download for macOS</b><small>Free · Apple Silicon and Intel · macOS 13+</small></a><div class="steps" id="mac-steps"><p class="ok" id="dlok">Do this:</p><ol><li>Open <b>Terminal</b>: press <b>⌘ Space</b>, type Terminal, press <b>Enter</b>.</li><li>Paste with <b>⌘ V</b> and press <b>Enter</b>. The app installs and opens.</li></ol><pre class="dlcmd" id="dlcmd">${esc(MAC_INSTALL_CMD)}</pre><p class="small">Run it again any time to update. macOS blocks apps downloaded in a browser that Apple has not approved, so the app installs from Terminal instead.</p><details><summary>Prefer the zip?</summary><p><a href="${MAC_DOWNLOAD}">Download Run-My-Agents-macOS.zip</a>. After you move it to Applications, run this once:</p><pre>${esc(MAC_UNBLOCK)}</pre></details></div></div>`;
 }
 
 function installBox(): string {
@@ -230,7 +237,7 @@ ${installBox()}
 <div class="card"><div class="n">01</div><h3>Every edit is noted</h3><p>Before Claude edits a file, the hook writes down which session touched it.</p></div>
 <div class="card"><div class="n">02</div><h3>Overlaps get a warning</h3><p>If another session edited that file in the last 10 minutes, the edit stops once, with a note.</p></div>
 <div class="card"><div class="n">03</div><h3>The agent carries on</h3><p>It re-reads the file and edits again. A second try always goes through.</p></div></div></section>
-<section><h2>What it doesn't do yet</h2><ul class="limits"><li>It only sees sessions on this computer.</li><li>It doesn't see edits made through shell commands like <code>sed</code>.</li><li>It matches whole files, not lines.</li></ul></section></div>`,
+<section><h2>What it doesn't do yet</h2><ul class="limits"><li>It only sees sessions on this computer.</li><li>It doesn't see edits made through shell commands like <code>sed</code>.</li><li>It matches whole files, not lines.</li></ul></section></div><script>${DL_SCRIPT}</script>`,
 	);
 }
 

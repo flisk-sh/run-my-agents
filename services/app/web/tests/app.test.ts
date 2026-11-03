@@ -11,12 +11,19 @@ const rpc = (a: ReturnType<typeof createApp>, body: unknown) =>
 	});
 
 describe("pages", () => {
-	it("serves the home page with a policy that allows no scripts", async () => {
+	it("serves the home page with a policy that allows one script, by hash, and nothing inline", async () => {
 		const res = await app.request("/");
 		expect(res.status).toBe(200);
-		const csp = res.headers.get("content-security-policy");
+		const csp = res.headers.get("content-security-policy") ?? "";
 		expect(csp).toContain("default-src 'none'");
-		expect(csp).not.toContain("script-src");
+		expect(csp.match(/script-src ([^;]*)/)?.[1]).toMatch(
+			/^'sha256-[A-Za-z0-9+/=]+'$/,
+		);
+		// every other page keeps the strict default: no scripts at all
+		const about = await app.request("/about");
+		expect(about.headers.get("content-security-policy")).not.toContain(
+			"script-src",
+		);
 	});
 
 	it("shows the install commands on the home page", async () => {
@@ -139,11 +146,12 @@ describe("live board demo", () => {
 				"content-type",
 			),
 		).toBe("font/woff2");
-		// the home page stays script-free and frames the demo
+		// the home page frames the demo and runs one script only, the Download button's (named by its hash)
 		const home = await app.request("/");
-		expect(home.headers.get("content-security-policy")).not.toContain(
-			"script-src",
-		);
+		const csp = home.headers.get("content-security-policy") ?? "";
+		expect(csp).toContain("script-src 'sha256-");
+		expect(csp).not.toContain("unsafe-inline'; style");
+		expect(csp.match(/script-src ([^;]*)/)?.[1]).not.toContain("unsafe");
 		expect(await home.text()).toContain('src="/demo/"');
 	});
 	it("is built from the current board page, so the site never shows stale CSS", async () => {
@@ -160,7 +168,31 @@ describe("live board demo", () => {
 });
 
 describe("Mac install", () => {
-	it("makes a one-line install the main way, with the zip as the second", async () => {
+	it("copies the install command from the Download button, and shows what to do next", async () => {
+		const res = await app.request("/");
+		const html = await res.text();
+		// the button carries the command; with no JavaScript it links to the steps, which :target shows
+		expect(html).toMatch(
+			/<a class="dlb" id="dlb" href="#mac-steps" data-cmd="curl -fsSL https:\/\/run-my-agents\.flisk\.si\/install\.sh \| sh"/,
+		);
+		expect(html).toContain('id="mac-steps"');
+		// no JavaScript: the link's own #mac-steps target is what shows the steps
+		expect(html).toContain(".dl .steps:target,.dl .steps.open{display:block}");
+		expect(html).toContain("Open <b>Terminal</b>");
+		// exactly one script, and the policy allows exactly that one by hash
+		const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+			(m) => m[1],
+		);
+		expect(scripts).toHaveLength(1);
+		const { createHash } = await import("node:crypto");
+		const hash = `'sha256-${createHash("sha256").update(scripts[0]).digest("base64")}'`;
+		expect(res.headers.get("content-security-policy")).toContain(
+			`script-src ${hash}`,
+		);
+		expect(scripts[0]).toContain("navigator.clipboard.writeText");
+		expect(scripts[0]).toContain("data-cmd");
+	});
+	it("keeps the command and the zip as other ways in", async () => {
 		const html = await (await app.request("/")).text();
 		expect(html).toContain(
 			"curl -fsSL https://run-my-agents.flisk.si/install.sh | sh",
