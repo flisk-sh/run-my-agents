@@ -269,7 +269,7 @@ button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:7
 .clip:active{transform:translateY(1px)}
 .clip.has{color:#04120a;background:linear-gradient(var(--mint),var(--green))}
 .clip b{position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;padding:0 3px;border-radius:999px;background:var(--amber);color:#2a1a00;font:700 9px var(--mono);display:flex;align-items:center;justify-content:center;animation:pop 1.2s ease-in-out infinite}.clip b[hidden]{display:none}
-.natt{display:flex;align-items:center;gap:8px;margin:8px 0 2px}.natt .clip,.kbar .clip{height:28px;flex:none;display:inline-flex;align-items:center}.natt .clip.has,.kbar .clip.has{color:var(--green)}.natt .atray,.kattw .atray{padding:0} .atray{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 0}.atray:empty{display:none}
+.natt{display:flex;align-items:center;gap:8px;margin:8px 0 2px}.natt .clip{height:28px;flex:none;display:inline-flex;align-items:center}.natt .atray{padding:0} .atray{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 0}.atray:empty{display:none}
 .att{position:relative;display:inline-flex;align-items:center;gap:7px;max-width:230px;padding:4px 8px 4px 4px;border-radius:12px;background:#15151d;box-shadow:inset 0 0 0 1px var(--line);font:11px var(--mono);color:var(--text);overflow:hidden;animation:pop2 .35s cubic-bezier(.3,1.6,.5,1) both;transition:transform .2s,box-shadow .2s}
 @keyframes pop2{from{opacity:0;transform:scale(.6) translateY(6px)}}
 .att:hover{transform:translateY(-2px);box-shadow:inset 0 0 0 1px rgba(110,231,183,.4),0 8px 18px -10px rgba(110,231,183,.6)}
@@ -879,7 +879,7 @@ function trayItems(key){return (ATT[key]||[]).map((f,i)=>H("span",{key:i,class:"
 function drawTray(){const t=$("atray"),a=ATT[composerFor]||[];if(t)pRender(H(Frag,null,trayItems(composerFor)),t);
  const c=document.querySelector(".row .clip"),n=$("clipn");if(c)c.classList.toggle("has",a.length>0);if(n){n.hidden=!a.length;n.textContent=a.length}
  const nt=$("ntray");if(nt)pRender(H(Frag,null,trayItems("new")),nt);
- for(const k of ["new","order"]){const b=document.querySelector('[data-attfor="'+k+'"]');if(b)b.classList.toggle("has",(ATT[k]||[]).length>0)}
+ for(const k of ["new","order"]){const b=document.querySelector('[data-attfor="'+k+'"]');if(b)b.classList.toggle(k==="order"?"kfull":"has",(ATT[k]||[]).length>0)}
  if($("ktray")&&typeof kDraw==="function")kDraw()}
 function attachFiles(list,key){key=key||composerFor;const bucket=key==="new"||key==="order",s=bucket?null:S.find(x=>x.id===key);if(!bucket&&!s){toast("Select an agent first");return}const a=ATT[key]=ATT[key]||[];
  for(const file of list){if(a.length>=10){toast("Up to 10 files per message");break}if(!file.size){toast(file.name+" is empty");continue}if(file.size>26214400){toast(file.name+" is over 25 MB");continue}

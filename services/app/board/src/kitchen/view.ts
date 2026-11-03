@@ -3,6 +3,10 @@
 // (S, C, face, esc, post, toast and state come from the page's own script).
 
 export const KITCHEN_CSS = String.raw`
+/* The new-order box's attach button and tray: the chat's look, under kitchen-only names (#271). */
+.kclip{position:relative;width:28px;height:28px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:linear-gradient(#232330,#17171f);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px var(--line),0 2px 0 #0b0b10;color:var(--muted);cursor:pointer;transition:transform .15s,color .2s}.kclip .ic{width:15px;height:15px}.kclip:hover{color:var(--mint);transform:translateY(-2px)}.kclip.kfull{color:#04120a;background:linear-gradient(var(--mint),var(--green))}
+.katray{display:flex;flex-wrap:wrap;gap:6px}.katray:empty{display:none}
+
 .ktabs{display:flex;gap:4px;padding:var(--p2) var(--p2) 0;flex:none}
 .ktab{font:600 12px var(--body);color:var(--muted);background:none;border:0;border-radius:var(--r-row);padding:6px 12px;cursor:pointer}
 .ktab:hover{color:var(--text);background:#1e1e28}.ktab.on{color:var(--text);background:#26263a;box-shadow:inset 0 -2px 0 var(--green)}
@@ -161,8 +165,8 @@ function kOrder(t,next){return H("div",{key:t.id,class:"ord"+(next?" next":"")+(
  kSkills(t),kZach(t),t.answer?H("div",{class:"answer"},t.answer):null,kWho(t),kActs(t))}
 /* Orders waiting at the pass, shown on every kitchen tab so approving is never hidden. */
 function kPassBar(){const w=KD.tasks.filter(t=>t.atPass);if(!w.length)return null;return H("div",{class:"passbar"},H("b",null,"⏸ "+w.length+" at the pass"),H("span",null,"Specs done. Approve to send to build:"),H("div",{class:"kplist"},w.map(t=>H("span",{key:t.id,"data-kapprove":t.id,title:"Approve #"+t.n},"#"+t.n+" "+t.title.slice(0,40)+" ✓"))),H("button",{class:"kbtn sm go","data-kapproveall":true},"Approve all"))}
-function kAdd(){return H("div",{id:"kaddw",style:"display:grid;gap:8px"},kPassBar(),H("form",{class:"kbar",id:"kform"},H("span",{class:"clip"+((ATT.order||[]).length?" has":""),"data-attfor":"order",title:"Attach files (or drop them here)"},ico(IC.clip)),H("input",{id:"ktitle",maxlength:"2000",placeholder:"New order: what should the agents do?",autocomplete:"off"}),
- H("span",{class:"kstats"},["P0","P1","P2"].map(p=>H("span",{key:p,class:"pri "+p,"data-knewpri":p,style:"opacity:"+(kpri===p?1:.35)},p))),H("button",{class:"kbtn go"},"Add order"),H("button",{type:"button",class:"kbtn"+(kauto?" go":""),"data-kauto":true},"Autopilot "+(kauto?"on":"off"))),H("div",{class:"kattw"},H("div",{class:"atray",id:"ktray"},trayItems("order"))))}
+function kAdd(){return H("div",{id:"kaddw",style:"display:grid;gap:8px"},kPassBar(),H("form",{class:"kbar",id:"kform"},H("span",{class:"kclip"+((ATT.order||[]).length?" kfull":""),"data-attfor":"order",title:"Attach files (or drop them here)"},ico(IC.clip)),H("input",{id:"ktitle",maxlength:"2000",placeholder:"New order: what should the agents do?",autocomplete:"off"}),
+ H("span",{class:"kstats"},["P0","P1","P2"].map(p=>H("span",{key:p,class:"pri "+p,"data-knewpri":p,style:"opacity:"+(kpri===p?1:.35)},p))),H("button",{class:"kbtn go"},"Add order"),H("button",{type:"button",class:"kbtn"+(kauto?" go":""),"data-kauto":true},"Autopilot "+(kauto?"on":"off"))),H("div",{class:"katray",id:"ktray"},trayItems("order")))}
 function kStats(){const open=KD.tasks.filter(t=>t.stage!=="done"),wait=open.filter(t=>!t.assignee),idle=S.filter(s=>!s.hidden&&!KD.tasks.some(t=>t.assignee===s.id)&&state(s)==="z");
  return H("div",{class:"kstats"},[["waiting",wait.length],["cooking",open.filter(t=>t.assignee).length],["at the pass",open.filter(t=>t._atPass).length],["stuck",open.filter(t=>t.stuck).length],["served",KD.tasks.filter(t=>t.stage==="done").length],["idle chefs",idle.length]].map(([l,n])=>H("span",{key:l},l+" ",H("b",null,n))))}
 /* The last orders served, newest first, with a question's answer. */
