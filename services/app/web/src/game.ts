@@ -24,11 +24,13 @@ const rnd=(a,b)=>a+Math.random()*(b-a);
 function spawn(){const a=rnd(0,7),r=Math.max(W,H)/2+60,m=t/60;
  const kind=Math.random()<.12+m*.04?"conflict":Math.random()<.35?"flaky":"bug";
  const s={bug:{hp:2+m,sp:rnd(55,75)+m*6,r:9,c:"#ef4444",xp:1},flaky:{hp:3+m*1.5,sp:rnd(80,105)+m*6,r:8,c:"#facc15",xp:2},conflict:{hp:12+m*4,sp:40+m*4,r:16,c:"#fb7185",xp:5}}[kind];
- E.push({x:P.x+Math.cos(a)*r,y:P.y+Math.sin(a)*r,k:kind,hp:s.hp,sp:s.sp,r:s.r,c:s.c,xp:s.xp,fl:0,w:rnd(0,6)})}
+ E.push({x:P.x+Math.cos(a)*r,y:P.y+Math.sin(a)*r,k:kind,hp:s.hp,max:s.hp,sp:s.sp,r:s.r,c:s.c,xp:s.xp,fl:0,w:rnd(0,6)})}
 function spawnBoss(){const a=rnd(0,7);E.push({x:P.x+Math.cos(a)*500,y:P.y+Math.sin(a)*500,k:"ci",hp:80+boss*60,sp:55,r:30,c:"#dc2626",xp:30,fl:0,w:0});boss++;F.push({x:P.x,y:P.y-60,s:"CI went red!",l:2,c:"#f87171"})}
 function near(x0,y0,max){let b=null,bd=max*max;for(const e of E){const d=(e.x-x0)**2+(e.y-y0)**2;if(d<bd){bd=d;b=e}}return b}
 function throwFrom(o,n,dmg){const e=near(o.x,o.y,420);if(!e)return;for(let i=0;i<n;i++){const a=Math.atan2(e.y-o.y,e.x-o.x)+(i-(n-1)/2)*.22;B.push({x:o.x,y:o.y,vx:Math.cos(a)*380,vy:Math.sin(a)*380,l:1.2,d:dmg,s:0})}}
-function hit(e,d){e.hp-=d;e.fl=.1;F.push({x:e.x,y:e.y-e.r,s:String(d),l:.5,c:"#fff"});if(e.hp<=0){kills++;T.push({x:e.x,y:e.y,v:e.xp});if(e.k==="ci")F.push({x:e.x,y:e.y-40,s:"Fixed CI!",l:2,c:"#4ade80"})}}
+function hit(e,d){if(e.inv>0)return;e.hp-=d;e.fl=.1;F.push({x:e.x,y:e.y-e.r,s:String(d),l:.5,c:"#fff"});
+ if(e.hp<=0&&e.k==="flaky"&&!e.re){E.push({...e,hp:e.max,re:1,inv:.4,c:"#fb923c",x:e.x+rnd(-20,20),y:e.y+rnd(-20,20)});F.push({x:e.x,y:e.y-22,s:"Passed... then failed",l:1,c:"#fdba74"});return}
+ if(e.hp<=0){kills++;T.push({x:e.x,y:e.y,v:e.xp});if(e.k==="ci")F.push({x:e.x,y:e.y-40,s:"Fixed CI!",l:2,c:"#4ade80"})}}
 function offer(){const pool=[...UPS];const free=COOKS.filter(c=>!cooks.some(k=>k.k===c.k));if(free.length&&Math.random()<.75)pool.unshift({...free[Math.floor(Math.random()*free.length)],cook:1});
  const ch=[];if(pool[0].cook)ch.push(pool.shift());while(ch.length<3){ch.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0])}return ch}
 function choose(i){const c=choice[i];if(!c)return;if(c.cook)cooks.push({k:c.k,c:c.c,n:c.n,a:0,cd:0,x:P.x,y:P.y});else c.f(P);choice=null;st="play";last=performance.now()}
@@ -45,7 +47,7 @@ function step(dt){t+=dt;let mx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrow
  for(const b of B){b.x+=b.vx*dt;b.y+=b.vy*dt;b.l-=dt;b.s+=dt*14;for(const e of E)if(e.hp>0&&Math.hypot(e.x-b.x,e.y-b.y)<e.r+6){hit(e,b.d);b.l=0;break}}
  B=B.filter(b=>b.l>0);
  for(const e of E){const dx=P.x-e.x,dy=P.y-e.y,d=Math.hypot(dx,dy)||1;let sp=e.sp;if(e.k==="flaky"){e.w+=dt*6;sp*=.7+Math.abs(Math.sin(e.w))*.8}
-  e.x+=dx/d*sp*dt;e.y+=dy/d*sp*dt;e.fl-=dt;if(d<e.r+12&&P.hurt<=0){P.hp-=e.k==="ci"?20:e.k==="conflict"?12:7;P.hurt=.5;shake=.2}}
+  e.x+=dx/d*sp*dt;e.y+=dy/d*sp*dt;e.fl-=dt;e.inv-=dt;if(d<e.r+12&&P.hurt<=0){P.hp-=e.k==="ci"?20:e.k==="conflict"?12:7;P.hurt=.5;shake=.2}}
  E=E.filter(e=>e.hp>0);P.hurt-=dt;shake-=dt;
  for(const k of T){const d=Math.hypot(P.x-k.x,P.y-k.y);if(d<P.mag){k.x+=(P.x-k.x)*dt*8;k.y+=(P.y-k.y)*dt*8}if(d<14){xp+=k.v;k.v=0}}
  T=T.filter(k=>k.v>0);for(const f of F){f.l-=dt;f.y-=dt*30}F=F.filter(f=>f.l>0);

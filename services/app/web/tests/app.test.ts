@@ -160,6 +160,8 @@ describe("Kitchen Rush game", () => {
 		expect(html).toContain('<canvas id="g"');
 		expect(html).toContain('name="twitter:card" content="player"');
 		expect(html).toContain('"@type":"VideoGame"');
+		// a fixed flaky test comes back once
+		expect(html).toContain("Passed... then failed");
 		expect(html).toContain('content="https://tool.test/play/card.png"');
 		expect(res.headers.get("content-security-policy")).toContain(
 			"https://x.com",
