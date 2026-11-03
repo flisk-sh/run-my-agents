@@ -264,6 +264,16 @@ export function strike(idOrSession: string, order: string, reason: string, o: { 
 			writeShared(all, lessonsKeyOf(c), c.lessonsKey ? c.role : c.name);
 			return { container: c.id, pod: { ...p }, fired, gained };
 		}
+		// The builder was already let go (the idle timer frees Build agents while their order is still in Test): its
+		// container still learns the lesson, and the strike stays on its record (#240).
+		for (const c of all) {
+			const p = c.pods.find((x) => x.id === idOrSession && x.status === "evicted");
+			if (!p) continue;
+			p.strikes += 1;
+			if ((o.keep || isLesson(reason)) && !c.lessons.some((l) => l.order === order && l.reason === reason)) c.lessons.push({ at: Date.now(), order, reason, ...(o.keep ? { kept: true } : {}) });
+			writeShared(all, lessonsKeyOf(c), c.lessonsKey ? c.role : c.name);
+			return { container: c.id, pod: { ...p }, fired: false, gained: [] };
+		}
 		return undefined;
 	});
 }

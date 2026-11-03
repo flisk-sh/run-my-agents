@@ -89,6 +89,29 @@ describe("agent container bugs", () => {
 		expect(l.length).toBeLessThan(long.length);
 		expect(long).toContain(`${l.replace(/^#1 fix it: /, "").replace(/…$/, "")} `);
 	});
+	it("#240: records the lesson of a FAIL found after the idle timer let the builder go", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo", maxStrikes: 3 });
+		await post("/api/containers/reconcile", {});
+		const podId = readContainers()[0].pods[0].id;
+		sessions.push(session(started[0].id as string, "Build"));
+		await post("/api/containers/reconcile", {});
+		// Its build is done; Test has the order (assigned to a tester chat, so nothing else moves it).
+		order({ stage: "test", cwd: "/repo", assignee: "tester", sentAt: Date.now(), crew: { build: { id: podId, role: "Build", name: "Build · repo abcd" } } });
+		sessions.push(tester("FAIL: range(1,3) gave [1,2], the loop end is off by one."));
+		// The scale route marks the container as sized by hand; make it an autoscaled one (floor 0) like the live ones.
+		const boxes = JSON.parse(readFileSync(join(dir, "containers.json"), "utf8"));
+		writeFileSync(join(dir, "containers.json"), JSON.stringify(boxes.map((b: object) => ({ ...b, floorByHand: undefined }))));
+		await post("/api/kitchen", { auto: true }); // idle timer starts
+		const later = JSON.parse(readFileSync(join(dir, "containers.json"), "utf8"));
+		writeFileSync(join(dir, "containers.json"), JSON.stringify(later.map((b: { idleSince?: number }) => (b.idleSince ? { ...b, idleSince: Date.now() - 11 * 60_000 } : b))));
+		await post("/api/kitchen", { auto: true }); // idle 11 min: let go
+		await post("/api/containers/reconcile", {});
+		expect(readContainers()[0].pods.find((p) => p.id === podId)?.status).toBe("evicted");
+		await post("/api/tasks/serve", { id: "t", pass: false });
+		expect(lessonsOf().join("\n")).toContain("the loop end is off by one");
+	});
 });
 
 // keep imports used
