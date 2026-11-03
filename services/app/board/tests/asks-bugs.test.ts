@@ -166,4 +166,37 @@ describe("asks and records the board must answer", () => {
 		it(`#251: catches ${order}: ${line.slice(0, 50)}`, () => {
 			expect(asksBack(`I looked at the code.\n\n${line}`, build)).toBe(true);
 		});
+	it("#253: gives the Ship agent its own answer budget: Test's answers do not use it up", async () => {
+		const k = kitchen({
+			// Test asks twice (two DECIDE answers), then gives its verdict.
+			test: (_t, _c, nth) => (nth === 1 ? "Should I run the full suite?" : nth === 2 ? "Should I also run lint?" : "Ran it.\n\nPASS — range(1,3) is [1,2,3]."),
+			// Ship stops once to ask, the way #12's Ship agent did, then ships when told to decide.
+			ship: (text, cwd, nth) => {
+				if (nth === 1) return "I need to create the kitchen/order-1 branch.\n\nWould you like me to proceed with creating the branch and shipping order #1?";
+				execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qsam", "fix: range"], { stdio: "ignore" });
+				return "Opened https://github.com/acme/demo/pull/42";
+			},
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const { t, log } = await k.run();
+		// Today `answered` is per stage and Ship runs while the stage is still "test", so it inherits answered=2: the
+		// question gets no reply and the step counts as "ship: no pull request".
+		expect(log.filter((l) => l === "#1 answered test agent's question")).toHaveLength(3);
+		expect(t.failures ?? []).toEqual([]);
+	});
+	it("#253: is addressed to Ship and expects a pull request, not to Test with a verdict", async () => {
+		const { envelopeIn } = await import("../src/kitchen/protocol");
+		const k = kitchen({
+			ship: (text, cwd, nth) => {
+				if (nth === 1) return "Would you like me to proceed with creating the branch and shipping order #1?";
+				execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qsam", "fix: range"], { stdio: "ignore" });
+				return "Opened https://github.com/acme/demo/pull/42";
+			},
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run();
+		const policy = k.said.find((m) => m.text.startsWith("This is the kitchen's orchestrator") && k.said.some((o) => o.to === m.to && o.text.startsWith("Ship order")));
+		// Today post() builds it from t.stage, which stays "test" while shipping: {"to":"Test","stage":"test","expects":"verdict"}.
+		expect(envelopeIn(policy?.text ?? "")).toMatchObject({ to: "Ship", stage: "ship", expects: "pr" });
+	});
 });

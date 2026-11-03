@@ -422,8 +422,21 @@ const saveSettings = (v: Partial<Settings>) => SETTINGS.write([{ ...settings(), 
 export function mountKitchen(app: Hono, k: KitchenCtx) {
 	/** The Flisk kitchen agent, when one is set (KitchenCtx.agent, or agentUrl in kitchen.json). */
 	/** Sends a kitchen message with its envelope, from the orchestrator unless it relays a stage's answer. */
-	const post = (s: Session, title: string, body: string, t: Pick<Task, "n" | "stage">, type: MessageType, from = "Orchestrator", via?: string) =>
-		k.send(s, title, envelope(body, { from, to: STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage, type, order: t.n, stage: t.stage, expects: t.stage === "test" || t.stage === "review" ? "verdict" : "record", ...(via ? { via } : {}) }));
+	// While shipping, the stage is still "test", but the agent is the Ship agent and owes a pull request (#253).
+	const post = (s: Session, title: string, body: string, t: Pick<Task, "n" | "stage" | "shipping">, type: MessageType, from = "Orchestrator", via?: string) =>
+		k.send(
+			s,
+			title,
+			envelope(body, {
+				from,
+				to: t.shipping ? "Ship" : (STAGE_TYPE[t.stage as keyof typeof STAGE_TYPE] ?? t.stage),
+				type,
+				order: t.n,
+				stage: t.shipping ? "ship" : t.stage,
+				expects: t.shipping ? "pr" : t.stage === "test" || t.stage === "review" ? "verdict" : "record",
+				...(via ? { via } : {}),
+			}),
+		);
 	const agent = (): AgentCall | undefined => k.agent ?? (settings().agentUrl ? httpAgent(settings().agentUrl as string) : undefined);
 	/** Replies from Flisk agent turns, by assignee ("flisk:order-26-build"): what a chat's last message is for a session. */
 	const fliskReplies = new Map<string, string>();
@@ -1053,7 +1066,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const call = agent();
 			if (call) {
 				const who = `flisk:order-${t.n}-ship`;
-				const shipped = updateTask(t.id, { shipping: true, assignee: who, sentAt: Date.now() });
+				const shipped = updateTask(t.id, { shipping: true, assignee: who, sentAt: Date.now(), answered: 0 });
 				inFlight.add(who);
 				const order = t;
 				void call(`order-${order.n}-ship`, { input: shipText, cwd: order.worktree, model: "haiku", effort: "low" })
@@ -1077,7 +1090,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				text: shipText,
 			});
 			k.name?.(id, `Ship · #${t.n}`);
-			return { status: 200, body: { ...updateTask(t.id, { shipping: true, assignee: id, sentAt: Date.now() }) } };
+			// Ship gets its own answers: Test's must not use them up (#253).
+			return { status: 200, body: { ...updateTask(t.id, { shipping: true, assignee: id, sentAt: Date.now(), answered: 0 }) } };
 		}
 		if (to === "done") for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
 		return { status: 200, body: { ...updateTask(t.id, { stage: to, assignee: "", sentAt: 0, stuck: false, ...(to === "done" ? { servedAt: Date.now() } : {}) }) } };
