@@ -288,6 +288,29 @@ describe("agent container bugs", () => {
 		expect(tasks()[0]).toMatchObject({ stage: "done", answer: "London today: 12°C, showers from 1pm (Met Office)." });
 	});
 
+	it("#325: installs only the skills the pick keeps, never one it was not offered", async () => {
+		const fetched: string[] = [];
+		const offered: string[] = [];
+		const { post } = setup([], {
+			fetch: (async (u: string) => (fetched.push(String(u)), new Response("---\nname: x\n---\n"))) as unknown as typeof fetch,
+			ask: async (q, _c, o) => {
+				if (o?.system && q.includes("Which of these skills")) {
+					offered.push(...[...q.matchAll(/^- ([\w.-]+):/gm)].map((m) => m[1]));
+					// Like the model on #74: none of the candidates fit; it also names one it was not offered.
+					return '{"skills": ["weather-forecast-pro"]}';
+				}
+				if (o?.system) return '{"ok": false, "missing": "real-time weather data access - the reply cannot be verified"}';
+				return "Hmm.";
+			},
+		});
+		await post("/api/tasks", { title: "weateher in London today?", cwd: "/repo" });
+		await Bun.sleep(40);
+		expect(offered.length).toBeGreaterThan(0);
+		// /django-access-review and /claude-api may be candidates for "access" and "data"; neither is installed.
+		expect(tasks()[0].skills ?? []).toEqual([]);
+		expect(fetched).toEqual([]);
+	});
+
 });
 
 // keep imports used

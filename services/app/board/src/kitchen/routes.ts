@@ -554,7 +554,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			why = v.missing || "it did not answer the question";
 			if (round === 2) break;
 			// Self-install: the catalog skills that fit what was missing join this question's skills.
-			const more = matchSkills(`${t.title} ${why}`, 3).map((x) => x.name).filter((n) => !picks.includes(n));
+			const more = (await pickSkills(t.title, why)).filter((n) => !picks.includes(n));
 			picks = [...picks, ...more].slice(0, 4);
 			if (more.length) {
 				stock(more, k.fetch);
@@ -571,6 +571,30 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// Not served: a kitchen agent, with its full tools, takes it, told why the front desk could not.
 		const cur = readTasks().find((x) => x.id === t.id) ?? t;
 		updateTask(t.id, { assignee: "", sentAt: 0, failures: [...(cur.failures ?? []), `front desk: not an answer (${clip(why, 160)}): ${clip(answer, 200)}`].slice(-6) });
+	}
+
+	/**
+	 * Skills for what an answer was missing, in two steps: catalog candidates by name and description, then one short
+	 * call that keeps only those that would help this question. Matching on the checker's wording alone ("access",
+	 * "data", "verify") installed /django-access-review and /claude-api for a weather question (#325).
+	 */
+	async function pickSkills(question: string, missing: string): Promise<string[]> {
+		const seen = new Set<string>();
+		const candidates = [...matchSkills(`${question} ${missing}`, 6), ...matchSkills(missing, 6)].filter((x) => !seen.has(x.name) && seen.add(x.name)).slice(0, 8);
+		if (!candidates.length || !k.ask) return [];
+		try {
+			const said = await k.ask(
+				`Question: ${question}\nWhat its answer was missing: ${missing}\n\nSkills:\n${candidates.map((x) => `- ${x.name}: ${x.what}`).join("\n")}\n\nWhich of these skills would help answer this question? Most fit none. Answer with one line of JSON only: {"skills": ["<name>", ...]} or {"skills": []}`,
+				"",
+				{ web: false, system: CHECK_PROMPT },
+			);
+			const m = /\{[^{}]*\}/.exec(said);
+			const v = m ? (JSON.parse(m[0]) as { skills?: unknown }) : undefined;
+			const names = new Set(candidates.map((x) => x.name));
+			return Array.isArray(v?.skills) ? (v.skills as unknown[]).filter((n): n is string => typeof n === "string" && names.has(n)).slice(0, 2) : [];
+		} catch {
+			return [];
+		}
 	}
 
 	/** The pass check: does this reply answer the question, and if not, what is missing? */

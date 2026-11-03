@@ -507,6 +507,8 @@ describe("skills and tools that fit the order", () => {
 			fetch: (async (u: string) => (fetched.push(String(u)), new Response("---\nname: x\n---\nUse the forecast API."))) as unknown as typeof fetch,
 			ask: async (q, _c, o) => {
 				calls.push({ q, skills: o?.skills, check: !!o?.system });
+				// The skill pick (#325): it keeps the Stripe skill among the candidates.
+				if (o?.system && q.includes("Which of these skills")) return `{"skills": ["${/- (\S*stripe\S*):/.exec(q)?.[1] ?? ""}"]}`;
 				if (o?.system) return q.includes("Reply: 12°C") ? '{"ok": true}' : '{"ok": false, "missing": "a stripe checkout integration skill"}';
 				return calls.filter((x) => !x.check).length === 1 ? "Sure, I can help with that." : "12°C in London.";
 			},
@@ -515,7 +517,7 @@ describe("skills and tools that fit the order", () => {
 		await Bun.sleep(40);
 		const t = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))[0];
 		// The first reply was checked and missed; the skill that fits what was missing was installed and passed in.
-		expect(calls.filter((x) => x.check)).toHaveLength(2);
+		expect(calls.filter((x) => x.check && !x.q.includes("Which of these skills"))).toHaveLength(2);
 		expect(t.skills.some((n: string) => n.includes("stripe"))).toBe(true);
 		expect(fetched.some((u) => u.includes("stripe"))).toBe(true);
 		expect(calls.filter((x) => !x.check)[1].skills).toContain("Use the forecast API.");
