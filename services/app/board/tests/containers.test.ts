@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/index";
-import { podName, readContainers, reconcile } from "../src/kitchen/containers";
+import { patchContainer, podName, readContainers, reconcile, strike } from "../src/kitchen/containers";
 import { haikuFit, policyFor, skillset } from "../src/kitchen/skills";
 import { parseSession, type Session } from "../src/sessions";
 
@@ -191,6 +191,29 @@ describe("agent containers", () => {
 		// It is named again when it reports ready, so pods started before this still get a name.
 		reconcile({ sessions: [{ id: starts[0].id }], start: () => {}, close: () => {}, name: (id, label) => named.push([id, label]) });
 		expect(named).toHaveLength(2);
+	});
+
+	it("hands an idle agent's strikes to the next agent, so it still gets fired and gains skills", async () => {
+		const { post } = setup();
+		await post("/api/containers", { name: "Cooks", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" });
+		const starts: { id: string }[] = [];
+		const ctx = { sessions: [] as { id: string }[], start: (n: { id: string }) => starts.push(n), close: () => {} };
+		reconcile(ctx);
+		strike(starts[0].id, "#1", "FAIL: range(1,3) returned [1,2], expected [1,2,3].");
+		strike(starts[0].id, "#2", "FAIL: mean([]) threw, expected 0.");
+		// Let it go for idling, the way the idle timer does, then bring the container back up.
+		const id = readContainers()[0].id;
+		patchContainer(id, { replicas: 0, downReason: "Idle 10 min" });
+		reconcile(ctx);
+		patchContainer(id, { replicas: 1 });
+		reconcile(ctx);
+		expect(starts).toHaveLength(2);
+		const hit = strike(starts[1].id, "#3", "FAIL: range(0) returned [0], expected [].");
+		expect(hit?.fired).toBe(true);
+		expect(hit?.gained.length).toBeGreaterThan(0);
+		// A fired agent's strikes are not handed on: the one after it starts clean.
+		reconcile(ctx);
+		expect(readContainers()[0].pods.at(-1)?.strikes).toBe(0);
 	});
 
 	it("rejects a container with no stage or folder", async () => {

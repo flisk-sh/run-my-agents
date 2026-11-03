@@ -37,6 +37,8 @@ export type Pod = {
 	lastOrder?: string;
 	/** Skills its container gained when it was fired, so the agent after it starts better equipped. */
 	gained?: string[];
+	/** Its strikes went to the agent that took its place, so they are not handed on twice. */
+	carried?: boolean;
 };
 
 /**
@@ -330,7 +332,14 @@ export function reconcile(ctx: ReconcileCtx) {
 			for (let i = live(c).length; i < c.replicas; i++) {
 				const session = randomUUID();
 				const podId = randomUUID(); // Stable id for strikes and serving, doesn't change when session is recycled.
-				c.pods.push({ id: podId, session, status: "starting", strikes: 0, served: 0, started: now });
+				// An agent let go while it still had strikes (idle, scaled down, closed) hands them to the next one, so a
+				// stage that keeps failing still reaches maxStrikes, gets fired and gains skills, instead of resetting to 0.
+				const prev = c.pods
+					.filter((p) => p.status === "evicted" && p.strikes > 0 && !p.carried && p.strikes < c.maxStrikes)
+					.sort((a, b) => (a.evictedAt ?? 0) - (b.evictedAt ?? 0))
+					.at(-1);
+				if (prev) prev.carried = true;
+				c.pods.push({ id: podId, session, status: "starting", strikes: prev?.strikes ?? 0, served: 0, started: now });
 				ctx.name?.(session, podName(c, session));
 				ctx.start({ agent: "claude", cwd: c.cwd, text: bootPrompt(c), model: c.model || "haiku", effort: c.effort || "low", id: session, role: c.role, mode: KITCHEN_MODE });
 				did.push(`${c.name}: started ${session.slice(0, 8)}`);
