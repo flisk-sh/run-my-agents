@@ -269,10 +269,15 @@ export function repoDirty(cwd: string | undefined): string[] | undefined {
 	}
 }
 /** What changed in the base repo since the snapshot taken when Build started: edits that belong in the worktree. */
-export function leakedInto(cwd: string | undefined, before: string[] | undefined): string[] {
+export function leakedInto(cwd: string | undefined, before: string[] | undefined, edited?: string[]): string[] {
 	if (!before) return [];
 	const was = new Set(before);
-	return (repoDirty(cwd) ?? []).filter((l) => !was.has(l));
+	const changed = (repoDirty(cwd) ?? []).filter((l) => !was.has(l));
+	if (!edited || !cwd) return changed;
+	// Only what the build chat itself edited: you or another session working in the shared checkout meanwhile made the
+	// board tell a correct builder to delete your files, then fail it (#254).
+	const own = new Set(edited.map((f) => resolvePath(cwd, f)));
+	return changed.filter((l) => own.has(resolvePath(cwd, l.replace(/^\S+\s+/, "").replace(/^.* -> /, ""))));
 }
 
 /** What the orchestrator says to a builder whose edits landed in the shared checkout instead of its worktree. */
@@ -1045,7 +1050,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			}
 			// A build whose edits landed in the shared checkout is not handed to Test: asked once to move them into the
 			// worktree, then failed with the files named (#163).
-			const leaked = t.stage === "build" && !t.shipping && t.worktree ? leakedInto(t.cwd, t.baseDirty) : [];
+			const leaked = t.stage === "build" && !t.shipping && t.worktree ? leakedInto(t.cwd, t.baseDirty, (s?.edits ?? []).map((e) => e.file)) : [];
 			if (leaked.length && t.worktree) {
 				if ((t.answered ?? 0) < MAX_ANSWERS && s && post(s, `#${t.n}: edits outside the worktree`, LEAKED(t.cwd, t.worktree, leaked), t, "nudge").status < 400) {
 					updateTask(t.id, { ...keep(t, s), answered: (t.answered ?? 0) + 1, sentAt: Date.now() });

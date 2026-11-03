@@ -170,4 +170,39 @@ describe("kitchen pipeline bugs", () => {
 		const { t } = await k.run(30);
 		expect(t.stage).toBe("done");
 	});
+
+	it("#254: a file someone else edits in the shared checkout during a build is not blamed on the builder", async () => {
+		const r = repo();
+		// The builder edits its worktree, as it should. Meanwhile you (or another session) edit a file in your checkout.
+		const k = kitchen((text, cwd) => {
+			if (!/\(build\)/.test(text)) return undefined;
+			writeFileSync(join(cwd, "math.ts"), readFileSync(join(cwd, "math.ts"), "utf8").replace("i < b", "i <= b"));
+			writeFileSync(join(r, "my-notes.md"), "my own uncommitted work\n");
+			return "Changed math.ts: the loop now includes b.";
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: r });
+		const { log, t } = await k.run();
+		// The board told the builder to delete/restore a file it never touched, then failed a correct build.
+		expect(k.said.filter((m) => m.includes("my-notes.md"))).toEqual([]);
+		expect(log).not.toContain("#1 build edited the shared checkout: asked to move it");
+		expect(t.failed).toBeFalsy();
+		expect(existsSync(join(r, "my-notes.md"))).toBe(true);
+	});
+
+	it("#254: still catches a builder that edited the shared checkout itself", async () => {
+		const r = repo();
+		const k = kitchen((text, cwd) => {
+			if (!/\(build\)|edits outside the worktree|changed files in the shared checkout/.test(text)) return undefined;
+			// It changes its worktree, and also writes a test into the shared checkout by its absolute path (#163).
+			writeFileSync(join(cwd, "math.ts"), readFileSync(join(cwd, "math.ts"), "utf8").replace("i < b", "i <= b"));
+			writeFileSync(join(r, "math.test.ts"), "// range includes its end\n");
+			// The build chat is the newest one in the worktree (Spec ran there too).
+			[...k.sessions].reverse().find((x) => x.cwd === cwd)?.edits.push({ file: join(cwd, "math.ts"), at: Date.now() }, { file: join(r, "math.test.ts"), at: Date.now() });
+			return "Changed math.ts: the loop now includes b.";
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: r });
+		const { log, t } = await k.run();
+		expect(log).toContain("#1 build edited the shared checkout: asked to move it");
+		expect(t.failures.join("\n")).toContain("build: edited the shared checkout");
+	});
 });
