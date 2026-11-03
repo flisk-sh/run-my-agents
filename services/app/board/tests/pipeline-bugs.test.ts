@@ -250,4 +250,29 @@ describe("kitchen pipeline bugs", () => {
 		expect((t.failures ?? []).filter((f: string) => f.includes("PASS"))).toEqual([]);
 		expect(t).toMatchObject({ stage: "done", pr: "https://github.com/acme/demo/pull/42" });
 	});
+
+	it("#184: 'Back to build' on a stuck order lets it be dispatched again", async () => {
+		const k = kitchen();
+		await k.post("/api/kitchen", { auto: false });
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const id = k.tasks()[0].id;
+		k.setTasks(k.tasks().map((t: object) => ({ ...t, stage: "test", approved: true, stuck: true, rounds: 3 })));
+		const moved = await k.post("/api/tasks/move", { id, stage: "build" });
+		expect(moved.stuck).toBe(false);
+		k.sessions.push({ ...(parseSession("b1", [JSON.stringify({ type: "user", cwd: "/x", message: { content: "hi" } })], Date.now()) as Session), role: "Build" });
+		const r = await k.post("/api/tasks/dispatch", { id, session: "b1" });
+		expect(r.error ?? "").not.toContain("failed 3 times");
+	});
+
+	it("#184: moving an order that is shipping back to Build makes Build's reply a build, not a ship", async () => {
+		const k = kitchen();
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run(40, () => !!k.tasks()[0].shipping);
+		const moved = await k.post("/api/tasks/move", { id: k.tasks()[0].id, stage: "build" });
+		expect(moved).toMatchObject({ stage: "build", shipping: false, stuck: false });
+		const { stages, t } = await k.run();
+		expect(stages[0]).toBe("build");
+		expect(stages).toContain("test");
+		expect(t.stage).toBe("done");
+	});
 });

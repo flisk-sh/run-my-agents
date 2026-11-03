@@ -10,7 +10,7 @@ import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
 import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
-import { addTask, beltOrder, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
+import { addTask, beltOrder, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
@@ -588,8 +588,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (b.cwd !== undefined && !isDir(String(b.cwd))) return c.json({ error: "That folder does not exist." }, 400);
 		if (b.stage && !(STAGES as readonly string[]).includes(b.stage)) return c.json({ error: "Unknown stage." }, 400);
 		if (b.priority && !(PRIORITIES as readonly string[]).includes(b.priority)) return c.json({ error: "Pick P0, P1 or P2." }, 400);
+		const cur = readTasks().find((x) => x.id === String(b.id));
 		const t = updateTask(String(b.id), {
-			...(b.stage ? { stage: b.stage as Stage, assignee: "", sentAt: 0 } : {}),
+			// A stage you move it to starts clean: kept `shipping` made Build's reply count as a ship (it skipped Test), and
+			// kept `stuck` and `rounds` made "Back to build" on a stuck order refuse to dispatch (#184).
+			...(b.stage ? { stage: b.stage as Stage, assignee: "", sentAt: 0, shipping: false, stuck: false, waitingOn: undefined, answered: 0, rounds: Math.min(cur?.rounds ?? 0, MAX_ROUNDS - 1) } : {}),
 			...(typeof b.approved === "boolean" ? { approved: b.approved, ...(b.approved ? { atPass: false } : {}) } : {}),
 			...(b.priority ? { priority: b.priority as Task["priority"] } : {}),
 			...(b.cwd ? { cwd: resolvePath(String(b.cwd)), assignee: "", sentAt: 0 } : {}),
