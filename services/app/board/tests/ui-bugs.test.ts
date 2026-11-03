@@ -59,7 +59,14 @@ describe("board UI bugs", () => {
 		run(ev({ id: "", tagName: "BODY", matches: () => false }));
 		expect(answered).toEqual(["Yes, ship it", "Yes, ship it"]);
 	});
-
+	it("#267: no #kview child that clips or scrolls can be squeezed to nothing (ratings table, kitchen canvas)", () => {
+		/* #kview is a flex column; a child with overflow other than visible has min-height 0, so the Scores ratings
+		   table collapsed to 0 px and the Kitchen canvas lost its bottom (HUD, Served hatch) on a wide, short window */
+		const all = /#kview>\*\{[^}]*flex(-shrink)?:(none|0)/.test(KITCHEN_CSS);
+		const kgame = /\.kgame\{[^}]*flex(-shrink)?:(none|0)/.test(KITCHEN_CSS);
+		const ratings = /H\("div",\{style:"([^"]*)"\},H\("div",\{class:"rates"\}/.exec(KITCHEN_JS)?.[1] ?? "";
+		expect(all || (kgame && /flex(-shrink)?:(none|0)/.test(ratings))).toBe(true);
+	});
 });
 
 // keep helpers used

@@ -8,7 +8,7 @@ export const KITCHEN_CSS = String.raw`
 .ktab:hover{color:var(--text);background:#1e1e28}.ktab.on{color:var(--text);background:#26263a;box-shadow:inset 0 -2px 0 var(--green)}
 .ktab i{font-style:normal;font:10px var(--mono);color:var(--mint);margin-left:5px}
 .main.kmode>#hd,.main.kmode>#actbar,.main.kmode>#meter,.main.kmode>#skills,.main.kmode>#roles,.main.kmode>#warns,.main.kmode>#feed,.main.kmode>#newpill,.main.kmode>#box,.main.kmode>#boxhost{display:none!important}
-#kview{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:12px}#kview[hidden]{display:none}
+#kview{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:12px}#kview[hidden]{display:none}#kview>*{flex-shrink:0}
 .kbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .kbar input,.kbar select{background:#0b0b10;color:var(--text);border:1px solid var(--line);border-radius:var(--r-row);padding:7px 10px;font:13px var(--body)}
 .kbar input{flex:1;min-width:180px}
