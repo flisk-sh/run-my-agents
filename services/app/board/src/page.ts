@@ -639,7 +639,7 @@ function face(s,n){const f=s.face,m=motion(s);return H("div",{class:"av"+(m.low?
 const{h:H,Fragment:Frag,render:pRender}=preact;
 const Html=x=>H("span",{style:"display:contents",dangerouslySetInnerHTML:{__html:x}});
 const Ic=p=>ico(p);
-function SideRow({s}){const unread=s.feed.length-(seen[s.id]??s.feed.length);
+function SideRow({s}){const unread=!(s.id in seen)?0:s.feed.filter(x=>x.at>seen[s.id]).length;
  return H("div",{class:"it "+(s.id===sel?"sel ":"")+(state(s)==="z"?"idle ":"")+(s.id===movedId?"moved":""),"data-sel":s.id,draggable:"true"},
  H("div",{class:"avc"},face(s,36),H("span",{class:"rl",style:"color:"+s.face.color+";background:color-mix(in srgb,"+s.face.color+" 18%,transparent)"},s.role)),
  H("div",{class:"t"},H("b",{class:"nm"},s.title||"Untitled session"),
@@ -709,7 +709,7 @@ function render(){
  const oldRows=snapRows();
  drawSide(groups);
  flip(oldRows);if(movedId){const mv=movedId;movedId="";setTimeout(()=>{const r=document.querySelector('#side .it[data-sel="'+mv+'"]');if(r)r.classList.remove("moved")},900)}
- const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.length;
+ const s=S.find(x=>x.id===sel);seen[s.id]=s.feed.at(-1)?.at??0;
  drawHead(s);
  {let ab=$("actbar");if(!ab){ab=document.createElement("div");ab.id="actbar";ab.className="actbar";$("hd").after(ab)}const it=actChips(s);ab.hidden=!it.length;pRender(H(Frag,null,it),ab)}
  if(renaming){const ri=$("rnmIn");if(ri&&document.activeElement!==ri){ri.focus();ri.select()}}
