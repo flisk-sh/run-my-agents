@@ -252,6 +252,32 @@ describe("agent container bugs", () => {
 		expect(readContainers()[0].skills).toContain("find-bugs");
 	});
 
+	it("#324: checks a kitchen agent's answer to a question, and fails it instead of serving a non-answer", async () => {
+		const reply = "Constraint: no data source configured.\n\n**Outcome:** Unable to fulfill without external data access.\n\n**FAIL:** Real-time weather data source.";
+		const agent = { ...session("q1", "Build"), feed: [{ who: "you", text: "Question", at: 1 } as never, { who: "agent", text: reply, at: 2 } as never] };
+		const checked: string[] = [];
+		const { post } = setup([agent], { ask: async (q, _c, o) => (o?.system ? (checked.push(q), '{"ok": false, "missing": "real-time weather data"}') : "x") });
+		order({ kind: "question", title: "weateher in London today?", stage: "inbox", assignee: "q1", sentAt: 1 });
+		await post("/api/tasks/serve", { id: "t" });
+		await Bun.sleep(20);
+		const t = tasks()[0];
+		// The whole reply was checked, not its last 400 characters.
+		expect(checked[0]).toContain("Constraint: no data source configured.");
+		expect(t).toMatchObject({ stage: "done", failed: true });
+		expect(t.answer).toBeUndefined();
+		expect(t.failures.at(-1)).toContain("answer: not an answer (real-time weather data)");
+	});
+
+	it("#324: serves a kitchen agent's answer that passes the check, whole", async () => {
+		const reply = `${"Looked at src/math.ts. ".repeat(30)}sum([]) returns 0: reduce starts from 0.`;
+		const agent = { ...session("q1", "Build"), feed: [{ who: "you", text: "Question", at: 1 } as never, { who: "agent", text: reply, at: 2 } as never] };
+		const { post } = setup([agent], { ask: async (_q, _c, o) => (o?.system ? '{"ok": true}' : "x") });
+		order({ kind: "question", title: "what does sum([]) return?", stage: "inbox", assignee: "q1", sentAt: 1 });
+		await post("/api/tasks/serve", { id: "t" });
+		await Bun.sleep(20);
+		expect(tasks()[0]).toMatchObject({ stage: "done", answer: reply });
+	});
+
 });
 
 // keep imports used

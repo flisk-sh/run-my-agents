@@ -984,9 +984,23 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			return { status: 200, body: { ...updateTask(t.id, { ...back, assignee: "", sentAt: 0 }), fired: !!hit?.fired } };
 		}
 		if (t.kind === "question") {
-			const answer = lastSaid(k.read().find((x) => x.id === t.assignee)) || "(no answer)";
+			// The whole reply, not its last 400 characters (#74's answer began mid-word).
+			const last = k.read().find((x) => x.id === t.assignee)?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
+			const answer = String(last?.text ?? "").trim().slice(-4000) || "(no answer)";
 			for (const who of new Set(Object.values(t.crew ?? {}).map((x) => x?.id))) if (who) served(who);
-			return { status: 200, body: { ...updateTask(t.id, { stage: "done", answer, assignee: "", sentAt: 0, servedAt: Date.now() }) } };
+			// The pass check for a kitchen agent's answer too: #74 was served as "Unable to fulfill … FAIL: …" (#324). While it
+			// runs, the front desk holds the question; an answer that misses closes it as failed, with why, never as an answer.
+			const held = updateTask(t.id, { assignee: FRONT_DESK, sentAt: Date.now() });
+			void checkAnswer(t.title, answer)
+				.then((v) => {
+					if (v.ok) updateTask(t.id, { stage: "done", answer, assignee: "", sentAt: 0, servedAt: Date.now() });
+					else {
+						const cur = readTasks().find((x) => x.id === t.id) ?? t;
+						updateTask(t.id, { stage: "done", failed: true, assignee: "", sentAt: 0, servedAt: Date.now(), failures: [...(cur.failures ?? []), `answer: not an answer (${clip(v.missing || "it did not answer the question", 160)}): ${clip(answer, 200)}`].slice(-6) });
+					}
+				})
+				.catch(() => updateTask(t.id, { stage: "done", answer, assignee: "", sentAt: 0, servedAt: Date.now() }));
+			return { status: 200, body: { ...held } };
 		}
 		if (t.stage === "spec" && !t.approved) return { status: 200, body: { ...updateTask(t.id, { atPass: true, assignee: "", sentAt: 0 }) } };
 		const to = nextStage(t);
