@@ -112,6 +112,19 @@ describe("agent container bugs", () => {
 		await post("/api/tasks/serve", { id: "t", pass: false });
 		expect(lessonsOf().join("\n")).toContain("the loop end is off by one");
 	});
+	it("#245: closes the chat of a builder fired by a Test FAIL", async () => {
+		const sessions: Session[] = [tester("FAIL: mean([]) returns NaN.")];
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "Builders", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo", maxStrikes: 1 });
+		await post("/api/containers/reconcile", {});
+		const pod = readContainers()[0].pods[0];
+		sessions.push(session(started[0].id as string, "Code"));
+		await post("/api/containers/reconcile", {});
+		// Crew stores the pod's stable id (dispatch: `const podId = pod?.id ?? who`).
+		order({ stage: "test", assignee: "tester", sentAt: 1, crew: { build: { id: pod.id, role: "Code", name: "Builders abcd" } } });
+		expect((await post("/api/tasks/serve", { id: "t", pass: false })).body.fired).toBe(true);
+		expect(readHidden()).toContain(pod.session);
+	});
 });
 
 // keep imports used

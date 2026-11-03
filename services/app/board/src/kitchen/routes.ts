@@ -870,7 +870,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const why = failLine(said) || `FAIL: stopped without a PASS or FAIL line. Last said: ${said.split("\n").filter(Boolean).at(-1)?.slice(0, 200) || "(nothing)"}`;
 			updateTask(t.id, { failures: [...(t.failures ?? []), `${t.stage}: ${why}`].slice(-6) });
 			const hit = builder ? strike(builder, `#${t.n} ${t.title}`, why) : undefined;
-			if (hit?.fired && builder) k.close(builder);
+			// crew holds the pod's stable id; its chat is the pod's session (#245).
+			if (hit?.fired) k.close(hit.pod.session);
 			const back = sendBack(t);
 			// The FAIL that made it stuck was the strike; "Stuck after N rounds." names no mistake (#234).
 			return { status: 200, body: { ...updateTask(t.id, { ...back, assignee: "", sentAt: 0 }), fired: !!hit?.fired } };
