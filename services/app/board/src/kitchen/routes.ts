@@ -520,7 +520,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	// ---------- orders ----------
 	app.get("/api/scores", (c) => {
 		const strikes: Record<string, number> = {};
-		for (const box of readContainers()) strikes[box.name] = (strikes[box.name] ?? 0) + box.pods.reduce((a, p) => a + p.strikes, 0);
+		// Strikes its agents carry now: a fired agent's strikes already cost it, and would keep a container at 0 for good.
+		for (const box of readContainers()) strikes[box.name] = (strikes[box.name] ?? 0) + box.pods.filter((p) => p.status !== "evicted").reduce((a, p) => a + p.strikes, 0);
 		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes), flow: flow(readTasks()) });
 	});
 	app.get("/api/tasks", (c) => {

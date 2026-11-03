@@ -250,11 +250,24 @@ describe("live ratings", () => {
 			],
 			{ b: 1 },
 		);
-		expect(rs.find((r) => r.id === "p")).toMatchObject({ steps: 1, served: 1, rating: 63 });
-		// b: 2 steps, 1 served, 2 fails, 1 stuck, 1 strike: 50 + 10 + 6 - 16 - 15 - 10 = 25
-		expect(rs.find((r) => r.id === "b")).toMatchObject({ steps: 2, served: 1, fails: 2, stuck: 1, strikes: 1, rating: 25 });
-		expect(rs.find((r) => r.id === "t")).toMatchObject({ steps: 0, working: 1, rating: 50 });
-		expect(rs.map((r) => r.id)).toEqual(["p", "t", "b"]);
+		// p: its one finished order served first time: 50 + 50 = 100.
+		expect(rs.find((r) => r.id === "p")).toMatchObject({ steps: 1, served: 1, rating: 100 });
+		// b: 1 of its 2 finished-or-stuck orders served, first time; 1 strike: 25 + 25 - 10 = 40.
+		expect(rs.find((r) => r.id === "b")).toMatchObject({ steps: 2, served: 1, fails: 2, stuck: 1, strikes: 1, rating: 40 });
+		// t: its only order is stuck: 0.
+		expect(rs.find((r) => r.id === "t")).toMatchObject({ steps: 0, working: 1, rating: 0 });
+		expect(rs.map((r) => r.id)).toEqual(["p", "b", "t"]);
+	});
+
+	it("rates from rates, so an agent with stuck orders is not at 100 (#238)", () => {
+		const order = (n: number, o: Partial<Task> = {}) => ({ ...base, id: `o${n}`, n, servedAt: n, crew: { build: cook(o.stuck ? "bad" : "good") }, ...o });
+		const good = Array.from({ length: 10 }, (_, i) => order(i));
+		// 30 served orders, then 3 stuck: the old totals gave it 100 like the agent with none.
+		const bad = [...Array.from({ length: 30 }, (_, i) => ({ ...order(20 + i), crew: { build: cook("bad") } })), ...Array.from({ length: 3 }, (_, i) => order(60 + i, { stuck: true, failed: true, rounds: 3 }))];
+		const rs = ratings([...good, ...bad]);
+		expect(rs.find((r) => r.id === "good")?.rating).toBe(100);
+		// Its last 20: 17 served first time, 3 stuck.
+		expect(rs.find((r) => r.id === "bad")?.rating).toBe(85);
 	});
 
 	it("counts the step in progress as working, though its chat id is not the pod's id (#239)", () => {

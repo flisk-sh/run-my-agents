@@ -85,6 +85,9 @@ export type Rating = { id: string; label: string; role: string; steps: number; s
  * +10 per order served, +3 per step done, -8 per FAIL on an order it built, -15 per stuck order it built, -10 per
  * container strike. The table shows every number it is made of.
  */
+/** How many of an agent's latest finished orders its rating looks at. */
+export const RATE_WINDOW = 20;
+
 export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Rating[] {
 	const by = new Map<string, Rating>();
 	const get = (c: { id: string; role: string; name: string }) => {
@@ -93,6 +96,7 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
 		if (!r) by.set(ck.key, (r = { id: ck.key === ck.label ? c.id : ck.key, label: ck.label, role: ck.role, steps: 0, served: 0, fails: 0, stuck: 0, strikes: strikes[ck.key] ?? strikes[c.id] ?? 0, working: 0, rating: 0 }));
 		return r;
 	};
+	const ends = new Map<Rating, { at: number; served: boolean; clean: boolean }[]>();
 	for (const t of tasks.filter((x) => x.kind === "task")) {
 		for (const [stage, c] of Object.entries(t.crew ?? {})) {
 			if (!c) continue;
@@ -105,13 +109,26 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
 		}
 		const crew = new Set(Object.values(t.crew ?? {}).filter(Boolean).map((c) => get(c!)));
 		if (t.stage === "done" && !t.failed) for (const r of crew) r.served += 1;
+		if (t.stage === "done" || t.stuck) {
+			const served = t.stage === "done" && !t.failed && !t.stuck;
+			const clean = served && t.rounds === 0 && (t.failures ?? []).length <= (t.carried ?? 0);
+			for (const r of crew) ends.set(r, [...(ends.get(r) ?? []), { at: t.servedAt ?? t.updated, served, clean }]);
+		}
 		const builder = t.crew?.build;
 		if (builder) {
 			get(builder).fails += t.rounds;
 			if (t.stuck) get(builder).stuck += 1;
 		}
 	}
-	for (const r of by.values()) r.rating = Math.max(0, Math.min(100, 50 + 10 * r.served + 3 * r.steps - 8 * r.fails - 15 * r.stuck - 10 * r.strikes));
+	// From rates, not totals: +10 per served order let every agent reach 100 whatever its stuck orders and strikes
+	// (#238). Half the share of its last RATE_WINDOW finished or stuck orders that were served, half the share served
+	// first time with no FAIL, minus 10 per strike its live agents carry; 50 before it has finished any.
+	for (const r of by.values()) {
+		const recent = (ends.get(r) ?? []).sort((a, b) => a.at - b.at).slice(-RATE_WINDOW);
+		const share = (f: (x: { served: boolean; clean: boolean }) => boolean) => recent.filter(f).length / recent.length;
+		const base = recent.length ? 50 * share((x) => x.served) + 50 * share((x) => x.clean) : 50;
+		r.rating = Math.max(0, Math.min(100, Math.round(base - 10 * r.strikes)));
+	}
 	return [...by.values()].sort((a, b) => b.rating - a.rating || b.steps - a.steps || a.label.localeCompare(b.label));
 }
 
