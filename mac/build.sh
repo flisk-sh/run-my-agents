@@ -61,7 +61,19 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
-codesign --force --deep -s - "$app"
+# Signing. RUN_MY_AGENTS_SIGN_IDENTITY is a "Developer ID Application: ..." identity (the release workflow sets it
+# when its Apple secrets exist); without it the app is ad-hoc signed, which macOS blocks after a browser download.
+# Developer ID signing uses the hardened runtime and a timestamp, which notarization requires (see notarize.sh).
+identity="${RUN_MY_AGENTS_SIGN_IDENTITY:--}"
+if [ "$identity" = "-" ]; then
+  codesign --force --deep -s - "$app"
+else
+  ents="$here/entitlements.plist"
+  # Inside out: the board binary sits in Resources, where signing the bundle would not reach it.
+  [ -f "$app/Contents/Resources/board" ] && codesign --force --options runtime --timestamp --entitlements "$ents" -s "$identity" "$app/Contents/Resources/board"
+  codesign --force --options runtime --timestamp --entitlements "$ents" -s "$identity" "$app"
+  codesign --verify --deep --strict --verbose=2 "$app"
+fi
 if $release; then
   rm -f "$out/Run-My-Agents-macOS.zip"
   (cd "$out" && ditto -c -k --keepParent "Run My Agents.app" "Run-My-Agents-macOS.zip")
