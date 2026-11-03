@@ -1027,7 +1027,7 @@ function showKeys(){let k=$("keys");if(k){k.remove();return}k=document.createEle
  k.addEventListener("click",e=>{if(e.target===k)k.remove()});document.body.appendChild(k)}
 document.addEventListener("keydown",e=>{const typing=e.target&&e.target.matches&&e.target.matches("input,textarea,[contenteditable]");
  if(e.key==="Escape"){hideAct();const k=$("keys");if(k)k.remove()}
- if(e.altKey&&(e.key==="ArrowUp"||e.key==="ArrowDown")){e.preventDefault();goAgent(e.key==="ArrowUp"?-1:1);return}
+ if(e.altKey&&(e.key==="ArrowUp"||e.key==="ArrowDown")&&(!typing||e.target.id==="msg")){e.preventDefault();goAgent(e.key==="ArrowUp"?-1:1);return}
  if(typing||e.metaKey||e.ctrlKey||e.altKey)return;
  if(e.key==="?"){e.preventDefault();showKeys()}else if(e.key==="/"){const m=$("msg");if(m){e.preventDefault();m.focus()}}});
 setInterval(()=>{document.querySelectorAll("[data-since]").forEach(e=>{e.textContent=clock(Date.now()-Number(e.dataset.since))});document.querySelectorAll("[data-verb]").forEach(e=>{const v=VERBS[Math.floor(Date.now()/4000)%VERBS.length];if(e.textContent!==v){e.textContent=v;e.classList.remove("vin");void e.offsetWidth;e.classList.add("vin")}})},1000);

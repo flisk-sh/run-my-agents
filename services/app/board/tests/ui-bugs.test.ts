@@ -112,6 +112,20 @@ describe("board UI bugs", () => {
 		/* the server clears assignee and sentAt whenever a move carries a stage */
 		expect(posts.filter(([u, b]) => u === "api/tasks/move" && b.stage === task.stage)).toEqual([]);
 	});
+	it("#273: Alt+Up/Down in the rename box does not switch agents and drop the typed name", () => {
+		const start = 'document.addEventListener("keydown",e=>{const typing=';
+		const at = JS.indexOf(start);
+		const src = JS.slice(at + 'document.addEventListener("keydown",'.length, JS.indexOf("}});", at) + 2);
+		const moved: number[] = [];
+		const run = new Function("hideAct", "$", "goAgent", "showKeys", `return (${src})`)(
+			() => {},
+			() => null,
+			(d: number) => moved.push(d),
+			() => {},
+		);
+		run({ altKey: true, key: "ArrowDown", target: { id: "rnmIn", matches: (s: string) => /\binput\b/.test(s) }, preventDefault() {} });
+		expect(moved).toEqual([]);
+	});
 });
 
 // keep helpers used
