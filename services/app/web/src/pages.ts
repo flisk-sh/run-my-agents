@@ -25,6 +25,7 @@ pre{margin:0;padding:16px;font:.9rem/1.7 var(--mono);overflow-x:auto}.p{color:va
 .meta{margin-top:14px;color:var(--faint);font-size:.9rem}
 .herobg{position:relative;background:linear-gradient(180deg,rgba(6,6,10,.62),rgba(6,6,10,.78) 55%,var(--bg) 100%),url(/hero-kitchen.jpg) center 40%/cover no-repeat;border-bottom:1px solid var(--line)}
 .herobg .hero{padding:80px 16px 48px}.herobg h1,.herobg .lede{text-shadow:0 2px 18px rgba(0,0,0,.6)}.herobg .lede{color:rgba(236,236,241,.86)}
+.dl details{margin-top:12px;max-width:44rem;font-size:.88rem;color:rgba(236,236,241,.78)}.dl summary{cursor:pointer;color:var(--accent-text)}.dl details p{margin:10px 0 6px}.dl pre{margin:0;padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.45);border:1px solid var(--line);font:12.5px/1.5 var(--mono);white-space:pre-wrap;word-break:break-all;user-select:all}
 .dl{margin:8px 0 26px}.dl p{color:rgba(236,236,241,.66);font-size:.88rem;max-width:34rem;margin:12px 0 0}
 .dlb{display:inline-flex;flex-direction:column;gap:2px;background:var(--accent);color:#04130a;text-decoration:none;border-radius:16px;padding:18px 34px;box-shadow:0 14px 40px rgba(34,197,94,.35),0 2px 0 rgba(255,255,255,.25) inset;transition:transform .15s,filter .15s}
 .dlb b{font-size:1.35rem;font-weight:800;letter-spacing:-.01em}.dlb small{font-size:.85rem;font-weight:500;opacity:.8}
@@ -114,10 +115,14 @@ ${head(base, meta)}
 }
 
 /** The Mac app: the board in its own window, with the board built in. The link always points at the newest release. */
+/** Installs the Mac app from the terminal. A file curl saves has no quarantine flag, so macOS does not block the
+ * (not yet notarized) app with its "damaged" message the way it does a browser download. */
+export const MAC_INSTALL = `curl -fsSL ${"https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip"} -o /tmp/run-my-agents.zip && ditto -x -k /tmp/run-my-agents.zip /Applications && open "/Applications/Run My Agents.app"`;
+export const MAC_UNBLOCK = 'xattr -cr "/Applications/Run My Agents.app"';
 export const MAC_DOWNLOAD =
 	"https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip";
 function downloadMac(): string {
-	return `<div class="dl"><a class="dlb" href="${MAC_DOWNLOAD}"><b>Download for macOS</b><small>Free · Apple Silicon and Intel · macOS 13+</small></a><p>The board in its own window, everything built in. Not notarized yet: the first time, open it from System Settings, Privacy &amp; Security, Open Anyway.</p></div>`;
+	return `<div class="dl"><a class="dlb" href="${MAC_DOWNLOAD}"><b>Download for macOS</b><small>Free · Apple Silicon and Intel · macOS 13+</small></a><p>The board in its own window, everything built in. It is not notarized by Apple yet.</p><details><summary>macOS says it is damaged or can't be opened?</summary><p>That is macOS blocking an app that did not come from the App Store. Install it from the terminal instead, which skips the block:</p><pre>${esc(MAC_INSTALL)}</pre><p>Already downloaded it in your browser? Move it to Applications and run:</p><pre>${esc(MAC_UNBLOCK)}</pre></details></div>`;
 }
 
 function installBox(): string {

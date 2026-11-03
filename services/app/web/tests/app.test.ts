@@ -167,6 +167,16 @@ describe("Mac download", () => {
 		);
 		expect(html).toContain("Download for macOS");
 	});
+	it("shows an install command that skips macOS's damaged-app block", async () => {
+		const html = await (await app.request("/")).text();
+		// curl saves with no quarantine flag, so Gatekeeper does not reject the not-yet-notarized app
+		expect(html).toContain(
+			"curl -fsSL https://github.com/flisk-sh/run-my-agents/releases/latest/download/Run-My-Agents-macOS.zip",
+		);
+		expect(html).toContain("ditto -x -k /tmp/run-my-agents.zip /Applications");
+		expect(html).toContain("xattr -cr");
+		expect(html).toContain("macOS says it is damaged");
+	});
 });
 
 describe("hero", () => {
