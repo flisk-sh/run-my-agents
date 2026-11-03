@@ -126,6 +126,16 @@ describe("board UI bugs", () => {
 		run({ altKey: true, key: "ArrowDown", target: { id: "rnmIn", matches: (s: string) => /\binput\b/.test(s) }, preventDefault() {} });
 		expect(moved).toEqual([]);
 	});
+	it("#271: share no unscoped class names (who, idle, pass, empty, plist)", () => {
+		const kitchenMarkup = new Set([...KITCHEN_JS.matchAll(/class:"([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean));
+		/* kitchen rules that restyle page elements: .who (chat bubble header), .idle (idle sidebar rows), .pass (the
+		   green PR check dot, .ck.pass, grows to 12 px) */
+		const kitchenLeaks = [...unscoped(KITCHEN_CSS)].filter((c) => styles(PAGE_CSS, c));
+		/* page rules that restyle kitchen markup: .who (order card agent line goes light grey on cream), .empty (score
+		   frames get padding:40px and spill over the next rows), .plist (pass bar list turns into a column) */
+		const pageLeaks = [...unscoped(PAGE_CSS)].filter((c) => kitchenMarkup.has(c));
+		expect({ kitchenLeaks, pageLeaks }).toEqual({ kitchenLeaks: [], pageLeaks: [] });
+	});
 });
 
 // keep helpers used

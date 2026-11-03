@@ -36,7 +36,7 @@ export const KITCHEN_CSS = String.raw`
 .skc.get::before{content:"";width:7px;height:7px;border-radius:50%;border:2px solid #d97706;border-top-color:transparent;animation:kspin .8s linear infinite}
 @keyframes kspin{to{transform:rotate(360deg)}}
 .oacts{display:flex;gap:4px;flex-wrap:wrap}.ord .kbtn{background:#efe6d4;color:#22180e;border-color:#cdbb9c}.ord .kbtn.go{background:#22c55e;color:#04130a}
-.who{display:flex;align-items:center;gap:6px;font-size:11px}.who .av{animation:none;filter:none}
+.kwho{display:flex;align-items:center;gap:6px;font-size:11px}.kwho .av{animation:none;filter:none}
 /* Kitchen: two islands and the pass */
 .isles{display:grid;grid-template-columns:minmax(0,3fr) 90px minmax(0,4fr);gap:0;align-items:stretch;min-height:330px}
 .isle{position:relative;border-radius:18px;padding:30px 10px 10px;background:repeating-linear-gradient(90deg,#c99a5e 0 34px,#b5854a 34px 36px);box-shadow:inset 0 0 0 8px #6b4423,0 14px 0 rgba(0,0,0,.35);display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px}
@@ -48,9 +48,9 @@ export const KITCHEN_CSS = String.raw`
 .chef .ring{border-radius:50%;padding:3px;border:3px solid transparent}.chef.work .ring{border-color:#22c55e;border-top-color:transparent;animation:kspin 1.2s linear infinite}
 .chef.work .ring>*{animation:kspin 1.2s linear infinite reverse}.chef.hot .ring{border-color:#ef4444}
 .plate{background:#fff;color:#22180e;border:3px solid #d6cbb6;border-radius:999px;padding:1px 7px;font:700 10px var(--mono);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pass{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;background:repeating-linear-gradient(90deg,#8b5e34 0 12px,transparent 12px 16px);background-size:100% 26px;background-repeat:no-repeat;background-position:center;padding:6px}
-.pass .gate{background:#fbbf24;color:#22180e;border-radius:8px;font:700 10px var(--mono);padding:3px 6px;text-align:center}
-.idle{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted)}
+
+
+
 .kgame{border-radius:var(--r-panel);overflow:hidden;box-shadow:0 0 0 1px var(--line)}.kgame canvas{display:block;width:100%;height:auto}
 .khud{display:flex;justify-content:space-between;font:600 18px var(--mono)}.khud span{background:#15151f;border-radius:var(--r-row);padding:4px 12px}
 /* Scores: bowling sheets ranking agents, pairs and skills by served orders */
@@ -64,7 +64,7 @@ export const KITCHEN_CSS = String.raw`
 .sfr{background:#f6f1e7;color:#22180e;border-radius:4px;display:grid;grid-template-rows:18px 22px;overflow:hidden}
 .sfr .mk{justify-self:end;width:18px;height:18px;display:grid;place-items:center;font:800 12px var(--mono);border-left:1.5px solid #cdbb9c;border-bottom:1.5px solid #cdbb9c}
 .sfr .mk.X{background:#16a34a;color:#fff}.sfr .mk.s{background:#f59e0b;color:#22180e}.sfr .mk.g{background:#ef4444;color:#fff}
-.sfr .tt{display:grid;place-items:center;font:700 13px var(--mono)}.sfr.empty{background:#1a1a24}
+.sfr .tt{display:grid;place-items:center;font:700 13px var(--mono)}.sfr.kempty{background:#1a1a24}
 .stot{display:grid;place-items:center;border-radius:var(--r-row);background:#26263a;font:800 18px var(--mono);color:#fbbf24}
 .slegend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}.slegend b{font:800 11px var(--mono);border-radius:3px;padding:0 5px;color:#fff}
 /* Crew: model policy, skill sets per stage, agent containers (ReplicaSets of agents) */
@@ -86,7 +86,7 @@ export const KITCHEN_CSS = String.raw`
 .mk2 input{background:#0b0b10;color:var(--text);border:1px solid var(--line);border-radius:var(--r-row);padding:6px 9px;font:13px var(--body);min-width:0}
 .pick{font:600 11px var(--body);border-radius:999px;padding:3px 9px;background:#1e1e2a;color:var(--muted);cursor:pointer;border:1px solid transparent}.pick.on{color:var(--text);border-color:var(--green);background:#16261c}
 .kh{margin:4px 0 0;font:700 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.passbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:linear-gradient(90deg,#3b2a05,#241a06);border:1px solid #f59e0b;border-radius:var(--r-row);padding:8px 10px;font-size:12.5px}.passbar b{color:#fbbf24}.passbar .plist{display:flex;gap:4px;flex-wrap:wrap;flex:1;min-width:0}.passbar .plist span{background:#0b0b10;border-radius:5px;padding:2px 7px;font:11px var(--mono);cursor:pointer}.passbar .plist span:hover{outline:1px solid #fbbf24}
+.passbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:linear-gradient(90deg,#3b2a05,#241a06);border:1px solid #f59e0b;border-radius:var(--r-row);padding:8px 10px;font-size:12.5px}.passbar b{color:#fbbf24}.passbar .kplist{display:flex;gap:4px;flex-wrap:wrap;flex:1;min-width:0}.passbar .kplist span{background:#0b0b10;border-radius:5px;padding:2px 7px;font:11px var(--mono);cursor:pointer}.passbar .kplist span:hover{outline:1px solid #fbbf24}
 .rates{display:grid;gap:4px}.rrow{display:grid;grid-template-columns:30px minmax(120px,1.4fr) repeat(6,minmax(52px,.6fr)) 120px;gap:4px;align-items:center;background:#12121a;border-radius:var(--r-row);padding:5px 8px;font-size:12px;min-width:620px}.rrow.head{background:none;font:600 10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}.rrow .n{font:700 12px var(--mono);text-align:center}.rmeter{height:10px;border-radius:5px;background:#2a2a38;overflow:hidden;position:relative}.rmeter i{display:block;height:100%}.rnum{font:800 14px var(--mono);text-align:right}
 .test{display:flex;align-items:center;gap:6px;font:600 10.5px var(--mono);color:#5b4a35}.test b{color:#22180e;font-size:12px}.tbar{flex:1;height:5px;border-radius:3px;background:#e2d6bf;overflow:hidden}.tbar i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b);transition:width .4s}
 .ttime{font:600 10.5px var(--mono);color:#5b4a35;display:flex;gap:6px;flex-wrap:wrap}.ttime b{color:#22180e}.ttime .slow{color:#b91c1c}
@@ -145,7 +145,7 @@ function kActs(t){const s=sess(t.assignee),r=[],B=(c,d,l,x)=>H("button",Object.a
  else if(t.assignee)r.push(B("go",{"data-kserve":t.id},"Done →"));
  if(s)r.push(B("",{"data-kopen":s.id},"Open"));
  r.push(B("",{"data-kdrop":t.id},"Drop"));return H("div",{class:"oacts"},r)}
-function kWho(t){const s=sess(t.assignee);if(!s&&t.why)return H("div",{class:"who",style:"color:#92400e"},"⏸ "+t.why);if(!s)return t.stuck?H("div",{class:"who"},"⚠ sent back "+t.rounds+" times"):t.stuckWarning?H("div",{class:"who",style:"color:#ea580c"},"⏱ "+Math.round((Date.now()-t.created)/1000)+"s"):null;return H("div",{class:"who"},kFace(s,22),(t.assigneeLabel||s.role)+(kReady(t)?" · ready":" · cooking"))}
+function kWho(t){const s=sess(t.assignee);if(!s&&t.why)return H("div",{class:"kwho",style:"color:#92400e"},"⏸ "+t.why);if(!s)return t.stuck?H("div",{class:"kwho"},"⚠ sent back "+t.rounds+" times"):t.stuckWarning?H("div",{class:"kwho",style:"color:#ea580c"},"⏱ "+Math.round((Date.now()-t.created)/1000)+"s"):null;return H("div",{class:"kwho"},kFace(s,22),(t.assigneeLabel||s.role)+(kReady(t)?" · ready":" · cooking"))}
 /* Lead time: ordered to served (or now). Cycle time: first picked up to served. Plus time in the current stage. */
 const kDur=ms=>{if(!(ms>0))return "0s";const s=Math.round(ms/1e3);if(s<60)return s+"s";const m=Math.round(s/60);if(m<60)return m+"m";const h=Math.floor(m/60);return h<24?h+"h "+(m%60)+"m":Math.floor(h/24)+"d "+(h%24)+"h"};
 function kTimes(t){const end=t.stage==="done"&&t.servedAt?t.servedAt:Date.now(),lead=end-t.created,cyc=t.startedAt?end-t.startedAt:0,inSt=t.stageAt&&t.stage!=="done"?Date.now()-t.stageAt:0;return{lead,cyc,inSt}}
@@ -160,7 +160,7 @@ function kOrder(t,next){return H("div",{key:t.id,class:"ord"+(next?" next":"")+(
   t.retryOf?H("span",{style:"background:#b45309",title:"Second attempt after #"+t.retryOf+" failed"},"retry of #"+t.retryOf):null),
  kSkills(t),kZach(t),t.answer?H("div",{class:"answer"},t.answer):null,kWho(t),kActs(t))}
 /* Orders waiting at the pass, shown on every kitchen tab so approving is never hidden. */
-function kPassBar(){const w=KD.tasks.filter(t=>t.atPass);if(!w.length)return null;return H("div",{class:"passbar"},H("b",null,"⏸ "+w.length+" at the pass"),H("span",null,"Specs done. Approve to send to build:"),H("div",{class:"plist"},w.map(t=>H("span",{key:t.id,"data-kapprove":t.id,title:"Approve #"+t.n},"#"+t.n+" "+t.title.slice(0,40)+" ✓"))),H("button",{class:"kbtn sm go","data-kapproveall":true},"Approve all"))}
+function kPassBar(){const w=KD.tasks.filter(t=>t.atPass);if(!w.length)return null;return H("div",{class:"passbar"},H("b",null,"⏸ "+w.length+" at the pass"),H("span",null,"Specs done. Approve to send to build:"),H("div",{class:"kplist"},w.map(t=>H("span",{key:t.id,"data-kapprove":t.id,title:"Approve #"+t.n},"#"+t.n+" "+t.title.slice(0,40)+" ✓"))),H("button",{class:"kbtn sm go","data-kapproveall":true},"Approve all"))}
 function kAdd(){return H("div",{id:"kaddw",style:"display:grid;gap:8px"},kPassBar(),H("form",{class:"kbar",id:"kform"},H("input",{id:"ktitle",maxlength:"2000",placeholder:"New order: what should the agents do?",autocomplete:"off"}),
  H("span",{class:"kstats"},["P0","P1","P2"].map(p=>H("span",{key:p,class:"pri "+p,"data-knewpri":p,style:"opacity:"+(kpri===p?1:.35)},p))),H("button",{class:"kbtn go"},"Add order"),H("button",{type:"button",class:"kbtn"+(kauto?" go":""),"data-kauto":true},"Autopilot "+(kauto?"on":"off"))))}
 function kStats(){const open=KD.tasks.filter(t=>t.stage!=="done"),wait=open.filter(t=>!t.assignee),idle=S.filter(s=>!s.hidden&&!KD.tasks.some(t=>t.assignee===s.id)&&state(s)==="z");
@@ -309,7 +309,7 @@ function kRatings(){const rs=SC.ratings||[];if(!rs.length)return H(Frag,null,H("
 function kScores(){if(!SC)return H("p",{class:"knote"},"Loading scores…");
  const tabs=H("div",{class:"kbar"},H("div",{class:"sctabs"},[["agents","Agents"],["pairs","Pairs"],["skills","Skills"]].map(([k,l])=>H("button",{key:k,class:"sctab"+(scBy===k?" on":""),"data-scby":k},l+" ",H("i",null,SC[k].length)))),H("span",{class:"kstats"},H("span",null,"served ",H("b",null,SC.served))));
  const rows=SC[scBy],bowl=H("div",{class:"kh"},"Bowling · served orders");if(!rows.length)return H(Frag,null,kFlow(),kRatings(),bowl,tabs,H("p",{class:"knote"},"No served orders yet. Only orders that reach Served are scored: an order served with no FAIL is a strike."));
- const fr=(f,j)=>{if(!f)return H("div",{key:j,class:"sfr empty"});const c=f.mark==="X"?"X":f.mark==="/"?"s":f.mark==="-"?"g":"";return H("div",{key:j,class:"sfr",title:"#"+f.n+" "+f.title},H("span",{class:"mk "+c},f.mark),H("span",{class:"tt"},f.total))};
+ const fr=(f,j)=>{if(!f)return H("div",{key:j,class:"sfr kempty"});const c=f.mark==="X"?"X":f.mark==="/"?"s":f.mark==="-"?"g":"";return H("div",{key:j,class:"sfr",title:"#"+f.n+" "+f.title},H("span",{class:"mk "+c},f.mark),H("span",{class:"tt"},f.total))};
  return H(Frag,null,kFlow(),kRatings(),bowl,tabs,H("div",{class:"sheet"},H("div",{class:"srow head"},H("span",null,"#"),H("span",null,scBy==="agents"?"Agent":scBy==="pairs"?"Pair":"Skill"),[1,2,3,4,5,6,7,8,9,10].map(i=>H("span",{key:i},i)),H("span",null,"Score")),
   rows.map((r,i)=>H("div",{key:r.label,class:"srow"},H("span",{class:"srank"},i+1),H("div",{class:"swho"},H("b",{title:r.label},r.label),H("small",null,r.sub+" · "+r.strikes+"X "+r.spares+"/ · "+r.served+" served")),Array.from({length:10},(_,j)=>fr(r.frames[j],j)),H("span",{class:"stot"},r.score)))),
   H("div",{class:"slegend"},H("span",null,H("b",{style:"background:#16a34a"},"X")," strike: served with no FAIL, 10 + next two frames"),H("span",null,H("b",{style:"background:#f59e0b;color:#22180e"},"/")," spare: one FAIL, 10 + next frame"),H("span",null,H("b",{style:"background:#64748b"},"4")," two FAILs"),H("span",null,H("b",{style:"background:#ef4444"},"-")," gutter: served while stuck"),H("span",null,"Last 10 served orders make a game. 300 is perfect.")))}
