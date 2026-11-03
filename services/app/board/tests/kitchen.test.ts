@@ -201,6 +201,26 @@ describe("kitchen page", () => {
 		expect(() => new Function(KITCHEN_JS)).not.toThrow();
 	});
 
+	it("has a click handler for every data-k button the kitchen draws", async () => {
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		/* Clear lessons and Delete container drew buttons nothing listened to */
+		const drawn = new Set([...KITCHEN_JS.matchAll(/"data-(k[a-z]+)":/g)].map((m) => m[1]));
+		expect(drawn.size).toBeGreaterThan(5);
+		const handled = (k: string) => KITCHEN_JS.includes(`[data-${k}]`) && (new RegExp(`\\b(d|dataset)\\.${k}\\b`).test(KITCHEN_JS) || KITCHEN_JS.includes(`closest("[data-${k}]")`));
+		expect([...drawn].filter((k) => !handled(k))).toEqual([]);
+	});
+
+	it("keeps the chat composer off the kitchen tabs, and wraps a folder's learned skills inside its own card", async () => {
+		const { KITCHEN_CSS } = await import("../src/kitchen/view");
+		const { PAGE } = await import("../src/page");
+		/* the composer is drawn into #boxhost (display:contents), so hiding only #box left it over the Crew tab */
+		expect(PAGE).toContain('<div id="boxhost"');
+		expect(KITCHEN_CSS).toContain(".main.kmode>#boxhost{display:none!important}");
+		expect(KITCHEN_CSS).toMatch(/\.rep\{display:flex;flex-wrap:wrap;/);
+		/* .crewfolder .cf{flex:1} comes later, so the name line needs the more specific selector */
+		expect(KITCHEN_CSS).toContain(".crewfolder .rep .cf{flex:1 1 100%}");
+	});
+
 	it("hides the kitchen view on the chat tab, and every way of opening an agent lands on its chat", async () => {
 		const { KITCHEN_CSS, KITCHEN_JS } = await import("../src/kitchen/view");
 		const { PAGE } = await import("../src/page");

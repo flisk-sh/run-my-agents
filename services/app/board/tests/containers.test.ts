@@ -216,6 +216,32 @@ describe("agent containers", () => {
 		expect(readContainers()[0].pods.at(-1)?.strikes).toBe(0);
 	});
 
+	it("Crew controls: scale within 0 to 10, fire, clear lessons and delete, with bad input refused", async () => {
+		const { post } = setup();
+		const box = (await post("/api/containers", { name: "Cooks", role: "Code", stages: ["build"], replicas: 1, cwd: "/repo" })).body;
+		// scale: good, then every bad shape
+		expect((await post("/api/containers/scale", { id: box.id, replicas: 2 })).body.replicas).toBe(2);
+		for (const replicas of [-1, 11, 500, 1.5]) expect((await post("/api/containers/scale", { id: box.id, replicas })).status).toBe(400);
+		expect((await post("/api/containers/scale", { id: box.id })).status).toBe(400);
+		expect((await post("/api/containers/scale", { id: "nope", replicas: 1 })).status).toBe(404);
+		expect(readContainers()[0].replicas).toBe(2);
+		// fire: a live agent is evicted and replaced; an unknown one is a 404
+		const pod = readContainers()[0].pods.find((p) => p.status !== "evicted");
+		expect((await post("/api/containers/fire", { session: pod?.session })).body.fired).toBe(true);
+		expect(readContainers()[0].pods.find((p) => p.session === pod?.session)?.status).toBe("evicted");
+		expect(readContainers()[0].pods.filter((p) => p.status !== "evicted")).toHaveLength(2);
+		expect((await post("/api/containers/fire", { session: "nope" })).status).toBe(404);
+		// clear lessons: the fire above left one
+		expect(readContainers()[0].lessons.length).toBeGreaterThan(0);
+		expect((await post("/api/containers/lessons/clear", { id: box.id })).body.cleared).toBe(true);
+		expect(readContainers()[0].lessons).toEqual([]);
+		expect((await post("/api/containers/lessons/clear", { id: "nope" })).status).toBe(404);
+		// delete
+		expect((await post("/api/containers/delete", { id: "nope" })).status).toBe(404);
+		expect((await post("/api/containers/delete", { id: box.id })).body.deleted).toBe(true);
+		expect(readContainers()).toEqual([]);
+	});
+
 	it("rejects a container with no stage or folder", async () => {
 		const { post } = setup();
 		expect((await post("/api/containers", { name: "x", stages: [], cwd: "/repo" })).status).toBe(400);

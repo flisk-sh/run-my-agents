@@ -7,7 +7,7 @@ export const KITCHEN_CSS = String.raw`
 .ktab{font:600 12px var(--body);color:var(--muted);background:none;border:0;border-radius:var(--r-row);padding:6px 12px;cursor:pointer}
 .ktab:hover{color:var(--text);background:#1e1e28}.ktab.on{color:var(--text);background:#26263a;box-shadow:inset 0 -2px 0 var(--green)}
 .ktab i{font-style:normal;font:10px var(--mono);color:var(--mint);margin-left:5px}
-.main.kmode>#hd,.main.kmode>#actbar,.main.kmode>#meter,.main.kmode>#skills,.main.kmode>#roles,.main.kmode>#warns,.main.kmode>#feed,.main.kmode>#newpill,.main.kmode>#box{display:none!important}
+.main.kmode>#hd,.main.kmode>#actbar,.main.kmode>#meter,.main.kmode>#skills,.main.kmode>#roles,.main.kmode>#warns,.main.kmode>#feed,.main.kmode>#newpill,.main.kmode>#box,.main.kmode>#boxhost{display:none!important}
 #kview{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:12px}#kview[hidden]{display:none}
 .kbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .kbar input,.kbar select{background:#0b0b10;color:var(--text);border:1px solid var(--line);border-radius:var(--r-row);padding:7px 10px;font:13px var(--body)}
@@ -76,7 +76,7 @@ export const KITCHEN_CSS = String.raw`
 .crewgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
 .crewbox{background:#12121a;border-radius:var(--r-panel);padding:10px;display:grid;gap:8px;box-shadow:inset 0 0 0 1px var(--line)}
 .crewbox .bh{display:flex;justify-content:space-between;align-items:center;gap:8px}.crewbox .bh b{font-size:14px}.crewbox .bh small{color:var(--muted);font:10px var(--mono)}
-.rep{display:flex;align-items:center;gap:6px;font:700 13px var(--mono)}.rep button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:#26263a;color:var(--text);cursor:pointer;font-weight:800}
+.rep{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font:700 13px var(--mono);min-width:0}.crewfolder .rep .cf{flex:1 1 100%}.rep .sk2{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rep button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:#26263a;color:var(--text);cursor:pointer;font-weight:800}
 .rep .bar{flex:1;display:flex;gap:3px}.rep .bar i{flex:1;height:8px;border-radius:3px;background:#2a2a38}.rep .bar i.r{background:#22c55e}.rep .bar i.s{background:#f59e0b;animation:kfl .6s infinite alternate}
 .pods{display:grid;gap:4px}.pod{display:grid;grid-template-columns:28px 1fr auto auto;gap:6px;align-items:center;background:#1a1a24;border-radius:var(--r-row);padding:4px 6px;font-size:11.5px}
 .pod.dead{opacity:.55;background:repeating-linear-gradient(135deg,#1a1a24 0 6px,#20141a 6px 12px)}.pod .nm2{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -323,20 +323,20 @@ function kCrew(){if(!CR||!SS)return H("p",{class:"knote"},"Loading crew…");
   const lessons=boxes.reduce((a,c)=>a+c.lessons.length,0),ready=boxes.reduce((a,c)=>a+c.ready,0),want=boxes.reduce((a,c)=>a+c.replicas,0);
   const folders=boxes.map(c=>{const lv=c.pods.filter(p=>p.status!=="evicted"),dead=c.pods.filter(p=>p.status==="evicted").slice(-2);
    return H("div",{key:c.id,class:"crewfolder"},H("div",{class:"rep"},H("span",{class:"cf"},c.cwd.split("/").filter(Boolean).pop()||c.cwd),
-    H("button",{"data-kscale":c.id,"data-n":c.replicas-1,title:"One agent fewer"},"−"),H("span",null,c.ready+"/"+c.replicas),H("button",{"data-kscale":c.id,"data-n":c.replicas+1,title:"One agent more"},"+"),
+    H("button",{"data-kscale":c.id,"data-n":c.replicas-1,disabled:c.replicas<=0,title:"One agent fewer"},"−"),H("span",null,c.ready+"/"+c.replicas),H("button",{"data-kscale":c.id,"data-n":c.replicas+1,disabled:c.replicas>=10,title:"One agent more"},"+"),
     (c.skills||[]).filter(k=>k.learned).map(k=>H("span",{key:k.name,class:"sk2",title:"Sidecar: learned from this folder's orders. Score "+k.score+" over "+k.uses+" orders"},"/"+k.name,H("i",null,(k.score>0?"+":"")+k.score))),
     c.idleSince&&c.replicas?H("small",{class:"cf",style:"flex:none"},"⏲ idle "+kDur(Date.now()-c.idleSince)):c.floorByHand?H("small",{class:"cf",style:"flex:none",title:"You set this size; the idle timer keeps it"},"kept"):null),
     H("div",{class:"pods"},lv.concat(dead).map((p,i)=>pod(c,p,i))))});
   return H("div",{key:st,class:"crewrow"},H("div",{class:"crewtype"},typeFace(role,40),H("div",null,H("b",null,role),MCH(x.policy.model),H("small",null,st==="spec"?"Plans the task: the orchestrator":st==="build"?"Writes the change":st==="test"?"Runs it and says PASS or FAIL":"Reads the change and says PASS or FAIL"))),
    H("div",{class:"chipz"},x.skills.map(k=>H("span",{key:k.name,class:"sk2",title:k.what},"/"+k.name,k.haiku?H("i",null,"haiku"):null))),
    H("div",{class:"crewagents"},folders.length?folders:H("span",{class:"knote"},"No agents yet. Autopilot starts one the first time an order needs "+role+".")),
-   H("div",{class:"crewlessons"},H("span",{class:"sk2",title:"Every "+role+" agent reads it before an order"},"/rma-lessons-"+st,H("i",null,lessons+" lessons")),lessons?boxes.filter(c=>c.lessons.length).slice(0,1).map(c=>H("button",{key:c.id,class:"kbtn sm","data-kclearlessons":c.id},"Clear")):null,H("small",null,ready+"/"+want+" agents")))});
+   H("div",{class:"crewlessons"},H("span",{class:"sk2",title:"Every "+role+" agent reads it before an order"},"/rma-lessons-"+st,H("i",null,lessons+" lessons")),lessons?H("button",{class:"kbtn sm","data-kclearlessons":boxes.filter(c=>c.lessons.length).map(c=>c.id).join(","),title:"Clear the lessons of every "+role+" container"},"Clear"):null,H("small",null,ready+"/"+want+" agents")))});
  const other=CR.containers.filter(c=>!(c.stages.length===1&&["spec","build","test","review"].includes(c.stages[0])));
  return H(Frag,null,H("div",{class:"pol"},H("span",null,"Orchestrator (Spec): ",MCH(SS.policy.orchestrator.model)," ",H("b",null,SS.policy.orchestrator.effort)),H("span",null,"Build, Test, Review: ",MCH(SS.policy.worker.model)," ",H("b",null,SS.policy.worker.effort)),H("span",{title:"Agents with no orders for this long are let go; one starts again when an order needs it"},"⏲ Idle agents go after ",H("b",null,kIdleMin+" min"))),
   H("div",{class:"kh"},"Kitchen agents · one type per stage"),H("div",{class:"crewtable"},rows),
   other.length?H(Frag,null,H("div",{class:"kh"},"Other containers"),H("p",{class:"knote"},"These cover several stages at once. The stage rows above replace them; delete them when their orders are done."),H("div",{class:"crewgrid"},other.map(c=>H("div",{key:c.id,class:"crewbox"},H("div",{class:"bh"},H("div",null,H("b",null,c.name)," ",MCH(c.model),H("br"),H("small",null,c.role+" · "+c.stages.map(st=>STN[st]).join(", ")+" · "+c.ready+"/"+c.replicas+" agents")),H("button",{class:"kbtn sm","data-kboxdel":c.id},"Delete")))))):null)}
 async function kCrewLoad(){try{const [a,b]=await Promise.all([fetch("api/containers").then(r=>r.json()),fetch("api/skillsets").then(r=>r.json())]);CR=a;SS=b;if(ktab==="crew"&&!(document.activeElement&&document.activeElement.id==="nbname"))kDraw()}catch(e){}}
-document.addEventListener("click",async e=>{const t=e.target.closest&&e.target.closest("[data-kclearlessons],[data-nbrep],[data-nbrole],[data-nbst],[data-nbm],[data-nbs],[data-kscale],[data-kfire],[data-crewboxdel]");if(!t)return;const d=t.dataset;const nm=$("nbname");if(nm)NB.name=nm.value;
+document.addEventListener("click",async e=>{const t=e.target.closest&&e.target.closest("[data-kclearlessons],[data-nbrep],[data-nbrole],[data-nbst],[data-nbm],[data-nbs],[data-kscale],[data-kfire],[data-kboxdel]");if(!t)return;const d=t.dataset;const nm=$("nbname");if(nm)NB.name=nm.value;
  if(d.nbrep){NB.replicas=Math.max(0,Math.min(10,NB.replicas+ +d.nbrep));return kDraw()}
  if(d.nbrole){NB.role=d.nbrole;return kDraw()}
  if(d.nbst){NB.stages=NB.stages.includes(d.nbst)?NB.stages.filter(x=>x!==d.nbst):NB.stages.concat(d.nbst);return kDraw()}
@@ -344,7 +344,8 @@ document.addEventListener("click",async e=>{const t=e.target.closest&&e.target.c
  if(d.nbs){NB.strikes=+d.nbs;return kDraw()}
  if(d.kscale){const r=await post("api/containers/scale",{id:d.kscale,replicas:+d.n});if(r.error)toast(r.error);else toast(r.name+": "+r.replicas+" agents");return kCrewLoad()}
  if(d.kfire){const r=await post("api/containers/fire",{session:d.kfire});toast(r.error||"Fired. A new agent is starting.");return kCrewLoad()}
- if(d.crewboxdel){const r=await post("api/containers/delete",{id:d.crewboxdel});toast(r.error||"Container deleted");return kCrewLoad()}});
+ if(d.kclearlessons){const rs=await Promise.all(d.kclearlessons.split(",").map(id=>post("api/containers/lessons/clear",{id})));const bad=rs.find(r=>r.error);toast(bad?bad.error:"Lessons cleared");return kCrewLoad()}
+ if(d.kboxdel){const r=await post("api/containers/delete",{id:d.kboxdel});toast(r.error||"Container deleted");return kCrewLoad()}});
 document.addEventListener("submit",async e=>{if(e.target.id!=="nbox")return;e.preventDefault();NB.name=$("nbname").value.trim();const cur=sess(sel);
  const r=await post("api/containers",{name:NB.name,role:NB.role,stages:NB.stages,replicas:NB.replicas,model:NB.model,maxStrikes:NB.strikes,cwd:cur&&cur.cwd||""});
  if(r.error)return toast(r.error);NB.name="";toast(r.name+" created: starting "+r.replicas+" agents");await post("api/containers/reconcile",{});kCrewLoad()});

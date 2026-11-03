@@ -1278,6 +1278,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (no) return no;
 		const { id, replicas } = await body<{ id?: string; replicas?: number }>(c);
 		if (!Number.isFinite(replicas)) return c.json({ error: "Say how many agents." }, 400);
+		if (!Number.isInteger(Number(replicas)) || Number(replicas) < 0 || Number(replicas) > 10) return c.json({ error: "A container runs 0 to 10 agents." }, 400);
 		const box = patchContainer(String(id), { replicas: Number(replicas), floor: Math.max(0, Math.min(10, Math.round(Number(replicas)))), floorByHand: true, idleSince: undefined, downReason: "Scaled down" });
 		if (!box) return c.json({ error: "That container is gone." }, 404);
 		tick();
