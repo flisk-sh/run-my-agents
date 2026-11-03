@@ -667,8 +667,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
 		// The change itself is the record Test and Review check, not Build's summary of it.
 		const diff = wt && order.base && (order.stage === "test" || order.stage === "review") ? `\n\nThe change to check is \`git -C ${wt} diff ${order.base}\` (plus untracked files in \`git -C ${wt} status\`). Judge it, not the summary above.` : "";
+		// A step sent back in this run is told why, first thing: until now the reason reached Build only mixed into the
+		// container's lessons, if at all (#176).
+		const sentBack = order.rounds > 0 && (order.failures ?? []).slice(order.carried ?? 0).length
+			? `\n\nThis step was sent back. Fix what the last check found:\n${(order.failures ?? []).slice(order.carried ?? 0).slice(-3).map((f) => `- ${f}`).join("\n")}`
+			: "";
 		const lastTime = order.retryOf
-			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
+			? `\n\nThis is the second attempt at #${order.retryOf}, which failed. What went wrong last time, so you do not repeat it:\n${(order.failures ?? []).slice(0, order.carried ?? undefined).map((f) => `- ${f}`).join("\n") || "- (no reason was given)"}`
 			: "";
 		// What got earlier agents in this container fired, in the order itself: a new agent must not need to open the
 		// lessons skill to know it.
@@ -677,7 +682,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const text =
 			order.kind === "question"
 				? `Question #${order.n} from the board: ${order.title}\n\nAnswer it in one short reply. Do not change any files.`
-				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+				: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${sentBack}${lastTime}${known}${fresh}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\nUse these skills: ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 		const context = { ...(wt ? { worktree: wt } : {}), ...(order.base ? { base: order.base } : {}), round: order.rounds ?? 0, records: (["spec", "build", "test"] as const).filter((st) => st !== order.stage && order.notes?.[st]) };
 		return order.kind === "question" ? text : envelope(text, { from: "Orchestrator", to: STAGE_TYPE[order.stage as keyof typeof STAGE_TYPE] ?? order.stage, type: "order", order: order.n, stage: order.stage, expects: verdict ? "verdict" : "record", context });
 	}

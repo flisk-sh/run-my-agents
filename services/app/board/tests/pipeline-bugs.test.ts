@@ -345,4 +345,17 @@ describe("kitchen pipeline bugs", () => {
 		expect(t).toMatchObject({ stage: "done" });
 		expect(t.failed).toBeFalsy();
 	});
+
+	it("#176: the build round after a Test FAIL is told what failed", async () => {
+		let tests = 0;
+		const k = kitchen((text) => (/\(test\)/.test(text) && tests++ === 0 ? "Ran range(1,3): got [1,2].\n\nFAIL: range(1,3) gave [1,2], expected [1,2,3]" : undefined));
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		const { t } = await k.run();
+		const builds = k.said.filter((m) => m.startsWith("Order #1 (build)"));
+		expect(builds.length).toBe(2);
+		// Said as what to fix in this step, not only as a lesson from other orders (the Flisk path passes no lessons).
+		expect(builds[1]).toContain("This step was sent back. Fix what the last check found:\n- test: FAIL: range(1,3) gave [1,2], expected [1,2,3]");
+		expect(builds[0]).not.toContain("range(1,3) gave [1,2]");
+		expect(t.stage).toBe("done");
+	});
 });
