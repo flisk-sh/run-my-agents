@@ -440,7 +440,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				const s = all.find((x) => x.id === t.assignee);
 				const quiet = now - Math.max(t.sentAt, s?.updatedAt ?? 0);
 				// Taken back from a Ship agent too: `shipping` goes, or the next Test agent's PASS is read as the ship's reply (#258).
-				if (quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
+				// An agent the board knows is gone (its pod was fired, evicted or scaled away, or you closed its chat) and that
+				// is not running: back on the belt at once, not after 30 minutes (#174).
+				const gone = readContainers().some((c) => c.pods.some((p) => p.session === t.assignee && p.status === "evicted")) || !!s?.hidden;
+				if ((gone && !(s && k.busy(s))) || quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
 				continue;
 			}
 			const s = all.find((x) => x.id === t.assignee);

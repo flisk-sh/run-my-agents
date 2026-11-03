@@ -224,6 +224,22 @@ describe("agent container bugs", () => {
 		await post("/api/kitchen", { auto: true });
 		expect(readContainers().filter((x) => x.stages.length === 1 && x.stages[0] === "build").map((x) => x.name)).toEqual(["Build · repo"]);
 	});
+
+	it("#174: puts an order back on the belt at once when its agent was fired, not after 30 minutes", async () => {
+		const sessions: Session[] = [];
+		const { post, started } = setup(sessions);
+		await post("/api/containers", { name: "Build · repo", role: "Build", stages: ["build"], replicas: 1, cwd: "/repo" });
+		await post("/api/containers/reconcile", {});
+		const chat = started[0].id as string;
+		sessions.push(session(chat, "Build"));
+		await post("/api/containers/reconcile", {});
+		order({ stage: "build", cwd: "/repo", assignee: chat, sentAt: Date.now() });
+		await post("/api/containers/fire", { session: chat, reason: "Kept editing the wrong repo." });
+		await post("/api/containers/reconcile", {});
+		expect(tasks()[0].assignee).not.toBe(chat);
+		expect(tasks()[0].missedBy).toContain(chat);
+	});
+
 });
 
 // keep imports used
