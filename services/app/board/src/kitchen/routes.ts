@@ -1123,7 +1123,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				did.push(`#${t.n} closed as failed`);
 				const next = followUp(t);
 				if (next) did.push(`#${t.n} followed up as #${next.n}`);
-				else if ((t.failures ?? []).slice(t.carried ?? 0).some((f) => f.startsWith("spec: blocked"))) did.push(`#${t.n} not followed up: Spec blocked it`);
+				else if ((t.failures ?? []).slice(t.carried ?? 0).some((f) => /^(spec|build): blocked/.test(f))) did.push(`#${t.n} not followed up: it was blocked`);
 			}
 		}
 		// With a Flisk kitchen agent there are no container agents to size.
@@ -1369,11 +1369,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * carries what went wrong (each FAIL line) and the old spec. A follow-up that fails too is not followed up again,
 	 * so a hopeless order cannot loop and spend tokens forever. Neither is an order Spec blocked (its file or function
 	 * does not exist, it asks for something the repo is not): asking again only gets an agent to invent the code, the way
-	 * #49 wrote a src/geometry.ts for #48's crash in a file that was never there.
+	 * #49 wrote a src/geometry.ts for #48's crash in a file that was never there. A Build block means the same (#332).
 	 */
 	function followUp(t: Task): Task | undefined {
 		if (t.kind !== "task" || t.retryOf || t.followUp) return undefined;
-		if ((t.failures ?? []).slice(t.carried ?? 0).some((f) => f.startsWith("spec: blocked"))) return undefined;
+		if ((t.failures ?? []).slice(t.carried ?? 0).some((f) => /^(spec|build): blocked/.test(f))) return undefined;
 		const route = t.route;
 		const next = addTask({ title: t.title, cwd: t.cwd, priority: t.priority, skills: t.skills, route, kind: "task", lane: "full", zachman: t.zachman });
 		stock(t.skills, k.fetch);

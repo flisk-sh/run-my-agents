@@ -970,11 +970,15 @@ describe("follow-up on failure", () => {
 		order({ kind: "task", stage: "spec", stuck: true, cwd: "/repo", failures: [blocked] });
 		const did = (await post("/api/kitchen", { auto: true })).body.did;
 		expect(did).toContain("#1 closed as failed");
-		expect(did).toContain("#1 not followed up: Spec blocked it");
+		expect(did).toContain("#1 not followed up: it was blocked");
 		const tasks = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
 		expect(tasks).toHaveLength(1);
 		expect(tasks[0]).toMatchObject({ failed: true });
 		expect(tasks[0].followUp).toBeUndefined();
+		// A Build block is the same (#332).
+		order({ kind: "task", stage: "build", stuck: true, cwd: "/repo", failures: ["build: blocked: neither src/geometry.ts nor area() exists; will not invent it"] });
+		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 not followed up: it was blocked");
+		expect(JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"))).toHaveLength(1);
 		// A block carried from an earlier run does not stop this run's follow-up.
 		order({ kind: "task", stage: "test", stuck: true, cwd: "/repo", carried: 1, failures: [blocked, "test: FAIL: area(-1) threw"] });
 		expect((await post("/api/kitchen", { auto: true })).body.did).toContain("#1 followed up as #2");
