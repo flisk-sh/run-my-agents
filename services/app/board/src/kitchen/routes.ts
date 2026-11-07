@@ -428,6 +428,11 @@ const REVIEW_PR =
 export const MAX_STEP_SKILLS = 6;
 /** Times a spec or build turn may crash before the order is stuck instead of sent again. */
 export const MAX_TURN_CRASHES = 3;
+/** Worktree cleanup is slow git work run on the board's own thread: a few orders per tick, each at most every ten minutes. */
+export const SWEEP = { perTick: 2, retryMs: 10 * 60_000 };
+export function sweepDue<T extends { id: string }>(candidates: T[], checked: Map<string, number>, now: number): T[] {
+	return candidates.filter((t) => now - (checked.get(t.id) ?? 0) >= SWEEP.retryMs).slice(0, SWEEP.perTick);
+}
 /** How long a Flisk turn this board lost track of (a restart) is left alone before it is sent again. */
 export const flight = { graceMs: 5 * 60_000 };
 
@@ -571,10 +576,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (r?.gained.length) stock(r.gained, k.fetch);
 		return r;
 	};
+	/** When each finished order's worktree was last looked at: git on a big repo blocks the board, so each is looked at rarely. */
+	const swept = new Map<string, number>();
 	/** A finished order's worktree goes once its branch is pushed and the tree is clean (#189). */
 	const sweepWorktrees = () => {
-		for (const t of readTasks())
-			if (t.kind === "task" && t.worktree && (t.stage === "done" || t.failed) && !t.assignee && removeOrderWorktree(t.cwd, t.worktree, t.n)) updateTask(t.id, { worktree: undefined });
+		const now = Date.now();
+		const due = sweepDue(readTasks().filter((t) => t.kind === "task" && t.worktree && (t.stage === "done" || t.failed) && !t.assignee), swept, now);
+		for (const t of due) {
+			swept.set(t.id, now);
+			if (removeOrderWorktree(t.cwd, t.worktree as string, t.n)) updateTask(t.id, { worktree: undefined });
+		}
 	};
 	const tick = () => {
 		missed();

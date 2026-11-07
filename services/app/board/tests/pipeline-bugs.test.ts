@@ -631,6 +631,19 @@ describe("kitchen pipeline bugs", () => {
 		expect(seen[1]).toContain("policy");
 	});
 
+	it("#189: the worktree sweep looks at a few orders per tick, and each one rarely, so git never stalls the board", async () => {
+		const { sweepDue, SWEEP } = await import("../src/kitchen/routes");
+		const orders = Array.from({ length: 30 }, (_, i) => ({ id: `o${i}` }));
+		const seen = new Map<string, number>();
+		const first = sweepDue(orders, seen, 1_000_000);
+		expect(first).toHaveLength(SWEEP.perTick);
+		for (const o of first) seen.set(o.id, 1_000_000);
+		const second = sweepDue(orders, seen, 1_003_000);
+		expect(second.map((o) => o.id)).not.toContain(first[0].id);
+		expect(sweepDue(first, seen, 1_003_000)).toEqual([]);
+		expect(sweepDue(first, seen, 1_000_000 + SWEEP.retryMs)).toHaveLength(first.length);
+	});
+
 	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {
 		const { orderWorktree, worktreeError } = await import("../src/kitchen/routes");
 		const { BOARD_FAULT } = await import("../src/kitchen/scores");
