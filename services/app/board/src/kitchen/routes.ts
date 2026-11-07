@@ -221,6 +221,48 @@ export function movableTo(p: string | undefined): boolean {
 }
 
 /**
+ * The branch orders start from and Ship opens pull requests against: origin's default (origin/HEAD, else origin/main,
+ * master or develop); with no remote, the local main, master or develop; HEAD only when the repo has none of them. HEAD
+ * alone carried whatever another session had checked out into the pull request (#188).
+ */
+export function defaultBase(top: string): { name: string; ref: string } {
+	const has = (ref: string) => {
+		try {
+			git(top, ["rev-parse", "--verify", "--quiet", ref]);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+	try {
+		const head = git(top, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+		if (head.startsWith("origin/") && has(head)) return { name: head.slice(7), ref: head };
+	} catch {}
+	for (const name of ["main", "master", "develop"]) if (has(`refs/remotes/origin/${name}`)) return { name, ref: `origin/${name}` };
+	for (const name of ["main", "master", "develop"]) if (has(`refs/heads/${name}`)) return { name, ref: name };
+	return { name: "main", ref: "HEAD" };
+}
+
+/**
+ * Take an order's worktree and local branch away once nothing is lost: the worktree is clean and its commit is on a
+ * remote branch (pushed or merged). A local-only repo keeps it, since the worktree holds the only copy (#189).
+ */
+export function removeOrderWorktree(repoDir: string, wt: string, n: number): boolean {
+	try {
+		if (!isDir(wt) || git(wt, ["status", "--porcelain"])) return false;
+		if (!git(wt, ["branch", "-r", "--contains", "HEAD"])) return false;
+		const top = git(repoDir, ["rev-parse", "--show-toplevel"]);
+		git(top, ["worktree", "remove", wt]);
+		try {
+			git(top, ["branch", "-D", `kitchen/order-${n}`]);
+		} catch {}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * The order's own git worktree, made by the board (agents skipped the step when asked to): <repo>/.kitchen/
  * order-<n> on branch kitchen/order-<n>, from origin/main (or HEAD when the repo has no remote). Every agent on the
  * order starts its chat there, so no edit lands in the shared checkout, Review sees only this order's diff, and Ship
@@ -264,7 +306,7 @@ export function orderWorktree(cwd: string, n: number): string | undefined {
 				return false;
 			}
 		};
-		git(top, ["worktree", "add", path, ...(has(`refs/heads/${branch}`) ? [branch] : ["-b", branch, has("origin/main") ? "origin/main" : "HEAD"])]);
+		git(top, ["worktree", "add", path, ...(has(`refs/heads/${branch}`) ? [branch] : ["-b", branch, defaultBase(top).ref])]);
 		worktreeErrors.delete(cwd);
 		return path;
 	} catch (e) {
@@ -522,9 +564,15 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (r?.gained.length) stock(r.gained, k.fetch);
 		return r;
 	};
+	/** A finished order's worktree goes once its branch is pushed and the tree is clean (#189). */
+	const sweepWorktrees = () => {
+		for (const t of readTasks())
+			if (t.kind === "task" && t.worktree && (t.stage === "done" || t.failed) && !t.assignee && removeOrderWorktree(t.cwd, t.worktree, t.n)) updateTask(t.id, { worktree: undefined });
+	};
 	const tick = () => {
 		missed();
 		auto();
+		sweepWorktrees();
 		const holding = new Set(readTasks().filter((t) => t.assignee && t.stage !== "done").map((t) => t.assignee));
 		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close, name: k.name, type: k.type, holding });
 	};
@@ -1136,7 +1184,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			const branch = `kitchen/order-${t.n}`;
 			const how = t.pr
 				? `commit any new change with \`git commit -s\` and a short conventional message, and push the branch: pull request ${t.pr} updates by itself. Reply with its URL.`
-				: `commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base main --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".`;
+				: `commit every change with \`git commit -s\` and a short conventional message, push the branch, and open a pull request with \`gh pr create --base ${defaultBase(t.worktree).name} --fill\`. Reply with the pull request URL. If there is nothing to commit, reply "No changes to ship".`;
 			const shipText = envelope(`Ship order #${t.n}: ${t.title}\n\nYou are in this order's worktree: ${t.worktree} (branch ${branch}). In that worktree: ${how}\n\n${ADDRESS}${t.notes?.build ? `\n\nFrom the Build agent:\n${t.notes.build}` : ""}`, { from: "Orchestrator", to: "Ship", type: "order", order: t.n, stage: "ship", expects: "pr", context: { worktree: t.worktree, ...(t.base ? { base: t.base } : {}), round: t.rounds ?? 0, records: t.notes?.build ? ["build"] : [] } });
 			const call = agent();
 			if (call) {

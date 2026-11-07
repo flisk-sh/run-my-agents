@@ -486,6 +486,48 @@ describe("kitchen pipeline bugs", () => {
 		expect(calls[1]).not.toContain("--add-dir");
 	});
 
+	it("#188: an order branches from the repo's default branch, not the shared checkout's HEAD", async () => {
+		const { orderWorktree, defaultBase } = await import("../src/kitchen/routes");
+		const r = repo(false);
+		const g = (...a: string[]) => execFileSync("git", ["-C", r, ...a], { encoding: "utf8" }).trim();
+		g("branch", "-m", "master");
+		g("checkout", "-q", "-b", "someone-elses-work");
+		writeFileSync(join(r, "other.ts"), "export const other = 1;\n");
+		g("add", ".");
+		g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "other session");
+		expect(defaultBase(r)).toEqual({ name: "master", ref: "master" });
+		const wt = orderWorktree(r, 3) as string;
+		expect(existsSync(join(wt, "other.ts"))).toBe(false);
+		// A remote with a default branch that is not main: that is the base, and the name Ship opens its pull request against.
+		const r2 = repo(true);
+		const g2 = (...a: string[]) => execFileSync("git", ["-C", r2, ...a], { encoding: "utf8" }).trim();
+		g2("branch", "-m", "develop");
+		g2("update-ref", "refs/remotes/origin/develop", "HEAD");
+		g2("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop");
+		expect(defaultBase(r2)).toEqual({ name: "develop", ref: "origin/develop" });
+	});
+
+	it("#189: a finished order's worktree and branch go once the branch is pushed; unpushed work stays", async () => {
+		const { orderWorktree, removeOrderWorktree } = await import("../src/kitchen/routes");
+		const r = repo(true);
+		const g = (...a: string[]) => execFileSync("git", ["-C", r, ...a], { encoding: "utf8" }).trim();
+		const wt = orderWorktree(r, 5) as string;
+		expect(removeOrderWorktree(r, wt, 5)).toBe(false); // nothing pushed yet
+		writeFileSync(join(wt, "new.ts"), "export const x = 1;\n");
+		expect(removeOrderWorktree(r, wt, 5)).toBe(false); // dirty
+		execFileSync("git", ["-C", wt, "add", "."], { stdio: "ignore" });
+		execFileSync("git", ["-C", wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x"], { stdio: "ignore" });
+		g("update-ref", "refs/remotes/origin/kitchen/order-5", "kitchen/order-5"); // as if pushed
+		expect(removeOrderWorktree(r, wt, 5)).toBe(true);
+		expect(existsSync(wt)).toBe(false);
+		expect(g("branch", "--list", "kitchen/order-5")).toBe("");
+		// A local-only repo keeps its worktree: it holds the only copy.
+		const local = repo(false);
+		const lw = orderWorktree(local, 6) as string;
+		expect(removeOrderWorktree(local, lw, 6)).toBe(false);
+		expect(existsSync(lw)).toBe(true);
+	});
+
 	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {
 		const { orderWorktree, worktreeError } = await import("../src/kitchen/routes");
 		const { BOARD_FAULT } = await import("../src/kitchen/scores");
