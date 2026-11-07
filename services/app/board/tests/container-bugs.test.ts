@@ -202,6 +202,21 @@ describe("agent container bugs", () => {
 		const r = await post("/api/containers/scale", { id: box?.id, replicas: 1 });
 		expect(r.body.replicas).toBe(1);
 	});
+	it("#92: a stage scaled to 0 by hand still gets one agent while an order waits, and a hand size above 0 holds", async () => {
+		const { post } = setup([]);
+		const t = task({ stage: "build", cwd: "/work/app", title: "add search filters to the sessions list with saved views" });
+		writeFileSync(join(dir, "tasks.json"), JSON.stringify([0, 1, 2].map((i) => ({ ...t, id: `t${i}`, n: i + 1 }))));
+		await post("/api/kitchen", { auto: true });
+		const box = readContainers().find((x) => x.name === "Build · app");
+		await post("/api/containers/scale", { id: box?.id, replicas: 0 });
+		await post("/api/kitchen", { auto: true });
+		expect(readContainers().find((x) => x.id === box?.id)?.replicas).toBe(1);
+		// With nothing waiting, a 0 set by hand stays 0.
+		writeFileSync(join(dir, "tasks.json"), "[]");
+		await post("/api/containers/scale", { id: box?.id, replicas: 0 });
+		await post("/api/kitchen", { auto: true });
+		expect(readContainers().find((x) => x.id === box?.id)?.replicas).toBe(0);
+	});
 	it("#244: keeps a ready agent that has been quiet for an hour instead of evicting and rebooting it", async () => {
 		const sessions: Session[] = [];
 		const { post, started } = setup(sessions);

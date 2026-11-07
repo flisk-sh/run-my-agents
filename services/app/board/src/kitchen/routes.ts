@@ -60,18 +60,38 @@ const handOff = (s: Session | undefined) => {
 		.join("\n\n");
 };
 
-/** The reason, when a reply's last line is a FAIL line ("FAIL: the decision that is missing: …"). */
-export function endsInFail(text: string): string | undefined {
-	const last = text.split("\n").map((l) => l.replace(/[*_`>#]/g, "").trim()).filter(Boolean).at(-1) ?? "";
-	// A verdict-style line only ("FAIL: …", "FAIL — …", "Verdict: FAIL: …"), not a test runner's "FAIL src/x.test.ts".
-	// #72's spec ended "Verdict: FAIL: …" and went on to Build (#327).
-	const m = /^(?:(?:verdict|result)\s*:\s*)?FAIL\s*[:—–-]\s*/i.exec(last);
-	return m && /FAIL/.test(m[0]) ? last.slice(m[0].length) || last : undefined;
+const plainLines = (text: string) => text.split("\n").map((l) => l.replace(/[*_`>#]/g, "").trim()).filter(Boolean);
+/** The reason in a verdict-style FAIL line ("FAIL: …", "FAIL — …", "Verdict: FAIL: …"), not a runner's "FAIL src/x.test.ts". */
+function failReason(line: string): string | undefined {
+	const m = /^(?:(?:verdict|result)\s*:\s*)?FAIL\s*[:—–-]\s*/i.exec(line);
+	return m && /FAIL/.test(m[0]) ? line.slice(m[0].length) || line : undefined;
 }
 
-/** The line that says FAIL and why, without markdown, for a lesson. */
+/** The reason, when a reply's last line is a FAIL line ("FAIL: the decision that is missing: …"). */
+export function endsInFail(text: string): string | undefined {
+	// #72's spec ended "Verdict: FAIL: …" and went on to Build (#327).
+	return failReason(plainLines(withoutRecord(text)).at(-1) ?? "");
+}
+
+/**
+ * A spec that refuses: a FAIL line at its end, or at its start. A spec never writes FAIL first and then a spec, but
+ * order #72's opened "FAIL: src/geometry.ts and its area() function do not exist", went on to Build, and was followed up
+ * three times. (Build may say FAIL early and then fix it, so this is for specs only.)
+ */
+export function specRefuses(text: string): string | undefined {
+	const lines = plainLines(withoutRecord(text));
+	return failReason(lines.at(-1) ?? "") ?? failReason(lines[0] ?? "");
+}
+
+/**
+ * The line that says FAIL and why, without markdown, for a lesson. A verdict record gives its evidence: lessons used to
+ * read `test: {"verdict": "FAIL", "evidence": "Ran bun install…` cut mid-word, and that was what Build was told (#89).
+ */
 export function failLine(text: string): string {
-	const lines = text.split("\n").map((l) => l.replace(/[*_`>#]/g, "").trim()).filter(Boolean);
+	const rec = recordIn(text);
+	if (rec?.verdict === "FAIL") return clip(`FAIL: ${rec.evidence ?? "no evidence given"}`);
+	if (rec?.blocked) return clip(`FAIL: ${rec.blocked}`);
+	const lines = plainLines(withoutRecord(text));
 	const i = lines.map((l) => /\bFAIL\b/.test(l)).lastIndexOf(true);
 	if (i < 0) return "";
 	const line = lines[i].length < 40 && lines[i + 1] ? `${lines[i]} ${lines[i + 1]}` : lines[i];
@@ -339,7 +359,7 @@ export function whereOf(title: string, cwd: string, folders: string[]): string {
  * change against the spec, and never FAIL an order for being vague, since nobody is there to answer questions.
  */
 export const STAGE_BRIEF = {
-	spec: "Write the spec the next agents will build, test and review from. Build, Test and Review run on Haiku at low effort, read nothing but your reply, and follow it literally: anything you leave out, they guess. So read the code first (open the files, find the functions, run the failing test if there is one) and write what you found, not what the order says. Detailed beats short: a good spec is 60 to 150 lines. Use these sections, in this order, each with a markdown heading:\n## Goal: one or two sentences on the outcome.\n## Why: the user-visible problem, inferred if the order does not say.\n## Current behaviour: what the code does today, with file:line references (src/x.ts:42) and the few lines of code that cause it, quoted in a code block.\n## Baseline: the exact commands to set up and run the relevant tests (install, test, lint, typecheck) and what they print before the change, naming every test that already fails.\n## Acceptance checks: 3 to 6 numbered checks (AC-1, AC-2, ...), each with the exact command or the file:line to read and the exact expected result (output, return value, text). Checks are about this change (its new tests pass, no test that passed before fails), never 'the whole suite passes' when a test already fails before the change.\n## Files to change: each file named relative to the repo root (src/x.ts), never by an absolute path, with the function and line range and one line on what changes there. Also name files that must NOT change.\n## Steps: a numbered list of 3 to 8 small steps. Each names the exact file, the function or line, shows the code to write (the new lines, or before and after) in a code block, and ends with the command that proves it (bun test tests/x.test.ts) and what it should print. No step may say 'investigate', 'consider', 'as needed', 'if necessary' or 'appropriate'. New tests are written out in full: test name, input, expected value.\n## Out of scope: what not to touch or create.\n## Assumptions: each choice you made instead of asking.\nIf the order asks to fix or change a file, function or behaviour that does not exist in this repo, do not create it: end with one line 'FAIL: <what the order names that does not exist>'. An order to add something new is built as usual. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. For an order that asks for analysis, research, a brainstorm or a document, the spec lists the claims the document must make and, for each, where it is checked (a file:line in this repo, a command, or a URL); it never tells Build to transcribe or guess a fact. Do not change code. Put the whole spec in your reply and do not write it to a file: the next agents only get your reply (a SPEC_ORDER_25.md in the shared checkout reached nobody). Never squeeze the spec into the record's \"handoff\" field: it is at most a one-line summary, and the spec itself is your reply.",
+	spec: "Write the spec the next agents will build, test and review from. Build, Test and Review run on Haiku at low effort, read nothing but your reply, and follow it literally: anything you leave out, they guess. So read the code first (open the files, find the functions, run the failing test if there is one) and write what you found, not what the order says. Detailed beats short: a good spec is 60 to 150 lines. Use these sections, in this order, each with a markdown heading:\n## Goal: one or two sentences on the outcome.\n## Why: the user-visible problem, inferred if the order does not say.\n## Current behaviour: what the code does today, with file:line references (src/x.ts:42) and the few lines of code that cause it, quoted in a code block.\n## Baseline: the exact commands to set up and run the relevant tests (install, test, lint, typecheck) and what they print before the change, naming every test that already fails.\n## Acceptance checks: 3 to 6 numbered checks (AC-1, AC-2, ...), each with the exact command or the file:line to read and the exact expected result (output, return value, text). Checks are about this change (its new tests pass, no test that passed before fails), never 'the whole suite passes' when a test already fails before the change.\n## Files to change: each file named relative to the repo root (src/x.ts), never by an absolute path, with the function and line range and one line on what changes there. Also name files that must NOT change.\n## Steps: a numbered list of 3 to 8 small steps. Each names the exact file, the function or line, shows the code to write (the new lines, or before and after) in a code block, and ends with the command that proves it (bun test tests/x.test.ts) and what it should print. No step may say 'investigate', 'consider', 'as needed', 'if necessary' or 'appropriate'. New tests are written out in full: test name, input, expected value.\n## Out of scope: what not to touch or create.\n## Assumptions: each choice you made instead of asking.\nIf the order asks to fix or change a file, function or behaviour that does not exist in this repo, do not create it and write no spec: end with ```kitchen\n{\"blocked\": \"<what the order names that does not exist>\"}\n```. An order to add something new is built as usual. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. For an order that asks for analysis, research, a brainstorm or a document, the spec lists the claims the document must make and, for each, where it is checked (a file:line in this repo, a command, or a URL); it never tells Build to transcribe or guess a fact. Do not change code. Put the whole spec in your reply and do not write it to a file: the next agents only get your reply (a SPEC_ORDER_25.md in the shared checkout reached nobody). Never squeeze the spec into the record's \"handoff\" field: it is at most a one-line summary, and the spec itself is your reply.",
 	build: "The spec already read the code and lists every step: do not re-read the order's issue, search the repo, or run the whole test suite. Do the spec's Steps in order, run only the commands it names (install once, if it says to), and finish. Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. Edit files only by paths inside this worktree; never use the absolute path of the repo it came from. End with the files you changed and how to check the change. If the order needs no file change, never invent one (a version bump, a changelog line, a notes file): reply with one line starting with FAIL that says why.",
 	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. The check is the spec's acceptance checks plus the tests of the files the diff touches: run those commands and read the diff with the lines around it. That is the whole job: do not explore the rest of the repo, re-run what already answered, or edit files in the worktree. If no test covers the change, try it once from a throwaway script in /tmp, never in the worktree. PASS when the checks hold. FAIL only for a concrete defect this change caused: say what you ran, what you expected and what you got. A test that already fails on the branch the change started from (check with git stash, or on that branch) is not this change's defect: name it and PASS. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval. When the change is a document (markdown, docs, a README), open every file the change touches and read it whole. Check each fact it states against the repo (every file, function, flag and command it names must exist; run the command), and FAIL on an invented or unverifiable fact, a number with no source, text that contradicts itself or another part of the change, or a garbled or unfinished sentence. Say which line and what you found.",
 	review: "The change is in this order's worktree (branch kitchen/order-{n}). Read only its diff (git diff against the branch it started from) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. Read the diff as a maintainer who will be blamed for it: judge it against the order itself, not only the spec (a spec can be wrong), and check its claims against the code and sources, not against the spec. FAIL on an invented or unverifiable fact, a claim that contradicts the repo's own rules (AGENTS.md), a section that is nonsense or cut off, an effort or ranking the evidence does not support, or work the order did not ask for. Loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
@@ -556,7 +576,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const fits = stage === "build" ? [order.route, ...STAGE_ROLES.build.filter((r) => r !== order.route)] : STAGE_ROLES[stage];
 		if (podsOnly) {
 			if (pod) return { session: pod, why: "" };
-			return { why: boxes.length ? "Its container agents are busy. It goes to the first one that finishes." : `No agent container cooks ${order.stage === "inbox" ? "spec" : order.stage}. Add one on the Crew tab, or drop the order on an agent to use that chat.` };
+			const sized = boxes.filter((x) => x.replicas > 0);
+			return { why: boxes.length && !sized.length ? `${boxes.map((x) => x.name).join(", ")} has no agents (size 0). Raise it on the Crew tab.` : boxes.length ? "Its container agents are busy. It goes to the first one that finishes." : `No agent container cooks ${order.stage === "inbox" ? "spec" : order.stage}. Add one on the Crew tab, or drop the order on an agent to use that chat.` };
 		}
 		const session = pod ?? fits.map((r) => all.find((x) => x.role === r && free(x))).find(Boolean) ?? all.find(free);
 		if (session) return { session, why: "" };
@@ -1237,7 +1258,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// can decide, and those specs went on to Build (#257).
 			// Ship's records count too: a Ship that said it was blocked was read as "no pull request" and sent back to Test,
 			// and its ask was never answered (#250).
-			const stop = s ? (recordIn(handOff(s))?.blocked ?? (!t.shipping && (t.stage === "spec" || t.stage === "build") ? endsInFail(handOff(s)) : undefined)) : undefined;
+			const stop = s ? (recordIn(handOff(s))?.blocked ?? (!t.shipping && t.stage === "spec" ? specRefuses(handOff(s)) : !t.shipping && t.stage === "build" ? endsInFail(handOff(s)) : undefined)) : undefined;
 			if (stop) {
 				updateTask(t.id, { ...keep(t, s), stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), `${t.stage}: blocked: ${stop}`.slice(0, 300)].slice(-6) });
 				did.push(`#${t.n} ${t.stage} blocked: ${stop.slice(0, 60)}`);
@@ -1381,6 +1402,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				if (want > box.replicas && !box.floorByHand) {
 					patchContainer(box.id, { replicas: want, downReason: undefined });
 					did.push(`${box.name}: ${box.replicas} → ${want} agents`);
+				} else if (box.floorByHand && box.replicas === 0 && waiting) {
+					// A size set by hand holds, but 0 with orders waiting strands them for good: #92-#94 waited in Spec with
+					// "agents are busy" while Spec · kitchen-practice had been scaled to 0 on the Crew tab. One agent serves them.
+					patchContainer(box.id, { replicas: 1, downReason: undefined });
+					did.push(`${box.name}: set to 0 by hand, 1 agent for the ${waiting} waiting order${waiting > 1 ? "s" : ""}`);
 				}
 			}
 		}

@@ -4,7 +4,7 @@ import { attachedBlock, isBucket, ownFiles, uploadDir } from "./uploads";
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pr } from "./desktop";
-import { mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { Hono } from "hono";
@@ -382,13 +382,17 @@ const MODELS = ["opus", "sonnet", "haiku"];
  * The kitchen's front desk: one short Claude call on Haiku at low effort that answers a question. It runs with no
  * session saved, no tools, no project settings and gives up after 90 seconds (about 6 s for a simple question).
  */
-const FRONT_DESK_PROMPT = "You are the front desk of a team of coding agents. Answer the user's question in one or two short sentences. When you have web search, use it for anything that needs live information and name the source. If it needs code changes, say it should be sent as a task.";
+const FRONT_DESK_PROMPT = "You are the front desk of a team of coding agents. Answer the user's question in one or two short sentences. A question about the project (its code, \"this repo\") is answered from its files: read them with Read, Grep and Glob, never from the web. When you have web search, use it for anything that needs live information and name the source. If it needs code changes, say it should be sent as a task.";
 
 export function askHaiku(question: string, cwd: string, run = spawn, web = false, skills = "", system = FRONT_DESK_PROMPT): Promise<string> {
 	return new Promise((resolveAsk, reject) => {
 		// A clean, light start: no project folder, settings, MCP servers or skills, and its own short system prompt,
 		// so it answers in seconds as the front desk instead of as whatever agent the folder describes.
-		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(web ? ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch,WebFetch"] : ["--tools", ""]), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", system, ...(skills ? ["--append-system-prompt", skills] : [])], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: agentEnv() });
+		// Read-only tools on the question's own folder: "what does sum([]) return in this repo?" was answered by searching
+		// GitHub for a public repo of that name (#95), because the desk could read nothing on this computer.
+		const local = cwd && existsSync(cwd) ? ["Read", "Grep", "Glob"] : [];
+		const tools = [...(web ? ["WebSearch", "WebFetch"] : []), ...local].join(",");
+		const child = run("claude", ["-p", "--model", "haiku", "--effort", "low", "--no-session-persistence", ...(tools ? ["--tools", tools, "--allowedTools", tools] : ["--tools", ""]), ...(local.length ? ["--add-dir", cwd] : []), "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", system, ...(skills ? ["--append-system-prompt", skills] : [])], { cwd: tmpdir(), stdio: ["pipe", "pipe", "ignore"], env: agentEnv() });
 		let out = "";
 		const timer = setTimeout(() => child.kill("SIGTERM"), web ? 120_000 : 90_000);
 		child.stdout?.on("data", (d) => {

@@ -447,6 +447,45 @@ describe("kitchen pipeline bugs", () => {
 		expect(STAGE_BRIEF.spec).toContain("Never squeeze the spec into the record's");
 	});
 
+	it("#72: a spec that opens with FAIL is blocked, not sent to Build, and a FAIL record names its evidence, not its JSON", async () => {
+		const { specRefuses, endsInFail, failLine } = await import("../src/kitchen/routes");
+		expect(specRefuses("FAIL: src/geometry.ts and its area() function do not exist in this repo.\n\nIf the intent is to ADD a circle area function, reorder.")).toBe("src/geometry.ts and its area() function do not exist in this repo.");
+		expect(specRefuses("## Goal\nAdd product.\n\n## Acceptance checks\n1. FAIL: none expected")).toBeUndefined();
+		expect(specRefuses('Looked.\n\n```kitchen\n{"handoff": "x"}\n```\nFAIL: nothing to change')).toBe("nothing to change");
+		// Build may say FAIL first and then fix it.
+		expect(endsInFail("FAIL: early\nThen I fixed it. Changed math.ts.")).toBeUndefined();
+		const reply = 'Ran it.\n\n```kitchen\n{"verdict": "FAIL", "evidence": "bun test tests/up.test.ts: crashed containers show starting, expected failed"}\n```';
+		expect(failLine(reply)).toBe("FAIL: bun test tests/up.test.ts: crashed containers show starting, expected failed");
+		expect(failLine('```kitchen\n{"blocked": "src/geometry.ts does not exist"}\n```')).toBe("FAIL: src/geometry.ts does not exist");
+	});
+
+	it("#72: the spec brief asks for a blocked record when the order's target does not exist", async () => {
+		const { STAGE_BRIEF } = await import("../src/kitchen/routes");
+		expect(STAGE_BRIEF.spec).toContain('do not create it and write no spec: end with ```kitchen\n{"blocked": ');
+	});
+
+	it("#95: the front desk can read the question's own folder, so 'this repo' is answered from its files, not the web", async () => {
+		const { askHaiku } = await import("../src/index");
+		const { EventEmitter } = await import("node:events");
+		const calls: string[][] = [];
+		const run = ((_cmd: string, args: string[]) => {
+			calls.push(args);
+			const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stdin: { end: () => {} }, kill: () => {} });
+			setTimeout(() => {
+				child.stdout.emit("data", "0");
+				child.emit("close", 0);
+			}, 1);
+			return child;
+		}) as unknown as typeof import("node:child_process").spawn;
+		await askHaiku("what does sum([]) return in this repo?", dir, run, true);
+		const a = calls[0];
+		expect(a[a.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch,Read,Grep,Glob");
+		expect(a[a.indexOf("--add-dir") + 1]).toBe(dir);
+		await askHaiku("weather in London?", "", run, true);
+		expect(calls[1][calls[1].indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
+		expect(calls[1]).not.toContain("--add-dir");
+	});
+
 	it("#187: a build round that changes nothing after Ship committed the last one is caught", async () => {
 		let builds = 0;
 		let reviews = 0;
