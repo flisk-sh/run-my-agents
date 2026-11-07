@@ -36,7 +36,7 @@ type Reply = (text: string, cwd: string) => string | undefined;
  * The scripted kitchen. `over` answers first (undefined falls through to the good agent). `drop` makes a start fail:
  * the chat never appears on the board, the way a claude that cannot log in leaves no session.
  */
-function kitchen(over: Reply = () => undefined, opts: { drop?: (text: string) => boolean; hang?: (text: string) => boolean; mode?: { build: "fix" | "nothing" } } = {}) {
+function kitchen(over: Reply = () => undefined, opts: { drop?: (text: string) => boolean; hang?: (text: string) => boolean; mode?: { build: "fix" | "nothing" }; agent?: import("../src/kitchen/routes").AgentCall } = {}) {
 	const mode = opts.mode ?? { build: "fix" };
 	const good: Reply = (text, cwd) => {
 		if (/^You are a \w+ agent/.test(text)) return "ready";
@@ -83,6 +83,7 @@ function kitchen(over: Reply = () => undefined, opts: { drop?: (text: string) =>
 				talk(s, n.text);
 			},
 			fetch: (async () => new Response("---\nname: x\n---\n")) as unknown as typeof fetch,
+			...(opts.agent ? { agent: opts.agent } : {}),
 		},
 	);
 	const post = async (path: string, body: object) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
@@ -526,6 +527,33 @@ describe("kitchen pipeline bugs", () => {
 		const lw = orderWorktree(local, 6) as string;
 		expect(removeOrderWorktree(local, lw, 6)).toBe(false);
 		expect(existsSync(lw)).toBe(true);
+	});
+
+	it("#262: a Flisk spec turn that keeps crashing is stuck with the error, not sent again for ever", async () => {
+		let calls = 0;
+		const k = kitchen(() => undefined, { agent: async (session) => { if (session.includes("order-1-")) calls++; throw new Error("agent down"); } });
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run(15, () => !!k.tasks()[0].stuck);
+		for (let i = 0; i < 5; i++) await k.tick();
+		expect(k.tasks()[0].stuck).toBe(true);
+		expect(calls).toBeLessThanOrEqual(3);
+		expect(k.tasks()[0].failures.at(-1)).toContain("agent down");
+	});
+
+	it("#263: a Flisk build that says it is blocked keeps its reason and is not nudged to change something", async () => {
+		const seen: string[] = [];
+		const k = kitchen(() => undefined, {
+			agent: async (_s, turn) => {
+				seen.push(turn.input);
+				if (/\(spec\)/.test(turn.input)) return "Goal: range includes its end.\nChecks: range(1,3) is [1,2,3].";
+				return 'I cannot do this.\n\n```kitchen\n{"blocked": "the spec names a file that does not exist"}\n```';
+			},
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run(25, () => !!k.tasks()[0].stuck);
+		const t = k.tasks()[0];
+		expect(t.failures.at(-1)).toContain("blocked: the spec names a file that does not exist");
+		expect(seen.some((x) => x.includes("left no changes"))).toBe(false);
 	});
 
 	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {

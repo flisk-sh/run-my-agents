@@ -425,6 +425,8 @@ const REVIEW_PR =
 
 /** The most skills one step's brief offers, besides its lessons. */
 export const MAX_STEP_SKILLS = 6;
+/** Times a spec or build turn may crash before the order is stuck instead of sent again. */
+export const MAX_TURN_CRASHES = 3;
 
 const lastSaid = (s: Session | undefined) => {
 	const m = s?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
@@ -1037,9 +1039,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			}
 			// A build that changed nothing is asked once more, then fails; Test never gets an empty branch.
 			const wt = readTasks().find((x) => x.id === id)?.worktree;
-			if (stage === "build" && wt && isDir(wt) && !worktreeChanged(wt, (() => { const x = readTasks().find((y) => y.id === id); return x?.roundBase ?? x?.base; })())) {
+			// A build that says it is blocked gives its reason first: nudging it to change something loses the reason (#263).
+			if (stage === "build" && !recordIn(reply)?.blocked && wt && isDir(wt) && !worktreeChanged(wt, (() => { const x = readTasks().find((y) => y.id === id); return x?.roundBase ?? x?.base; })())) {
 				reply = await turn(sid, envelope(NO_CHANGES, { from: "Orchestrator", to: asker, type: "nudge", order: t0.n, stage, expects: "record" }));
-				if (!worktreeChanged(wt, (() => { const x = readTasks().find((y) => y.id === id); return x?.roundBase ?? x?.base; })())) {
+				if (!recordIn(reply)?.blocked && !worktreeChanged(wt, (() => { const x = readTasks().find((y) => y.id === id); return x?.roundBase ?? x?.base; })())) {
 					const cur = readTasks().find((x) => x.id === id);
 					const why = `build: no changes made in the worktree. ${failLine(reply) || reply.split("\n").filter(Boolean).at(-1) || ""}`.slice(0, 300);
 					fliskReplies.set(who, reply);
@@ -1067,7 +1070,11 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (stage === "test" || stage === "review") {
 				fliskReplies.set(who, msg);
 				serve(id, false);
-			} else updateTask(id, { assignee: "", sentAt: 0, failures: [...(cur.failures ?? []), `${stage}: ${msg}`].slice(-6) });
+			} else {
+				// Back on the belt, but not for ever: after MAX_TURN_CRASHES of them the order is stuck with the error (#262).
+				const crashes = (cur.failures ?? []).filter((f) => f.startsWith(`${stage}: FAIL: the Flisk kitchen agent could not run`)).length + 1;
+				updateTask(id, { assignee: "", sentAt: 0, ...(crashes >= MAX_TURN_CRASHES ? { stuck: true } : {}), failures: [...(cur.failures ?? []), `${stage}: ${msg}`].slice(-6) });
+			}
 			return;
 		}
 		fliskReplies.set(who, reply);
