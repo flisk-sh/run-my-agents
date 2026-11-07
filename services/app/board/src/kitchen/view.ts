@@ -107,6 +107,7 @@ export const KITCHEN_CSS = String.raw`
 .card{overflow-wrap:anywhere;min-width:0;background:#1c1c28;border-radius:var(--r-chip);padding:7px;font-size:12px;cursor:grab;display:grid;gap:4px;box-shadow:inset 0 0 0 1px var(--line)}
 .card.stuck{box-shadow:inset 0 0 0 1px #ef4444}.card small{color:var(--muted);font:10px var(--mono)}
 .knote{color:var(--muted);font-size:11.5px;max-width:80ch}
+.blk{background:#12121a;border-radius:var(--r-row);padding:8px;display:flex;flex-direction:column;gap:6px;box-shadow:inset 0 0 0 1px #92400e;margin-bottom:8px}.blk h4{margin:0;font:700 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:#fbbf24;display:flex;justify-content:space-between}.blk .card{cursor:pointer}.blk .card b{color:#fbbf24;font-weight:600}@media (max-width:520px){.lanes{grid-template-columns:repeat(6,minmax(180px,1fr))}}
 `;
 
 export const KITCHEN_HTML = String.raw`<div class="ktabs" id="ktabs"></div><div id="kview" hidden></div>`;
@@ -359,7 +360,12 @@ document.addEventListener("click",async e=>{const t=e.target.closest&&e.target.c
 document.addEventListener("submit",async e=>{if(e.target.id!=="nbox")return;e.preventDefault();NB.name=$("nbname").value.trim();const cur=sess(sel);
  const r=await post("api/containers",{name:NB.name,role:NB.role,stages:NB.stages,replicas:NB.replicas,model:NB.model,maxStrikes:NB.strikes,cwd:cur&&cur.cwd||""});
  if(r.error)return toast(r.error);NB.name="";toast(r.name+" created: starting "+r.replicas+" agents");await post("api/containers/reconcile",{});kCrewLoad()});
-function kLanes(){return H(Frag,null,kAdd(),H("div",{class:"lanes"},KD.stages.map(st=>{const ts=KD.tasks.filter(t=>t.stage===st);
+function kBlocked(){const bl=KD.tasks.filter(t=>t.blocked);if(!bl.length)return null;
+ return H("div",{class:"blk"},H("h4",null,"Blocked on",H("span",null,bl.length)),bl.map(t=>H("div",{key:t.id,class:"card","data-kblk":t.id,title:t.blocked.session?"Open the chat it waits on":"Open the order"},
+  H("span",null,H("span",{class:"pri "+t.priority},t.priority)," #"+t.n+" "+t.title),
+  H("small",null,(sess(t.assignee)||{role:STN[t.stage]}).role+" waits on ",H("b",null,t.blocked.on)),
+  H("small",null,"⏱ waited "+kDur(Date.now()-t.blocked.since)))))}
+function kLanes(){return H(Frag,null,kAdd(),kBlocked(),H("div",{class:"lanes"},KD.stages.map(st=>{const ts=KD.tasks.filter(t=>t.stage===st);
  return H("div",{key:st,class:"lane"+(st==="build"?" gap":""),"data-klane":st},H("h4",null,STN[st],H("span",null,ts.length)),ts.map(t=>{const s=sess(t.assignee),tm=kTimes(t);
   return H("div",{key:t.id,class:"card"+(t.stuck||t.failed?" stuck":""),draggable:"true","data-kid":t.id},
    H("span",null,H("span",{class:"pri "+t.priority},t.priority)," #"+t.n+" "+t.title),
@@ -375,8 +381,9 @@ function setPass(){}
 async function kServe(t,pass){
  const r=await post("api/tasks/serve",{id:t.id,pass,stage:t.stage,assignee:t.assignee||""});if(r.error)toast(r.error);else toast(pass===false?(r.stuck?"#"+t.n+" is stuck: look at it":"#"+t.n+" back to build"):"#"+t.n+" → "+STN[r.stage]);kLoad()}
 async function kGo(id,session){const r=await post("api/tasks/dispatch",session?{id,session}:{id});if(r.error)toast(r.error);else toast("#"+r.n+" sent to "+((sess(r.assignee)||{}).role||"an agent"));kLoad()}
-document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-krequeue],[data-kapproveall],[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
+document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-krequeue],[data-kapproveall],[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen],[data-kblk]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
  if(d.ktab){ktab=d.ktab;if(ktab==="scores")kScoreLoad();if(ktab==="crew")kCrewLoad();try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}
+ if(d.kblk){const bt=find(d.kblk)||{},sid=(bt.blocked||{}).session||bt.assignee;if(sid&&sess(sid)){sel=sid;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}else toast("No chat to open: this order waits on you");return}
  if(d.kgo)return kGo(d.kgo);
  if(d.kserve){const t=find(d.kserve);if(t)return kServe(t,true)}
  if(d.kfail){const t=find(d.kfail);if(t)return kServe(t,false)}

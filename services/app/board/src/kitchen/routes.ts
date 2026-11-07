@@ -9,6 +9,7 @@ import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
+import { blockedOn } from "./blocked";
 import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, retireLessons, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
 import { addTask, beltOrder, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
@@ -805,6 +806,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				assigneeLabel: getAssigneeLabel(t),
 				pickedUpAt: t.sentAt || undefined,
 				stuckWarning: hasStuckWarning(t),
+				blocked: blockedOn(t),
 				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
 				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? (settings().auto ? "Spec done: crossing the pass." : "Waiting at the pass for your approval.") : t.skills.some((n) => skillState(n) === "get" || skillState(n) === "miss") ? "Installing its skills." : pick(t, settings().auto).why,
 			})),
