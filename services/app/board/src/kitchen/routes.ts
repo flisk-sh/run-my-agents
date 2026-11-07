@@ -428,6 +428,8 @@ const REVIEW_PR =
 export const MAX_STEP_SKILLS = 6;
 /** Times a spec or build turn may crash before the order is stuck instead of sent again. */
 export const MAX_TURN_CRASHES = 3;
+/** An order assigned to a chat the board does not list is taken back after this long. */
+export const ABSENT_MS = 3 * 60_000;
 /** Worktree cleanup is slow git work run on the board's own thread: a few orders per tick, each at most every ten minutes. */
 export const SWEEP = { perTick: 2, retryMs: 10 * 60_000 };
 export function sweepDue<T extends { id: string }>(candidates: T[], checked: Map<string, number>, now: number): T[] {
@@ -616,7 +618,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				// and sending it again put two turns on one worktree (#248).
 				// A Flisk assignee with no live turn is handled by the lost-turn pass, with its restart grace (#182).
 				if (inFlight.has(t.assignee) || t.assignee.startsWith("flisk:") || (s && k.busy(s) && !gone)) continue;
-				if (gone || quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
+				// A chat the board does not list at all (the board restarted under it, as on an app update) is not coming back:
+				// back on the belt after three minutes, not thirty (#376).
+				const absent = !s && quiet > ABSENT_MS;
+				if (gone || absent || quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
 				continue;
 			}
 			const s = all.find((x) => x.id === t.assignee);

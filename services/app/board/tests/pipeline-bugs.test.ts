@@ -644,6 +644,18 @@ describe("kitchen pipeline bugs", () => {
 		expect(sweepDue(first, seen, 1_000_000 + SWEEP.retryMs)).toHaveLength(first.length);
 	});
 
+	it("#376: an order held by a chat the board no longer lists is taken back after three minutes, not thirty", async () => {
+		const k = kitchen();
+		await k.post("/api/kitchen", { auto: false });
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		k.setTasks(k.tasks().map((t: object) => ({ ...t, stage: "test", approved: true, assignee: "gone-session-id", sentAt: Date.now() - 4 * 60_000 })));
+		await k.post("/api/containers/reconcile", {});
+		await k.post("/api/kitchen", { auto: true });
+		await k.tick();
+		expect(k.tasks()[0].assignee).not.toBe("gone-session-id");
+		expect(k.tasks()[0].missedBy ?? []).toContain("gone-session-id");
+	});
+
 	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {
 		const { orderWorktree, worktreeError } = await import("../src/kitchen/routes");
 		const { BOARD_FAULT } = await import("../src/kitchen/scores");
