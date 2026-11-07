@@ -63,6 +63,9 @@ jobs:
           bun-version: 1.4.3
       - run: bun install
       - run: bun test
+      # The eval itself calls paid models and runs by hand; its grader is plain logic and runs here.
+      - name: Eval grader (evals/kitchen-steps)
+        run: bun test ../../../evals/kitchen-steps
       - name: Kitchen agent (Flisk agent resource)
         run: bun test
         working-directory: services/app/kitchen
