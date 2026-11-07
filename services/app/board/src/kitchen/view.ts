@@ -7,7 +7,7 @@ export const KITCHEN_CSS = String.raw`
 .kclip{position:relative;width:28px;height:28px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:linear-gradient(#232330,#17171f);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px var(--line),0 2px 0 #0b0b10;color:var(--muted);cursor:pointer;transition:transform .15s,color .2s}.kclip .ic{width:15px;height:15px}.kclip:hover{color:var(--mint);transform:translateY(-2px)}.kclip.kfull{color:#04120a;background:linear-gradient(var(--mint),var(--green))}
 .katray{display:flex;flex-wrap:wrap;gap:6px}.katray:empty{display:none}
 
-.ktabs{display:flex;gap:4px;padding:var(--p2) var(--p2) 0;flex:none}
+.ktabs{display:flex;gap:4px;padding:var(--p2) var(--p2) 0;flex:none;overflow-x:auto;scrollbar-width:none}.ktab{flex:none;white-space:nowrap}
 .ktab{font:600 12px var(--body);color:var(--muted);background:none;border:0;border-radius:var(--r-row);padding:6px 12px;cursor:pointer}
 .ktab:hover{color:var(--text);background:#1e1e28}.ktab.on{color:var(--text);background:#26263a;box-shadow:inset 0 -2px 0 var(--green)}
 .ktab i{font-style:normal;font:10px var(--mono);color:var(--mint);margin-left:5px}
@@ -180,6 +180,8 @@ function kQueue(){const open=KD.tasks.filter(t=>t.stage!=="done");const first=op
  return H(Frag,null,kAdd(),kStats(),H("div",{class:"belt",id:"kbelt"},open.map(t=>kOrder(t,t===first))),kServed(),H("p",{class:"knote"},"Intake sorts each order: a question gets one short answer; a task gets a Zachman card and goes spec, build, test, review. P0 first, then the oldest. With Autopilot on, specs cross the pass and failed orders close by themselves. Not what you asked for? Requeue it."))}
 function kKitchen(){return H(Frag,null,kAdd(),H("div",{class:"kgame"},H("canvas",{id:"kcv",width:"1000",height:"580","aria-label":"Kitchen: agents cooking orders"})),H("p",{class:"knote"},"Click a chef to open its chat. Click a plate on the bridge to approve it across the pass. Fire means two agents are editing the same file."))}
 /* ---------- the kitchen game scene: a canvas drawn every frame from KD and S ---------- */
+/* A hit is a circle, or the drawn bounds of a chef (body, hat and name tag: it is drawn 1.45 times larger than a circle of 30 covers) (#275). */
+const kHit=(h,x,y)=>h.box?x>=h.x+h.box[0]&&x<=h.x+h.box[2]&&y>=h.y+h.box[1]&&y<=h.y+h.box[3]:Math.hypot(h.x-x,h.y-y)<h.r;
 const KG={chefs:{},parts:[],clouds:[0,1,2,3,4].map(i=>({x:i*240,y:30+((i*97)%380),w:90+(i*37)%80,v:6+i%3*4})),hits:[],t0:performance.now(),raf:0};
 /* Stations in scene units (1000 x 580). Island 1 is Discovery, island 2 is Delivery. */
 const ISL=[{x:40,y:150,w:330,h:330,name:"DISCOVERY"},{x:560,y:120,w:400,h:380,name:"DELIVERY"}];
@@ -238,7 +240,7 @@ function kChefDraw(c,ch,s,t){c.save();c.translate(ch.x,ch.y);c.scale(1.45,1.45);
  /* working arm */if(ch.work){c.strokeStyle=col;c.lineWidth=5;c.lineCap="round";const a=Math.sin(t*12+ch.seed)*.8;c.beginPath();c.moveTo(x+12,yy+2);c.lineTo(x+12+Math.cos(a)*12,yy+2+Math.sin(a)*12);c.stroke()}
  c.fillStyle="rgba(11,11,16,.75)";const nm=(s.role||"Agent").slice(0,14);c.font="700 10px monospace";const w=c.measureText(nm).width+10;kRR(c,x-w/2,y+22,w,15,5);c.fill();c.fillStyle="#fff";c.textAlign="center";c.fillText(nm,x,y+33);c.textAlign="left";
  if(ch.plate){c.save();c.translate(x+24,yy+2);c.scale(.62,.62);kPlate(c,0,0,ch.plate,false);c.restore()}
- c.restore();KG.hits.push({x:ch.x,y:ch.y,r:30,act:"open",id:s.id})}
+ c.restore();KG.hits.push({x:ch.x,y:ch.y,r:30,box:[-34,-58,34,58],act:"open",id:s.id})}
 /* Text that fits w pixels: whole words, then an ellipsis. */
 function kFit(c,s,w){if(c.measureText(s).width<=w)return s;const ws=s.split(" ");let o="";for(const x of ws){const n=o?o+" "+x:x;if(c.measureText(n+"\u2026").width>w)break;o=n}return (o||s.slice(0,12))+"\u2026"}
 function kTickets(c,t){const open=KD.tasks.filter(x=>x.stage!=="done").slice(0,6);open.forEach((o,i)=>{const x=14+i*112,y=12;
@@ -294,11 +296,11 @@ function kFrame(now){const cv=$("kcv");if(!cv||ktab!=="kitchen"){KG.raf=0;return
  if(!KD.tasks.length){c.fillStyle="rgba(11,11,16,.7)";kRR(c,330,270,340,44,12);c.fill();c.fillStyle="#fff";c.font="600 14px sans-serif";c.textAlign="center";c.fillText("No orders yet. Add one above to start cooking.",500,297);c.textAlign="left"}}
 function kStart(){if(!KG.raf&&$("kcv"))KG.raf=requestAnimationFrame(kFrame)}
 document.addEventListener("click",e=>{const cv=e.target.closest&&e.target.closest("#kcv");if(!cv)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*1000/r.width,y=(e.clientY-r.top)*580/r.height;
- const h=[...KG.hits].reverse().find(h=>Math.hypot(h.x-x,h.y-y)<h.r);if(!h)return;
+ const h=[...KG.hits].reverse().find(h=>kHit(h,x,y));if(!h)return;
  if(h.act==="approve"){post("api/tasks/move",{id:h.id,approved:true,stage:"build"}).then(()=>{setPass(h.id,false);toast("Approved: it crosses the pass");kLoad()})}
  else if(!sess(h.id)){const o=KD.tasks.find(x=>x.stage!=="done"&&(h.id==="front-desk"?x.assignee==="front-desk":x.stage==="spec"||x.answered>0));toast((h.id==="front-desk"?"Front desk":"The orchestrator")+" is the board itself, not an agent chat"+(o?": #"+o.n+" is at "+(STN[o.stage]||o.stage):""))}
  else{sel=h.id;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}});
-document.addEventListener("mousemove",e=>{const cv=e.target.closest&&e.target.closest("#kcv");if(!cv)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*1000/r.width,y=(e.clientY-r.top)*580/r.height;cv.style.cursor=KG.hits.some(h=>Math.hypot(h.x-x,h.y-y)<h.r)?"pointer":"default"});
+document.addEventListener("mousemove",e=>{const cv=e.target.closest&&e.target.closest("#kcv");if(!cv)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*1000/r.width,y=(e.clientY-r.top)*580/r.height;cv.style.cursor=KG.hits.some(h=>kHit(h,x,y))?"pointer":"default"});
 function kFlow(){const f=SC.flow;if(!f)return null;const tile=(l,v,sub)=>H("div",{key:l},H("small",null,l),H("b",null,v),H("i",null,sub));
  return H(Frag,null,H("div",{class:"kh"},"Flow · lead and cycle time"),H("div",{class:"flow"},tile("Lead time",f.served?kDur(f.leadMedian):"–","median · p85 "+(f.served?kDur(f.leadP85):"–")),tile("Cycle time",f.cycleCount?kDur(f.cycleMedian):"–","median · p85 "+(f.cycleCount?kDur(f.cycleP85):"–")),tile("Throughput",f.throughput24h,"served in 24 h"),tile("In progress",f.wip,"open orders"),tile("Failed",f.failed,"closed after FAILs"),tile("Fail rate",f.failOrders?f.failRate+"%":"–",(f.failGoal==null?"every goal met":"goal under "+f.failGoal+"% · last "+f.failOrders+" orders")+(f.failBoard?" · "+f.failBoard+" board faults left out":""))))}
 function kRatings(){const rs=SC.ratings||[];if(!rs.length)return H(Frag,null,H("div",{class:"kh"},"Agent ratings"),H("p",{class:"knote"},"No agent has cooked an order yet. Ratings appear as soon as one does."));

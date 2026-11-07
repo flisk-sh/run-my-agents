@@ -390,6 +390,7 @@ body.dnd .grp[data-grp="Pinned"],body.dnd .grp[data-grp="Closed"]{outline:1px da
 @keyframes pickd{40%{transform:scale(1.08)}}
 .empty{color:var(--muted);text-align:center;margin:auto;padding:40px}
 @media (max-width:720px){.app{grid-template-columns:1fr}.side{max-height:40vh}}
+@media (max-width:520px){.side{max-height:24vh}.meter{display:none}#hd .hb,#hd .mc{display:none}.chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.chips>*{flex:none}}
 
 /* Chat text reads like the Claude app: system font, larger, airy. */
 .msg .rich{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:13px;line-height:1.4;color:#d4d4d9;letter-spacing:0}.msg .rich p{margin:0 0 6px}.msg .rich ul,.msg .rich ol{margin:2px 0 6px;padding-left:24px}.msg .rich li{margin:2px 0}.msg .rich li::marker{color:#d4d4d9}.msg .rich strong,.msg .rich b{font-weight:600;color:#e1e1e4}.msg .rich :not(pre)>code{font-size:.9em;padding:1px 6px}.msg .rich .mh1,.msg .rich .mh2,.msg .rich .mh3,.msg .rich .mh4{font-size:14px;font-weight:500;margin:10px 0 4px}

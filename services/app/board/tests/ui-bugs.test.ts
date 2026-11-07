@@ -30,6 +30,24 @@ const unscoped = (css: string) => new Set(selectors(css).map((s) => /^\.([\w-]+)
 const styles = (css: string, c: string) => selectors(css).some((s) => new RegExp(`\\.${c}(?![\\w-])`).test(s));
 
 describe("board UI bugs", () => {
+	it("#275: a chef is clickable over its whole drawing (hat and name tag too), not a circle around its body", () => {
+		expect(KITCHEN_JS).toContain("const kHit=");
+		expect(KITCHEN_JS).toContain("box:[-34,-58,34,58]");
+		const kHit = new Function("h", "x", "y", `${KITCHEN_JS.slice(KITCHEN_JS.indexOf("const kHit="), KITCHEN_JS.indexOf("\n", KITCHEN_JS.indexOf("const kHit=")))}; return kHit(h,x,y)`);
+		const chef = { x: 300, y: 300, r: 30, box: [-34, -58, 34, 58] };
+		expect(kHit(chef, 300, 245)).toBe(true); // the hat
+		expect(kHit(chef, 300, 352)).toBe(true); // the name tag
+		expect(kHit(chef, 300, 400)).toBe(false);
+		expect(kHit({ x: 10, y: 10, r: 18 }, 12, 12)).toBe(true); // a plate stays a circle
+	});
+
+	it("#266: at phone width the kitchen tabs scroll sideways and the header, chips and meter give the feed room", () => {
+		expect(KITCHEN_CSS).toMatch(/\.ktabs\{[^}]*overflow-x:auto/);
+		expect(KITCHEN_CSS).toMatch(/\.ktab\{flex:none;white-space:nowrap\}/);
+		const phone = STYLE.slice(STYLE.indexOf("@media (max-width:520px)"));
+		for (const part of [".meter{display:none}", "#hd .hb", ".chips{flex-wrap:nowrap;overflow-x:auto"]) expect(phone).toContain(part);
+	});
+
 	it("#274: an expanded reply is remembered by its time, so new messages do not move the expansion", () => {
 		expect(JS).toContain("const EXP=new Set()");
 		expect(JS).toMatch(/H\(Msg,\{key:m\.t0\|\|m\.at\|\|mi/);
