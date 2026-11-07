@@ -591,6 +591,46 @@ describe("kitchen pipeline bugs", () => {
 		expect(k.tasks()[0].rounds ?? 0).toBe(0);
 	});
 
+	it("#182: after a restart a Flisk turn that may still be running is left alone for a while, and a lost Ship turn restarts Ship", async () => {
+		const { flight } = await import("../src/kitchen/routes");
+		const was = flight.graceMs;
+		flight.graceMs = 400;
+		try {
+			const calls: string[] = [];
+			const k = kitchen(() => undefined, { agent: async (session) => { calls.push(session); return new Promise<string>(() => {}); } });
+			await k.post("/api/kitchen", { auto: false });
+			await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+			// A turn sent by an earlier board process: the assignee is a Flisk turn this process knows nothing about.
+			k.setTasks(k.tasks().map((t: object) => ({ ...t, stage: "test", approved: true, shipping: true, assignee: "flisk:order-1-ship", sentAt: Date.now() - 3_600_000 })));
+			await k.post("/api/kitchen", { auto: true });
+			await k.tick();
+			expect(calls).toEqual([]);
+			expect(k.tasks()[0]).toMatchObject({ assignee: "flisk:order-1-ship", shipping: true });
+			await Bun.sleep(450);
+			await k.tick();
+			// Ship had begun, so Test had passed: the order moves on (here there is no change to ship, so to Review), never back to Test.
+			expect(calls.some((c) => c.includes("test"))).toBe(false);
+			expect(k.tasks()[0].stage).toBe("review");
+		} finally {
+			flight.graceMs = was;
+		}
+	});
+
+	it("#181: a Flisk spec that ends 'Shall I proceed?' gets the policy answer instead of being handed on as the spec", async () => {
+		const seen: string[] = [];
+		const k = kitchen(() => undefined, {
+			agent: async (_s, turn) => {
+				seen.push(turn.input);
+				if (/\(spec\)/.test(turn.input)) return "Goal: range includes its end.\nChecks: range(1,3) is [1,2,3].\n\nShall I proceed with this spec?";
+				return "ok";
+			},
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run(6, () => seen.length >= 2);
+		expect(seen.length).toBeGreaterThanOrEqual(2);
+		expect(seen[1]).toContain("policy");
+	});
+
 	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {
 		const { orderWorktree, worktreeError } = await import("../src/kitchen/routes");
 		const { BOARD_FAULT } = await import("../src/kitchen/scores");

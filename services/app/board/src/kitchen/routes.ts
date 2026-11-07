@@ -428,6 +428,8 @@ const REVIEW_PR =
 export const MAX_STEP_SKILLS = 6;
 /** Times a spec or build turn may crash before the order is stuck instead of sent again. */
 export const MAX_TURN_CRASHES = 3;
+/** How long a Flisk turn this board lost track of (a restart) is left alone before it is sent again. */
+export const flight = { graceMs: 5 * 60_000 };
 
 const lastSaid = (s: Session | undefined) => {
 	const m = s?.feed?.filter((x) => x.who === "agent").at(-1) as { text?: string } | undefined;
@@ -559,6 +561,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const fliskReplies = new Map<string, string>();
 	/** Flisk turns this board is running; one missing after a restart means the order is sent again. */
 	const inFlight = new Set<string>();
+	/** When this board process started: a Flisk turn sent before it belongs to a process that is gone. */
+	const bootedAt = Date.now();
 	const replyOf = (id: string | undefined) => (id && fliskReplies.has(id) ? (fliskReplies.get(id) as string) : handOff(k.read().find((x) => x.id === id)));
 	const guard = (c: Context) => (k.sameOrigin(c) ? undefined : c.json({ error: "Send JSON from the board." }, 403));
 	/** A strike on a pod; when it fires the pod, the skills its container gained are installed for the next agent. */
@@ -599,7 +603,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				const gone = readContainers().some((c) => c.pods.some((p) => p.session === t.assignee && p.status === "evicted")) || !!s?.hidden;
 				// A Flisk turn has no chat on the board, and a Ship agent's chat may still be running: a long turn is not a lost one,
 				// and sending it again put two turns on one worktree (#248).
-				if (inFlight.has(t.assignee) || (s && k.busy(s) && !gone)) continue;
+				// A Flisk assignee with no live turn is handled by the lost-turn pass, with its restart grace (#182).
+				if (inFlight.has(t.assignee) || t.assignee.startsWith("flisk:") || (s && k.busy(s) && !gone)) continue;
 				if (gone || quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
 				continue;
 			}
@@ -1037,12 +1042,17 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				if (!q) break;
 				const cur = readTasks().find((x) => x.id === id);
 				if (!cur) return;
+				// The cap is per step, across turns, as on the container path (#181).
+				if ((cur.asked ?? 0) >= MAX_ASKS) break;
 				const to = STAGE_TYPE[q.to];
 				const answer = canAsk(stage, q.to, cur.notes) ? await askStage(cur, q.to, q.question) : undefined;
 				updateTask(id, { asked: (cur.asked ?? 0) + 1, talk: [...(cur.talk ?? []), { at: Date.now(), from: asker, to, text: q.question.slice(0, 300) }, { at: Date.now(), from: answer ? to : "Orchestrator", to: asker, text: (answer ?? "not asked: that stage has no record").slice(0, 300) }].slice(-10) });
 				const env = { to: asker, order: cur.n, stage, expects: stage === "test" || stage === "review" ? ("verdict" as const) : ("record" as const) };
 				reply = await turn(sid, answer ? envelope(answerText(cur.n, q.to, q.question, answer), { ...env, from: to, type: "answer", via: `a fresh turn on the ${to} record` }) : envelope(cannotAsk(cur.n, q.to), { ...env, from: "Orchestrator", type: "policy" }));
 			}
+			// A turn that ends by asking for approval ("Shall I proceed?") gets the policy (decide, or FAIL), at most twice (#181).
+			for (let i = 0; i < MAX_ANSWERS && asksBack(handOffOf(reply), { stage, shipping: false }); i++)
+				reply = await turn(sid, envelope(DECIDE, { from: "Orchestrator", to: asker, type: "policy", order: t0.n, stage, expects: stage === "test" || stage === "review" ? "verdict" : "record" }));
 			// A build that changed nothing is asked once more, then fails; Test never gets an empty branch.
 			const wt = readTasks().find((x) => x.id === id)?.worktree;
 			// A build that says it is blocked gives its reason first: nudging it to change something loses the reason (#263).
@@ -1300,7 +1310,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		did.push(...(agent() ? [] : autoscale()), ...retireMixed(), ...sidecar());
 		for (const t of readTasks()) {
 			if (t.assignee?.startsWith("flisk:") && !inFlight.has(t.assignee)) {
+				// After a restart the agent may still be running the turn this board lost the reply of: sending it again
+				// at once put two turns on one worktree. Wait out a grace period from the later of the send and this boot (#182).
+				if (Date.now() - Math.max(t.sentAt, bootedAt) < flight.graceMs) continue;
 				updateTask(t.id, { assignee: "", sentAt: 0, shipping: false });
+				// A lost Ship turn starts Ship again, not Test: the order had already passed Test.
+				if (t.shipping && t.assignee.endsWith("-ship")) serve(t.id, true);
 				did.push(`#${t.n} sent again: its Flisk turn was lost`);
 			}
 		}
