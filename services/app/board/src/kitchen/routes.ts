@@ -9,7 +9,7 @@ import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
 import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
-import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
+import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, retireLessons, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
 import { addTask, beltOrder, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, withoutRecord, type AskStage } from "./protocol";
@@ -573,6 +573,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		missed();
 		auto();
 		sweepWorktrees();
+		retireLessons(readTasks().filter((t) => t.kind === "task" && t.servedAt).map((t) => t.servedAt as number));
 		const holding = new Set(readTasks().filter((t) => t.assignee && t.stage !== "done").map((t) => t.assignee));
 		return reconcile({ sessions: k.read().map((s) => ({ id: s.id, hidden: s.hidden })), start: k.start, close: k.close, name: k.name, type: k.type, holding });
 	};

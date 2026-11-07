@@ -198,6 +198,39 @@ export const isLesson = (reason: string) =>
 /** Lines that say a step failed but not what was wrong: 16 of the 22 shared Build lessons were these (#234). */
 const NO_LESSON = /^(?:Stuck after \d+ rounds\.?|(?:\*\*)?FAIL(?:\*\*)? in \w+ \(no reason given\)\.?)$/i;
 
+/** Served orders after which a lesson that was never repeated stops applying (#335). */
+export const LESSON_LIFE = 20;
+/**
+ * Retires old lessons: one that no order repeated (its newest copy counts) while `served` more orders
+ * went through the board is dropped, so a lesson about code that has since changed does not stay in every brief for
+ * ever. `served` lists when each order was served. A lesson you typed yourself (kept) stays until you clear it.
+ */
+export function retireLessons(served: number[], life = LESSON_LIFE): number {
+	const same = (a: string, b: string) => a.toLowerCase().replace(/\s+/g, " ").trim() === b.toLowerCase().replace(/\s+/g, " ").trim();
+	const stale = (all: Container[], c: Container) => {
+		const mates = all.filter((x) => lessonsKeyOf(x) === lessonsKeyOf(c)).flatMap((x) => x.lessons);
+		// A repeat renews a lesson: its age is the age of the newest lesson that says the same thing.
+		return c.lessons.filter((l) => {
+			const latest = Math.max(l.at, ...mates.filter((m) => same(m.reason, l.reason)).map((m) => m.at));
+			return !l.kept && served.filter((t) => t > latest).length >= life;
+		});
+	};
+	// Nothing to retire is the usual tick: do not rewrite the file for it.
+	if (!store.read().some((c, _, all) => stale(all, c).length)) return 0;
+	let dropped = 0;
+	store.update((all) => {
+		const keys = new Map<string, Container>();
+		const gone = new Map(all.map((c) => [c, new Set(stale(all, c))] as const));
+		for (const [c, g] of gone) {
+			if (!g.size) continue;
+			dropped += g.size;
+			keys.set(lessonsKeyOf(c), c);
+			c.lessons = c.lessons.filter((l) => !g.has(l));
+		}
+		for (const [key, c] of keys) writeShared(all, key, c.lessonsKey ? c.role : c.name);
+	});
+	return dropped;
+}
 /** The lessons skill a container reads and writes: shared by key, else its own. */
 export const lessonsKeyOf = (c: Pick<Container, "slug" | "lessonsKey">) => c.lessonsKey ?? c.slug;
 /** Rewrites one lessons skill from every container that shares its key. */

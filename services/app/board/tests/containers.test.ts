@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/index";
-import { patchContainer, podName, readContainers, reconcile, strike } from "../src/kitchen/containers";
+import { createContainer, LESSON_LIFE, patchContainer, podName, readContainers, reconcile, retireLessons, strike } from "../src/kitchen/containers";
 import { haikuFit, policyFor, skillset } from "../src/kitchen/skills";
 import { parseSession, type Session } from "../src/sessions";
 
@@ -1267,5 +1267,32 @@ describe("kitchen permissions", () => {
 		expect(calls[1]).toContain("Bash(gh:*)");
 		await sendToSession({ ...session("m", "Code"), title: "my own chat" }, "hi", run);
 		expect(calls[2]).not.toContain("--allowedTools");
+	});
+});
+
+describe("lesson retirement (#335)", () => {
+	it("a lesson carries its order and date, and goes after enough served orders without a repeat", () => {
+		const box = createContainer({ name: "Build box", role: "Build", stages: ["build"], cwd: "/repo" });
+		const mk = (order: string, reason: string, at: number, kept = false) => ({ at, order, reason, ...(kept ? { kept: true } : {}) });
+		const old = Date.parse("2026-10-01T00:00:00Z");
+		const store = JSON.parse(readFileSync(join(dir, "containers.json"), "utf8")) as { id: string; lessons: unknown[] }[];
+		store.find((c) => c.id === box.id)!.lessons = [
+			mk("#5 add range", "FAIL: the test imports ../src/old.ts, which does not exist", old),
+			mk("#6 add sum", "FAIL: forgot to export the function", old),
+			mk("#9 add avg", "FAIL: forgot to export the function", old + 1000),
+			mk("#7 typed", "never touch the lockfile", old, true),
+		];
+		writeFileSync(join(dir, "containers.json"), JSON.stringify(store));
+		const servedAfter = (n: number) => Array.from({ length: n }, (_, i) => old + 10_000 + i);
+		expect(retireLessons(servedAfter(LESSON_LIFE - 1))).toBe(0);
+		expect(retireLessons(servedAfter(LESSON_LIFE))).toBe(3);
+		// A repeat renews a lesson: #6 and #9 say the same thing, so they age from #9.
+		expect(retireLessons(servedAfter(LESSON_LIFE))).toBe(0);
+		const left = readContainers().find((c) => c.id === box.id)!.lessons.map((l) => l.order);
+		expect(left).toContain("#7 typed");
+		expect(left).not.toContain("#5 add range");
+		const skill = readFileSync(join(skills, "rma-lessons-build-box", "SKILL.md"), "utf8");
+		expect(skill).toContain("#7 typed");
+		expect(skill).toMatch(/\d{4}-\d{2}-\d{2} · #/);
 	});
 });
