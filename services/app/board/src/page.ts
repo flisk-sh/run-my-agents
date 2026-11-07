@@ -682,12 +682,12 @@ function Warns({s}){return H(Frag,null,C.filter(c=>c.sessions.includes(s.id)&&!m
 function drawHead(s){pRender(H(Head,{s}),$("hd"));pRender(H(Meter,{s}),$("meter"));pRender(H(Skills,{s}),$("skills"));pRender(H(Roles,{s}),$("roles"));pRender(H(Warns,{s}),$("warns"))}
 // A session's key remounts the feed on a switch, so classes toggled by hand on one agent's messages never carry to another's.
 function Msg({s,m,mi}){const ck=s.id+":"+(m.t0||m.at),me=m.who==="you";
- return H("div",{class:"msg "+(me?"from-me":"from-ag")+(COL.has(ck)?" col":""),"data-msg":true},H("div",{class:"bub"},
+ return H("div",{class:"msg "+(me?"from-me":"from-ag")+(COL.has(ck)?" col":"")+(EXP.has(ck)?" open":""),"data-msg":ck},H("div",{class:"bub"},
   H("div",{class:"who"},H("b",null,me?kSender(m.text):s.role),H("time",null,hm(m.at)),m.who==="agent"?H("span",{class:"chev","data-col":ck,title:"Collapse or expand this reply"}):null),
   richHtml(m),
   m.tools.length?H("div",{class:"tools"},toolRuns(m.calls&&m.calls.length?m.calls.map(c=>c.label):m.tools,s.id,mi,m.calls)):null,
   m.options&&mi===s.feed.length-1&&!s.sending?optsHtml(m.options):null))}
-const Feed=({s})=>H(Frag,null,s.feed.map((m,mi)=>H(Msg,{key:mi,s,m,mi})),state(s)==="g"?H("div",{class:"typing"},H("i"),H("i"),H("i")):null);
+const Feed=({s})=>H(Frag,null,s.feed.map((m,mi)=>H(Msg,{key:m.t0||m.at||mi,s,m,mi})),state(s)==="g"?H("div",{class:"typing"},H("i"),H("i"),H("i")):null);
 function drawFeed(s){pRender(H(Feed,{s,key:s.id}),$("feed"))}
 // The message box is mounted once per agent (keyed by session id); its textarea is uncontrolled and the draft,
 // attachment tray and effects are still filled in by hand after the mount.
@@ -703,7 +703,7 @@ function Composer({s}){const via=s.viaApp===true;
 const Queue=({q})=>H(Frag,null,q.map(x=>H("div",{key:x.qid,class:"qi"},H("span",{class:"qt"},x.text),H("button",{class:"qnow","data-qnow":x.qid},"Send now"),H("button",{class:"qx","data-qdrop":x.qid,title:"Remove from queue"},"×"))));
 function drawComposer(s){pRender(H(Composer,{s,key:s.id}),$("boxhost"))}
 function render(){
- if(!S.length){drawSide();pRender(null,$("hd"));pRender(null,$("warns"));pRender(H("p",{class:"empty"},"No Claude Code sessions in the last hour. Start one and it shows up here."),$("feed"));pRender(null,$("boxhost"));pRender(null,$("queue"));return}
+ if(!S.length){drawSide();pRender(null,$("hd"));pRender(null,$("warns"));pRender(null,$("meter"));pRender(null,$("skills"));pRender(null,$("roles"));pRender(H("p",{class:"empty"},"No Claude Code sessions in the last hour. Start one and it shows up here."),$("feed"));pRender(null,$("boxhost"));pRender(null,$("queue"));return}
  if(!S.find(s=>s.id===sel))sel=S[0].id;
  const groups=groupList();
  const oldRows=snapRows();
@@ -769,7 +769,7 @@ document.addEventListener("click",e=>{
  const gb=e.target.closest("[data-gby]");if(gb){gby=gb.dataset.gby;try{localStorage.setItem("rma-group",gby)}catch(_){}last="";render();return}
  const cl=e.target.closest("[data-col]");if(cl){const k=cl.dataset.col;if(COL.has(k))COL.delete(k);else COL.add(k);render();return}
  if(e.target.closest("a"))return;
- const m=e.target.closest("[data-msg]");if(m){if(String(getSelection()).length)return;m.classList.toggle("open");return}
+ const m=e.target.closest("[data-msg]");if(m){if(String(getSelection()).length)return;{const k=m.dataset.msg;if(k&&k!=="true")EXP.has(k)?EXP.delete(k):EXP.add(k);m.classList.toggle("open");return}}
 
 });
 document.addEventListener("dblclick",e=>{if(e.target.closest(".rnmhit")){renaming=true;render()}});
@@ -796,6 +796,8 @@ async function queueAct(path,qid){const r=await post(path,{id:sel,qid}).catch(()
 let OPT=null,ND=null,wantSel="",showRoles=false,dt=0,LIM={tokens:0,auto:false},ORDER=[],dragId="",movedId="";
 const dk=id=>"rma-draft-"+id;
 const COL=new Set();
+/** Messages expanded by a click, by "sid:time": a feed that grows must not move the expansion to another message (#274). */
+const EXP=new Set();
 /** Tool-call groups expanded inline, like Claude Code's own transcript: "sid:msgIndex:groupStart" keys. */
 const OPEN=new Set();
 const hk=id=>"rma-hist-"+id;let hpos=-1,hstash="",hsel="";

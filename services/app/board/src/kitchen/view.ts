@@ -104,7 +104,7 @@ export const KITCHEN_CSS = String.raw`
 .lane.over{box-shadow:inset 0 0 0 2px var(--green)}
 .lane h4{margin:0 0 4px;font:700 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:flex;justify-content:space-between}
 .lane.gap{border-left:3px dashed #fbbf24}
-.card{background:#1c1c28;border-radius:var(--r-chip);padding:7px;font-size:12px;cursor:grab;display:grid;gap:4px;box-shadow:inset 0 0 0 1px var(--line)}
+.card{overflow-wrap:anywhere;min-width:0;background:#1c1c28;border-radius:var(--r-chip);padding:7px;font-size:12px;cursor:grab;display:grid;gap:4px;box-shadow:inset 0 0 0 1px var(--line)}
 .card.stuck{box-shadow:inset 0 0 0 1px #ef4444}.card small{color:var(--muted);font:10px var(--mono)}
 .knote{color:var(--muted);font-size:11.5px;max-width:80ch}
 `;

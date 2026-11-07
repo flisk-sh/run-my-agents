@@ -30,6 +30,19 @@ const unscoped = (css: string) => new Set(selectors(css).map((s) => /^\.([\w-]+)
 const styles = (css: string, c: string) => selectors(css).some((s) => new RegExp(`\\.${c}(?![\\w-])`).test(s));
 
 describe("board UI bugs", () => {
+	it("#274: an expanded reply is remembered by its time, so new messages do not move the expansion", () => {
+		expect(JS).toContain("const EXP=new Set()");
+		expect(JS).toMatch(/H\(Msg,\{key:m\.t0\|\|m\.at\|\|mi/);
+		expect(JS).toMatch(/EXP\.has\(ck\)\?" open"/);
+		expect(JS).not.toMatch(/H\(Msg,\{key:mi,/);
+	});
+
+	it("#276: an empty board clears the token meter and a Lanes card wraps long words", () => {
+		const empty = JS.slice(JS.indexOf("if(!S.length){drawSide()"), JS.indexOf("return}", JS.indexOf("if(!S.length){drawSide()")));
+		for (const part of ["meter", "skills", "roles"]) expect(empty).toContain(`pRender(null,$("${part}"))`);
+		expect(KITCHEN_CSS).toMatch(/\.card\{[^}]*overflow-wrap:anywhere/);
+	});
+
 	it("#265: Cmd+Enter in the kitchen order box (or any other input) does not answer the agent's question", () => {
 		const src = handler(JS, "keydown", 'e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Enter"');
 		const answered: string[] = [];
