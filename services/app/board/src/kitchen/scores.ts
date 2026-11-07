@@ -191,9 +191,13 @@ export function failRate(tasks: Task[], last = 20) {
 	const own = (t: Task) => (t.failures ?? []).slice(carried(t)).filter((f) => !BOARD_FAULT.test(f));
 	// An order closed as failed with nothing but board faults says nothing about the agents: left out, counted apart.
 	const boardOnly = (t: Task) => !!t.failed && own(t).length === 0 && (t.failures ?? []).slice(carried(t)).length > 0;
-	const counted = ended.filter((t) => !boardOnly(t)).slice(-last);
+	// An order Spec stopped because it names something that does not exist ("spec: blocked: …") was handled right: the
+	// kitchen did its job by refusing it, so it is left out, counted apart (#378).
+	const refused = (t: Task) => !!t.failed && own(t).length > 0 && own(t).every((f) => /^spec: blocked/.test(f));
+	const counted = ended.filter((t) => !boardOnly(t) && !refused(t)).slice(-last);
 	const board = ended.slice(-last).filter(boardOnly).length;
+	const refusedN = ended.slice(-last).filter((t) => !boardOnly(t) && refused(t)).length;
 	const bad = counted.filter((t) => own(t).length > 0 || t.failed).length;
 	const rate = counted.length ? Math.round((bad / counted.length) * 100) : 0;
-	return { failRate: rate, failOrders: counted.length, failBoard: board, failGoal: counted.length ? (FAIL_GOALS.find((g) => rate > g) ?? null) : FAIL_GOALS[0] };
+	return { failRate: rate, failOrders: counted.length, failBoard: board, failRefused: refusedN, failGoal: counted.length ? (FAIL_GOALS.find((g) => rate > g) ?? null) : FAIL_GOALS[0] };
 }

@@ -26,4 +26,13 @@ describe("scores", () => {
 		const b = scoreboard([task(1, { crew }), task(2, { crew, failed: true, stuck: true })]);
 		expect(b.agents.find((x) => x.label === "Build · app")?.served).toBe(1);
 	});
+
+	it("#378: an order Spec refused as impossible is not counted in the fail rate", () => {
+		const good = (n: number) => task(n, { servedAt: n });
+		const refused = task(9, { failed: true, stuck: true, servedAt: 9, failures: ["spec: blocked: src/geometry.ts does not exist"] });
+		const broken = task(10, { failed: true, stuck: true, servedAt: 10, failures: ["test: FAIL: the tests fail"] });
+		const f = flow([good(1), good(2), good(3), refused], 100);
+		expect(f).toMatchObject({ failRate: 0, failOrders: 3, failRefused: 1 });
+		expect(flow([good(1), good(2), good(3), refused, broken], 100)).toMatchObject({ failRate: 25, failOrders: 4, failRefused: 1 });
+	});
 });
