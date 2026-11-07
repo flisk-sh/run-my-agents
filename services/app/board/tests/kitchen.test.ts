@@ -371,7 +371,7 @@ describe("fail-rate KPI", () => {
 	const done = (n: number, bad: boolean) => ({ n, kind: "task", stage: "done", servedAt: n, updated: n, failed: false, failures: bad ? ["test: FAIL: x"] : [] }) as never;
 	it("counts finished task orders with any FAIL, and sets the next goal on the 70/50/30/15/5 ladder", () => {
 		const orders = Array.from({ length: 10 }, (_, i) => done(i, i < 4));
-		expect(failRate(orders)).toEqual({ failRate: 40, failOrders: 10, failBoard: 0, failGoal: 30 });
+		expect(failRate(orders)).toEqual({ failRate: 40, failOrders: 10, failBoard: 0, failRefused: 0, failGoal: 30 });
 		expect(failRate(Array.from({ length: 10 }, (_, i) => done(i, i < 9))).failGoal).toBe(70);
 		expect(failRate([done(1, false)]).failGoal).toBeNull();
 	});
