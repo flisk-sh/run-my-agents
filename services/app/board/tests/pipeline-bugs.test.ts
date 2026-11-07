@@ -568,6 +568,29 @@ describe("kitchen pipeline bugs", () => {
 		expect(k.tasks()[0].assignee).toBe("flisk:order-1-spec");
 	});
 
+	it("#181: a Flisk test turn with no verdict is asked once to finish, not failed at once", async () => {
+		let tests = 0;
+		const k = kitchen(() => undefined, {
+			agent: async (_s, turn) => {
+				if (/\(spec\)/.test(turn.input)) return "Goal: range includes its end.\nChecks: range(1,3) is [1,2,3].";
+				if (/\(build\)|no changes in this order's worktree/.test(turn.input)) {
+					writeFileSync(join(turn.cwd as string, "math.ts"), readFileSync(join(turn.cwd as string, "math.ts"), "utf8").replace("i < b", "i <= b"));
+					return "Changed math.ts.";
+				}
+				if (/\(test\)|stopped without a verdict/.test(turn.input)) {
+					tests++;
+					return /stopped without a verdict/.test(turn.input) ? "PASS: range(1,3) is [1,2,3]." : "I looked at the diff.";
+				}
+				if (/\(review\)/.test(turn.input)) return "PASS";
+				return "Opened https://github.com/acme/demo/pull/42";
+			},
+		});
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.run(40, () => tests >= 2 || k.tasks()[0].stage === "done");
+		expect(tests).toBe(2);
+		expect(k.tasks()[0].rounds ?? 0).toBe(0);
+	});
+
 	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {
 		const { orderWorktree, worktreeError } = await import("../src/kitchen/routes");
 		const { BOARD_FAULT } = await import("../src/kitchen/scores");

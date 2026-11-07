@@ -1056,6 +1056,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 					return;
 				}
 			}
+			// A test or review reply with no PASS or FAIL is asked once to finish, as on the container path (#181).
+			if ((stage === "test" || stage === "review") && verdictIn(reply) === undefined) reply = await turn(sid, envelope(NO_VERDICT, { from: "Orchestrator", to: asker, type: "nudge", order: t0.n, stage, expects: "verdict" }));
 			// Edits that landed in the shared checkout: asked once to move them, then the step fails (#163).
 			const t1 = readTasks().find((x) => x.id === id);
 			if (stage === "build" && t1?.worktree && leakedInto(t1.cwd, t1.baseDirty).length) {
@@ -1091,7 +1093,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			updateTask(id, { stuck: true, assignee: "", sentAt: 0, failures: [...(cur.failures ?? []), `${stage}: blocked: ${stop}`.slice(0, 300)].slice(-6), notes: { ...(cur.notes ?? {}), [stage]: handOffOf(reply) } });
 			return;
 		}
-		serve(id, stage === "test" || stage === "review" ? (verdictIn(reply) ?? false) : true);
+		const checked = stage === "test" || stage === "review";
+		// No verdict even after being asked is the step's own failure, not the builder's (#235).
+		serve(id, checked ? (verdictIn(reply) ?? false) : true, checked && verdictIn(reply) === undefined);
 	}
 
 	/**
