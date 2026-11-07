@@ -6,7 +6,10 @@ let port = 4100
 let boardURL = URL(string: "http://127.0.0.1:\(port)/")!
 let healthURL = URL(string: "http://127.0.0.1:\(port)/health")!
 // Where updates come from: the latest GitHub release and its Mac zip (built by .github/workflows/release-mac.yml).
-let releaseAPI = URL(string: "https://api.github.com/repos/flisk-sh/run-my-agents/releases/latest")!
+// The release page, not the API: the API allows 60 calls an hour per address without a login, and that ran out on a
+// network shared with other tools ("API rate limit exceeded"), so Check for Updates said GitHub did not answer.
+// github.com/<repo>/releases/latest redirects to /releases/tag/<tag>, and the zip is at /releases/download/<tag>/.
+let releases = "https://github.com/flisk-sh/run-my-agents/releases"
 let zipName = "Run-My-Agents-macOS.zip"
 /** How often a running app looks for a new release. */
 let updateEvery: TimeInterval = 6 * 60 * 60
@@ -104,19 +107,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
     checking = true; defer { checking = false; if staged == nil { setUpdateTitle("Check for Updates…") } }
     setUpdateTitle("Checking for updates…")
-    var req = URLRequest(url: releaseAPI); req.timeoutInterval = wait
-    req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+    var req = URLRequest(url: URL(string: "\(releases)/latest")!); req.timeoutInterval = wait
+    req.httpMethod = "HEAD"
     req.setValue("RunMyAgents/\(version)", forHTTPHeaderField: "User-Agent")
-    let sem = DispatchSemaphore(value: 0); var body: Data?
-    URLSession.shared.dataTask(with: req) { d, r, _ in if (r as? HTTPURLResponse)?.statusCode == 200 { body = d }; sem.signal() }.resume()
+    let sem = DispatchSemaphore(value: 0); var landed: URL?; var status = 0; var failure = ""
+    URLSession.shared.dataTask(with: req) { _, r, e in
+      status = (r as? HTTPURLResponse)?.statusCode ?? 0
+      landed = r?.url
+      failure = e?.localizedDescription ?? ""
+      sem.signal()
+    }.resume()
     _ = sem.wait(timeout: .now() + wait + 1)
-    guard let body, let j = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-          let tag = j["tag_name"] as? String, let assets = j["assets"] as? [[String: Any]],
-          let link = assets.first(where: { ($0["name"] as? String) == zipName })?["browser_download_url"] as? String,
-          let zipURL = URL(string: link) else {
-      if manual { tell("Could not check for updates", "GitHub did not answer with the latest release.") }
+    // The redirect's last path part is the tag: …/releases/tag/v0.1.13.
+    guard status == 200, let landed, landed.deletingLastPathComponent().lastPathComponent == "tag",
+          let zipURL = URL(string: "\(releases)/download/\(landed.lastPathComponent)/\(zipName)") else {
+      if manual { tell("Could not check for updates", failure.isEmpty ? "GitHub's release page answered \(status == 0 ? "nothing" : "HTTP \(status)")." : failure) }
       return false
     }
+    let tag = landed.lastPathComponent
     let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
     guard Self.newer(latest, than: version) else {
       if manual { tell("Run My Agents is up to date", "You have version \(version), the latest release.") }
