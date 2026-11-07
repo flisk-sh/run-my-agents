@@ -36,6 +36,9 @@ const rank = (a: Line, b: Line) => b.score - a.score || b.strikes - a.strikes ||
  * scoring chats listed dozens of retired ones. Old entries named by their first prompt map to their container too.
  */
 export function crewKey(c: { id: string; role: string; name: string }): { key: string; label: string; role: string } {
+	// The Flisk agent has a fresh id per order ("flisk:order-26-build"): one row per stage, not per order (#191).
+	const flisk = /^flisk:order-\d+-(\w+)$/.exec(c.id)?.[1];
+	if (flisk) return { key: `flisk:${flisk}`, label: c.name || `${flisk[0].toUpperCase()}${flisk.slice(1)} · Flisk agent`, role: c.role };
 	const quoted = /in the "([^"]+)" agent container/.exec(c.name)?.[1];
 	const pod = /^(.+ · .+|Kitchen cooks|Auto cooks.*)\s[0-9a-f]{4}$/.exec(c.name)?.[1];
 	const base = quoted ?? pod;
@@ -48,7 +51,7 @@ export function crewKey(c: { id: string; role: string; name: string }): { key: s
 /** Rank tables for crew rows, pairs of rows that cooked the same order, and skills. Only served tasks count. */
 export function scoreboard(tasks: Task[]) {
 	// Questions and orders from before intake triage (no kind) never went through the kitchen.
-	const served = tasks.filter((t) => t.stage === "done" && t.kind === "task");
+	const served = tasks.filter((t) => t.stage === "done" && t.kind === "task" && !t.failed);
 	const agents = new Map<string, { label: string; sub: string; orders: Task[] }>();
 	const pairs = new Map<string, { label: string; orders: Task[] }>();
 	const skills = new Map<string, Task[]>();
@@ -141,7 +144,8 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
  * 85th percentile are over served orders (failed ones are counted apart); WIP is everything still open.
  */
 export function flow(tasks: Task[], now = Date.now()) {
-	const done = tasks.filter((t) => t.stage === "done" && !t.failed && t.servedAt);
+	// Questions the front desk answered in milliseconds are not served orders: they would drag the lead time to 5 ms (#191).
+	const done = tasks.filter((t) => t.stage === "done" && t.kind !== "question" && !t.failed && t.servedAt);
 	const pct = (xs: number[], p: number) => {
 		if (!xs.length) return 0;
 		const s = [...xs].sort((a, b) => a - b);
