@@ -235,7 +235,7 @@ describe("Kitchen Rush game", () => {
 		expect(html).toContain("KITCHEN RUSH");
 		// shipping is not binary: flaky tests let slip away are counted on the ship screen
 		expect(html).toContain("Waved through: flaky test marked done");
-		expect(html).toContain("SHIPPED, WITH DEBT");
+		expect(html).toContain("Receipts round: show your work");
 		expect(html).toContain("CLEAN SHIP");
 		expect(html).toContain('<canvas id="g"');
 		expect(html).toContain('name="twitter:card" content="player"');
@@ -253,5 +253,47 @@ describe("Kitchen Rush game", () => {
 		expect(card.headers.get("content-type")).toBe("image/png");
 		expect(await (await app.request("/")).text()).toContain('/play">Play</a>');
 		expect(await (await app.request("/sitemap.xml")).text()).toContain("/play");
+	});
+});
+
+describe("Kitchen Rush receipts round (#338)", () => {
+	// The page's script, with the receipts helpers pulled out so their logic runs without a canvas.
+	const helpers = async () => {
+		const html = await (await app.request("/play")).text();
+		const from = html.indexOf("const RECEIPTS=");
+		const to = html.indexOf("function spawn()");
+		expect(from).toBeGreaterThan(0);
+		return new Function(`${html.slice(from, to)}; return { RECEIPTS, receiptName, receiptBosses, afterClock };`)() as {
+			receiptName: (i: number) => string;
+			receiptBosses: (rec: string[], x: number, y: number, lvl: number) => { k: string; lb: string; hp: number }[];
+			afterClock: (rec: string[], round: number) => string;
+		};
+	};
+
+	it("a clean run ships straight away: no receipts round", async () => {
+		const g = await helpers();
+		expect(g.afterClock([], 0)).toBe("won");
+	});
+
+	it("anything waved through starts a receipts round at 5:00, with one boss per waved-through test, labelled with what it was", async () => {
+		const g = await helpers();
+		const rec = [g.receiptName(0), g.receiptName(1), g.receiptName(2)];
+		expect(g.afterClock(rec, 0)).toBe("receipts");
+		const bosses = g.receiptBosses(rec, 0, 0, 4);
+		expect(bosses).toHaveLength(3);
+		expect(bosses.map((b) => b.lb)).toEqual(rec);
+		expect(new Set(bosses.map((b) => b.lb)).size).toBe(3);
+		expect(bosses.every((b) => b.k === "receipt" && b.hp > 0)).toBe(true);
+		// While the round runs the clock does not end the order again.
+		expect(g.afterClock(rec, 1)).toBe("play");
+	});
+
+	it("many waved-through tests still get distinct names, and the ship screens name the receipt that ended the run", async () => {
+		const g = await helpers();
+		expect(new Set(Array.from({ length: 14 }, (_, i) => g.receiptName(i))).size).toBe(14);
+		const html = await (await app.request("/play")).text();
+		expect(html).toContain('"The receipt that got you: "+lostTo');
+		expect(html).toContain('panel("CLEAN SHIP"');
+		expect(html).toContain("if(e.lb)lostTo=e.lb");
 	});
 });
