@@ -596,7 +596,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				// An agent the board knows is gone (its pod was fired, evicted or scaled away, or you closed its chat) and that
 				// is not running: back on the belt at once, not after 30 minutes (#174).
 				const gone = readContainers().some((c) => c.pods.some((p) => p.session === t.assignee && p.status === "evicted")) || !!s?.hidden;
-				if ((gone && !(s && k.busy(s))) || quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
+				// A Flisk turn has no chat on the board, and a Ship agent's chat may still be running: a long turn is not a lost one,
+				// and sending it again put two turns on one worktree (#248).
+				if (inFlight.has(t.assignee) || (s && k.busy(s) && !gone)) continue;
+				if (gone || quiet > 30 * 60_000) updateTask(t.id, { assignee: "", sentAt: 0, shipping: false, missedBy: [...(t.missedBy ?? []), t.assignee] });
 				continue;
 			}
 			const s = all.find((x) => x.id === t.assignee);

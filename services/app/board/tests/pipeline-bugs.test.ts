@@ -556,6 +556,18 @@ describe("kitchen pipeline bugs", () => {
 		expect(seen.some((x) => x.includes("left no changes"))).toBe(false);
 	});
 
+	it("#248: a Flisk turn still running after 30 minutes is not sent again", async () => {
+		let calls = 0;
+		const k = kitchen(() => undefined, { agent: (session) => { if (session.includes("order-1-")) calls++; return new Promise<string>(() => {}); } });
+		await k.post("/api/tasks", { title: TITLE, cwd: repo() });
+		await k.tick();
+		expect(calls).toBe(1);
+		k.setTasks(k.tasks().map((t: { sentAt: number }) => ({ ...t, sentAt: Date.now() - 40 * 60_000 })));
+		for (let i = 0; i < 4; i++) await k.tick();
+		expect(calls).toBe(1);
+		expect(k.tasks()[0].assignee).toBe("flisk:order-1-spec");
+	});
+
 	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {
 		const { orderWorktree, worktreeError } = await import("../src/kitchen/routes");
 		const { BOARD_FAULT } = await import("../src/kitchen/scores");
