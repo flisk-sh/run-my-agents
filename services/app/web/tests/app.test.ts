@@ -263,9 +263,16 @@ describe("Kitchen Rush receipts round (#338)", () => {
 		const from = html.indexOf("const RECEIPTS=");
 		const to = html.indexOf("function spawn()");
 		expect(from).toBeGreaterThan(0);
-		return new Function(`${html.slice(from, to)}; return { RECEIPTS, receiptName, receiptBosses, afterClock };`)() as {
+		return new Function(
+			`${html.slice(from, to)}; return { RECEIPTS, receiptName, receiptBosses, afterClock };`,
+		)() as {
 			receiptName: (i: number) => string;
-			receiptBosses: (rec: string[], x: number, y: number, lvl: number) => { k: string; lb: string; hp: number }[];
+			receiptBosses: (
+				rec: string[],
+				x: number,
+				y: number,
+				lvl: number,
+			) => { k: string; lb: string; hp: number }[];
 			afterClock: (rec: string[], round: number) => string;
 		};
 	};
@@ -290,7 +297,9 @@ describe("Kitchen Rush receipts round (#338)", () => {
 
 	it("many waved-through tests still get distinct names, and the ship screens name the receipt that ended the run", async () => {
 		const g = await helpers();
-		expect(new Set(Array.from({ length: 14 }, (_, i) => g.receiptName(i))).size).toBe(14);
+		expect(
+			new Set(Array.from({ length: 14 }, (_, i) => g.receiptName(i))).size,
+		).toBe(14);
 		const html = await (await app.request("/play")).text();
 		expect(html).toContain('"The receipt that got you: "+lostTo');
 		expect(html).toContain('panel("CLEAN SHIP"');
