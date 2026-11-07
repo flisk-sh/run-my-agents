@@ -90,6 +90,17 @@ jobs:
           persist-credentials: false
       # The release workflow only runs on main, so a Swift error would otherwise surface after the merge.
       - run: swiftc -typecheck -target arm64-apple-macos13.0 mac/RunMyAgents.swift -framework AppKit -framework WebKit
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+      # The Mac app runs the board compiled, with a bare PATH: there every order got no worktree (#92-#94) while the
+      # board from source made them. Run the board's worktree code the same way, on a Mac.
+      - name: Compiled board makes an order worktree on macOS
+        working-directory: services/app/board
+        run: |
+          bun install
+          bun build --compile scripts/worktree-check.ts --outfile "$RUNNER_TEMP/wt-check"
+          cd "$RUNNER_TEMP" && env -i HOME="$RUNNER_TEMP" PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin ./wt-check
 
   image:
     name: Production image

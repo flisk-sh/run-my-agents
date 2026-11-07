@@ -188,8 +188,17 @@ export function folderHint(text: string, folders: string[] = []): string | undef
 	return folders.find((f) => f.split("/").filter(Boolean).pop() === named);
 }
 
+// stderr is piped (not shown) so a failure carries git's own message.
 const git = (dir: string, args: string[], timeout = 20_000) =>
-	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout }).trim();
+	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout }).trim();
+
+/** Why the last orderWorktree() for a folder failed, in git's words; cleared when one succeeds. */
+const worktreeErrors = new Map<string, string>();
+export const worktreeError = (cwd: string) => worktreeErrors.get(cwd);
+const errText = (e: unknown) => {
+	const x = e as { stderr?: string | Buffer; message?: string; code?: string };
+	return String(x.stderr ?? "").trim().split("\n").filter(Boolean).at(-1) || x.code || x.message?.split("\n")[0] || String(e);
+};
 
 /**
  * A folder an agent's text may move an order to: only the root of a git repo, never the home folder. An agent's
@@ -256,8 +265,12 @@ export function orderWorktree(cwd: string, n: number): string | undefined {
 			}
 		};
 		git(top, ["worktree", "add", path, ...(has(`refs/heads/${branch}`) ? [branch] : ["-b", branch, has("origin/main") ? "origin/main" : "HEAD"])]);
+		worktreeErrors.delete(cwd);
 		return path;
-	} catch {
+	} catch (e) {
+		// Silent before: on the Mac app's built-in board every order got none (#92-#94), Build made its own worktree with
+		// Claude Code's tool, and Test, checking the repo, found no change.
+		worktreeErrors.set(cwd, errText(e));
 		return undefined;
 	}
 }
@@ -879,6 +892,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it, Spec too, so
 		// nothing a stage writes lands in the shared checkout.
 		const wt = order.kind === "task" && ["spec", "build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
+		const noTree = order.kind === "task" && !wt && worktreeError(order.cwd);
+		if (noTree) {
+			// A board fault, not the agents': the order waits for you with git's reason, and no follow-up is made.
+			updateTask(order.id, { stuck: true, assignee: "", sentAt: 0, failures: [...(order.failures ?? []), `board: no worktree: ${noTree}`.slice(0, 300)].slice(-6) });
+			return { status: 409, body: { error: `#${order.n} has no worktree: ${noTree}` } };
+		}
 		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
 		// Each build round is judged on its own: after Ship committed round 1, HEAD never equals base again (#187).
 		if (wt && order.stage === "build") updateTask(order.id, { roundBase: headOf(wt) });
@@ -1464,7 +1483,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 */
 	function followUp(t: Task): Task | undefined {
 		if (t.kind !== "task" || t.retryOf || t.followUp) return undefined;
-		if ((t.failures ?? []).slice(t.carried ?? 0).some((f) => /^(spec|build): blocked/.test(f))) return undefined;
+		if ((t.failures ?? []).slice(t.carried ?? 0).some((f) => /^(spec|build): blocked|^board: /.test(f))) return undefined;
 		const route = t.route;
 		const next = addTask({ title: t.title, cwd: t.cwd, priority: t.priority, skills: t.skills, route, kind: "task", lane: "full", zachman: t.zachman });
 		stock(t.skills, k.fetch);

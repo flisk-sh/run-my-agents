@@ -166,7 +166,7 @@ export function flow(tasks: Task[], now = Date.now()) {
 }
 
 /** Failures that were the board's, not the agent's: an agent that could not log in never got to work. */
-export const BOARD_FAULT = /Not logged in|authentication_failed/;
+export const BOARD_FAULT = /Not logged in|authentication_failed|^board: /;
 
 /** The fail-rate goals, in order: once the rate is at or under one, the next is the goal. */
 export const FAIL_GOALS = [70, 50, 30, 15, 5];

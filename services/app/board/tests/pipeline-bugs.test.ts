@@ -486,6 +486,19 @@ describe("kitchen pipeline bugs", () => {
 		expect(calls[1]).not.toContain("--add-dir");
 	});
 
+	it("#92: a worktree git refuses is reported in git's words, and the order is a board fault with no follow-up", async () => {
+		const { orderWorktree, worktreeError } = await import("../src/kitchen/routes");
+		const { BOARD_FAULT } = await import("../src/kitchen/scores");
+		const empty = realpathSync(mkdtempSync(join(tmpdir(), "rma-hunt-empty-")));
+		execFileSync("git", ["-C", empty, "init", "-q", "-b", "main"], { stdio: "ignore" });
+		expect(orderWorktree(empty, 7)).toBeUndefined();
+		expect(worktreeError(empty)).toBeTruthy();
+		expect(BOARD_FAULT.test(`board: no worktree: ${worktreeError(empty)}`)).toBe(true);
+		const r = repo(false);
+		expect(orderWorktree(r, 8)).toBe(join(r, ".kitchen", "order-8"));
+		expect(worktreeError(r)).toBeUndefined();
+	});
+
 	it("#187: a build round that changes nothing after Ship committed the last one is caught", async () => {
 		let builds = 0;
 		let reviews = 0;
