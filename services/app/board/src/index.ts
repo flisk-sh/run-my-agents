@@ -61,6 +61,8 @@ const sending = new Set<string>();
  * runs under --watch) while its `claude -p` children keep running. After a restart every running step looked
  * finished at its first quiet gap, so Test started on half-built worktrees (#172). A chat is busy while its process
  * is alive; an entry older than RUNNING_MAX_MS is dropped, so a reused PID never holds a chat for good.
+ * A zombie is not running: `bun run --watch` restarts the board with the same PID, so a `claude -p` child started
+ * before the reload is never waited on and answers kill(pid, 0) after it exits (#121).
  */
 const RUNNING_MAX_MS = 3 * 3_600_000;
 const runningFile = () => join(dataDir(), "running.json");
@@ -87,12 +89,22 @@ export function markDone(id: string, pid?: number) {
 	delete all[id];
 	writeRunning(all);
 }
+/** True when `pid` has exited but was never reaped: `ps -o stat=` prints `Z...` and kill(pid, 0) still succeeds. */
+const zombie = (pid: number): boolean => {
+	try {
+		const r = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
+		return new TextDecoder().decode(r.stdout).trim().startsWith("Z");
+	} catch {
+		return false;
+	}
+};
 export function stillRunning(id: string): boolean {
 	const r = readRunning()[id];
 	if (!r) return false;
 	try {
 		if (Date.now() - r.at > RUNNING_MAX_MS) throw new Error("too old");
 		process.kill(r.pid, 0);
+		if (zombie(r.pid)) throw new Error("zombie");
 		return true;
 	} catch {
 		markDone(id, r.pid);

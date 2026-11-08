@@ -40,6 +40,36 @@ describe("a board restart while an agent is mid-turn (#172)", () => {
 		expect(JSON.parse(readFileSync(join(dir, "running.json"), "utf8"))["chat-b"]).toBeUndefined();
 	});
 
+	it("treats a zombie left behind by a hot reload as not running (#121)", async () => {
+		// perl forks, the child exits at once and the parent sleeps without waiting: the child is a real zombie,
+		// exactly like a `claude -p` child of a board that `bun run --watch` restarted in place.
+		const parent = Bun.spawn(["perl", "-e", '$|=1; my $c = fork(); exit 0 if $c == 0; print "$c\\n"; sleep 30;'], { stdout: "pipe" });
+		const reader = parent.stdout.getReader();
+		const first = await reader.read();
+		const pid = Number(new TextDecoder().decode(first.value as Uint8Array).trim());
+		expect(pid).toBeGreaterThan(0);
+		const stat = (p: number) => {
+			try {
+				return execFileSync("ps", ["-o", "stat=", "-p", String(p)], { encoding: "utf8" }).trim();
+			} catch {
+				return "";
+			}
+		};
+		let state = "";
+		for (let i = 0; i < 50 && !state.startsWith("Z"); i++) {
+			await Bun.sleep(20);
+			state = stat(pid);
+		}
+		expect(state.startsWith("Z")).toBe(true);
+		// The old check is not enough: the kernel keeps the entry until it is reaped, so signal 0 reaches a zombie.
+		expect(() => process.kill(pid, 0)).not.toThrow();
+		markRunning("chat-z", pid);
+		expect(stillRunning("chat-z")).toBe(false);
+		expect(JSON.parse(readFileSync(join(dir, "running.json"), "utf8"))["chat-z"]).toBeUndefined();
+		parent.kill();
+		await parent.exited;
+	});
+
 	it("does not move an order on while its build agent's process still runs", async () => {
 		const r = repo();
 		const sessions: Session[] = [];
