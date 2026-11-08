@@ -1251,6 +1251,23 @@ describe("agent to agent", () => {
 });
 
 describe("kitchen permissions", () => {
+	it("gives kitchen chats a temp folder they may write to, and leaves your own chats alone", async () => {
+		const { sendToSession, startNewSession } = await import("../src/index");
+		const { KITCHEN_TOOLS, kitchenFlags, kitchenTmp } = await import("../src/kitchen/containers");
+		const envs: NodeJS.ProcessEnv[] = [];
+		const run = ((_cmd: string, _args: string[], opts: { env: NodeJS.ProcessEnv }) => {
+			envs.push(opts.env);
+			return { on: (e: string, f: () => void) => e === "close" && setTimeout(f, 0), stdin: { end() {} } };
+		}) as never;
+		await startNewSession({ agent: "claude", cwd: "/repo", text: "x", id: "a", mode: "acceptEdits", allow: KITCHEN_TOOLS }, run);
+		await sendToSession({ ...session("k", "Build"), title: "Build · repo 1a2b", tune: { mode: "acceptEdits" } }, "hi", run);
+		await sendToSession({ ...session("m", "Code"), title: "my own chat" }, "hi", run);
+		expect(envs[0].TMPDIR).toBe(kitchenTmp());
+		expect(envs[1].TMPDIR).toBe(kitchenTmp());
+		expect(envs[2].TMPDIR).toBe(process.env.TMPDIR);
+		// The folder is only writable because it sits inside the directory kitchen agents are given.
+		expect(kitchenTmp().startsWith(kitchenFlags()[3])).toBe(true);
+	});
 	it("starts and resumes kitchen chats with the tool allow-list, and leaves your own chats alone", async () => {
 		const { sendToSession, startNewSession } = await import("../src/index");
 		const { KITCHEN_TOOLS } = await import("../src/kitchen/containers");

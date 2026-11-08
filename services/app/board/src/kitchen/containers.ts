@@ -44,6 +44,18 @@ export function kitchenFlags(): string[] {
 	} catch {}
 	return ["--setting-sources", "project,local", "--add-dir", home];
 }
+/**
+ * A temp folder inside a directory kitchen agents may already use (`--add-dir` above). /tmp is outside it, so every
+ * temp file an agent wrote there was refused and cost it a retry (order #116: Test and Review, 11 refusals). Opening
+ * /tmp itself would also open other sessions' scratch files.
+ */
+export function kitchenTmp(): string {
+	const dir = join(dataDir(), "kitchen-home", "tmp");
+	try {
+		mkdirSync(dir, { recursive: true });
+	} catch {}
+	return dir;
+}
 /** Chats the kitchen started: container agents ("Build · flisk 3125") and Ship agents ("Ship · #12"). */
 export const KITCHEN_CHAT = /^(?:(?:Spec|Build|Test|Review) · .+ [0-9a-f]{4}|Ship · #\d+|Auto cooks · .+ [0-9a-f]{4}|Kitchen cooks [0-9a-f]{4})$/;
 

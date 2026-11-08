@@ -15,7 +15,7 @@ import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
 import { KITCHEN_AGENTS } from "./kitchen/agents";
-import { KITCHEN_CHAT, KITCHEN_TOOLS, kitchenFlags } from "./kitchen/containers";
+import { KITCHEN_CHAT, KITCHEN_TOOLS, kitchenFlags, kitchenTmp } from "./kitchen/containers";
 import { mountKitchen } from "./kitchen/routes";
 import { skillsFor } from "./kitchen/skills";
 
@@ -206,7 +206,7 @@ export function sendToSession(s: Session, text: string, run = spawn, dirs: strin
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
 			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(boardModel(s) ? ["--model", boardModel(s) as string] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d]), ...(KITCHEN_CHAT.test(s.title ?? "") ? [...kitchenFlags(), "--allowedTools", ...KITCHEN_TOOLS] : [])]];
 	return new Promise((resolve, reject) => {
-		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"], env: agentEnv() });
+		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"], env: KITCHEN_CHAT.test(s.title ?? "") ? { ...agentEnv(), TMPDIR: kitchenTmp() } : agentEnv() });
 		child.on("error", reject);
 		child.on("close", () => resolve());
 		child.stdin?.end(text);
@@ -418,7 +418,7 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
 			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : []), ...(n.allow?.length ? [...kitchenFlags(), "--allowedTools", ...n.allow] : []), ...(n.dirs ?? []).flatMap((d) => ["--add-dir", d])]];
 	return new Promise((resolveStart, reject) => {
-		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"], env: agentEnv() });
+		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"], env: n.allow?.length ? { ...agentEnv(), TMPDIR: kitchenTmp() } : agentEnv() });
 		child.on("error", reject);
 		child.on("close", () => resolveStart());
 		child.stdin?.end(n.text);
