@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
+    "live": "sh scripts/live.sh",
     "start": "bun run src/index.ts",
     "test": "bun test"
   },

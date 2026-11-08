@@ -117,6 +117,8 @@ cd services/app/board && bun run dev
 
 `bun run dev` restarts the board when its code changes, and an open board page reloads itself and keeps what you were typing (drafts are saved per agent in the browser).
 
+`bun run live` does that and also follows main: a merged pull request is live within a minute, and the board comes back if it crashes. It leaves a checkout that is on another branch or has unsaved edits alone.
+
 ## Pins and the right-click menu
 
 Right-click an agent for its gauges panel: a token gauge, a model dial (Auto, Haiku, Sonnet, Opus), an effort gauge (low to max), switches for Pin and Mute, the agent type, and tiles to open its folder in Finder, Terminal or VS Code, plus copy buttons. The model and effort you set are used for every message the board sends to that agent (`claude --model --effort`); Claude Code cannot change a running session's model from outside, so the dial also copies `/model <name>` for the Claude app. Pins from the Claude app show as pinned too. Pins made in the board are saved in `~/.run-my-agents/pins.json` and never change the Claude app; unpinning here hides an app pin on this board only.
