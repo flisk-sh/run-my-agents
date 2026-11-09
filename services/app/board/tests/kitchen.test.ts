@@ -217,6 +217,14 @@ describe("kitchen page", () => {
 		expect(KITCHEN_JS).toContain('if(d.kopen&&!e.target.closest("[data-kfire]")){');
 	});
 
+	it("opens the chat from the avatar on an order card, and says when its agent sits idle", async () => {
+		const { KITCHEN_JS } = await import("../src/kitchen/view");
+		expect(KITCHEN_JS).toContain('class:"kwhorow","data-kopen":s.id');
+		expect(KITCHEN_JS).toContain("autopilot is off, so nobody reads its reply");
+		expect(KITCHEN_JS).toContain("its reply has not been picked up");
+		expect(() => new Function(KITCHEN_JS)).not.toThrow();
+	});
+
 	it("has a click handler for every data-k button the kitchen draws", async () => {
 		const { KITCHEN_JS } = await import("../src/kitchen/view");
 		/* Clear lessons and Delete container drew buttons nothing listened to */
