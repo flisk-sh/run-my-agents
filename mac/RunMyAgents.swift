@@ -244,7 +244,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     _ = sem.wait(timeout: .now() + 2); return ok
   }
 
-  func ensureServer() {
+  /** The last lines of the board's log: shown on the error page, and used to tell a missing package from any crash. */
+  func logTail(_ log: URL, lines: Int = 12) -> String {
+    let text = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+    return text.split(separator: "\n").suffix(lines).joined(separator: "\n")
+  }
+
+  /** A crash the app repairs itself: the board's node_modules is missing or incomplete (#141). */
+  static func missingPackage(_ log: String) -> Bool {
+    log.contains("Cannot find package") || log.contains("Cannot find module")
+  }
+
+  func ensureServer(repaired: Bool = false) {
     if healthy() { return DispatchQueue.main.async { self.loadBoard() } }
     let dir = ProcessInfo.processInfo.environment["RUN_MY_AGENTS_BOARD"] ?? bakedBoardDir
     let home = NSHomeDirectory()
@@ -274,17 +285,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
     if p.isRunning { p.terminate() }
     server = nil
-    fail(dir, "The board did not answer on port \(port). Log: \(log.path)")
+    let tail = logTail(log)
+    // Only a board run from source has node_modules to repair; a release carries the board compiled in.
+    let fromSource = Bundle.main.url(forResource: "board", withExtension: nil) == nil || ProcessInfo.processInfo.environment["RUN_MY_AGENTS_BOARD"] != nil
+    if !repaired, fromSource, AppDelegate.missingPackage(tail) {
+      DispatchQueue.main.async { self.web.loadHTMLString(self.page("Repairing the board…", "<p>A package is missing. Running <code>bun install</code>.</p>"), baseURL: nil) }
+      let r = run("/usr/bin/env", ["bun", "install"], in: dir)
+      if r.ok { return ensureServer(repaired: true) }
+      return fail(dir, "bun install failed:\n\(r.out)\n\(tail)")
+    }
+    fail(dir, "The board did not answer on port \(port). Log: \(log.path)\n\(tail)")
   }
 
   func fail(_ dir: String, _ why: String) {
     let esc = { (s: String) in s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;") }
     let body = """
-    <p>Run My Agents could not start the board server.</p><p class=e>\(esc(why))</p>
+    <p>Run My Agents could not start the board server.</p><pre class=e>\(esc(why))</pre>
     <p>Install Bun from <a href="https://bun.sh">bun.sh</a> (<code>curl -fsSL https://bun.sh/install | bash</code>), then run:</p>
     <pre>cd \(esc(dir))\nPORT=\(port) bun src/index.ts</pre><p>and press <b>⌘R</b> to reload.</p>
     """
     DispatchQueue.main.async { self.web.loadHTMLString(self.page("Board server not running", body), baseURL: nil) }
+    // Never silent: the window may be behind another app, and on 2026-11-09 the crash went unnoticed for hours (#141).
+    tell("Board server not running", why)
   }
 
   func page(_ title: String, _ body: String) -> String {

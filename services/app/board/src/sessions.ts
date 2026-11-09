@@ -291,7 +291,10 @@ export function rowResult(text: string, bad?: boolean): string {
 
 export function diffStat(cwd: string): { add: number; del: number } | undefined {
 	try {
-		const output = execFileSync("git", ["-C", cwd, "diff", "--numstat", "HEAD"], { encoding: "utf8", timeout: 5000 });
+		// A folder that is gone (a deleted order worktree) is not asked of git: stderr went to the board's live log on
+		// every poll, "fatal: cannot change to '…/order-137'" over and over (#141).
+		if (!statSync(cwd).isDirectory()) return undefined;
+		const output = execFileSync("git", ["-C", cwd, "diff", "--numstat", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5000 });
 		let add = 0, del = 0;
 		for (const line of output.trim().split("\n")) {
 			const m = /^(\d+)\s+(\d+)/.exec(line);

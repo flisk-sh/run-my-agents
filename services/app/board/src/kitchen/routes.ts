@@ -276,6 +276,32 @@ export function removeOrderWorktree(repoDir: string, wt: string, n: number): boo
 	}
 }
 
+/** Orders already reported lost, so the live log says it once (#141). */
+const lostWorktrees = new Set<string>();
+/**
+ * An order whose worktree folder is gone (deleted by hand) must never be used for git calls again: every pass printed
+ * "fatal: cannot change to '<wt>'". Clears the worktree, marks an unfinished order stuck, and logs it once.
+ */
+export function dropLostWorktrees(): string[] {
+	const said: string[] = [];
+	for (const t of readTasks()) {
+		if (!t.worktree || isDir(t.worktree)) continue;
+		if (!lostWorktrees.has(t.id)) {
+			lostWorktrees.add(t.id);
+			console.warn(`#${t.n}: worktree gone, order marked lost: ${t.worktree}`);
+			said.push(`#${t.n} worktree gone: ${t.worktree}`);
+		}
+		const done = t.stage === "done" || t.failed;
+		updateTask(t.id, {
+			worktree: undefined,
+			base: undefined,
+			roundBase: undefined,
+			...(done ? {} : { stuck: true, assignee: "", sentAt: 0, failures: [...(t.failures ?? []), `board: worktree gone: ${t.worktree}`].slice(-6) }),
+		});
+	}
+	return said;
+}
+
 /**
  * The order's own git worktree, made by the board (agents skipped the step when asked to): <repo>/.kitchen/
  * order-<n> on branch kitchen/order-<n>, from origin/main (or HEAD when the repo has no remote). Every agent on the
@@ -665,6 +691,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	};
 	const tick = () => {
 		missed();
+		dropLostWorktrees();
 		auto();
 		sweepWorktrees();
 		retireLessons(readTasks().filter((t) => t.kind === "task" && t.servedAt).map((t) => t.servedAt as number));
