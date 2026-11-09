@@ -258,8 +258,18 @@ export function callDetail(name: string, input?: Record<string, unknown>): { wha
 	if (input?.url) return { what: str(input.prompt).slice(0, 120) || undefined, detail: str(input.url) };
 	if (input?.query) return { detail: cut(str(input.query), 300) };
 	if (input?.description) return { detail: cut(str(input.description), 200) };
-	const small = Object.fromEntries(Object.entries(input ?? {}).filter(([, v]) => typeof v !== "object" || v === null).map(([k, v]) => [k, typeof v === "string" ? cut(v, 80) : v]));
-	return { detail: cut(JSON.stringify(small), 300) };
+	// A browser batch keeps everything in `actions`: show one short line per step instead of an empty {}.
+	if (Array.isArray(input?.actions)) {
+		const steps = (input.actions as { name?: unknown; input?: Record<string, unknown> }[]).map((a) => {
+			const label = String(a?.name ?? "step").replace(/_/g, " ");
+			const args = Object.entries(a?.input ?? {}).filter(([k]) => k !== "action_summary" && k !== "tabId").map(([k, v]) => `${k}=${cut(typeof v === "string" ? v : JSON.stringify(v), 60)}`);
+			return args.length ? `${label} ${args.join(" ")}` : label;
+		});
+		return { detail: cut(steps.join(" → "), 800) };
+	}
+	const small = Object.fromEntries(Object.entries(input ?? {}).map(([k, v]) => [k, typeof v === "string" ? cut(v, 80) : v]));
+	const text = JSON.stringify(small);
+	return { detail: cut(text === "{}" ? "" : text, 300) };
 }
 
 export function rowLabel(name: string, input?: Record<string, unknown>): string {

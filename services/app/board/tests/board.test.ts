@@ -391,6 +391,11 @@ describe("send", () => {
 		expect(callDetail("Read", { file_path: "/repo/a.ts" })).toEqual({ detail: "/repo/a.ts" });
 		expect(callDetail("Grep", { pattern: "TODO", path: "src" })).toEqual({ detail: "TODO  in src" });
 		expect(callDetail("WebFetch", { url: "https://x.dev", prompt: "read it" })).toEqual({ what: "read it", detail: "https://x.dev" });
+		// a browser batch is shown step by step, never as an empty {}
+		const batch = callDetail("mcp__claude-in-chrome__browser_batch", { actions: [{ name: "navigate", input: { url: "https://x.dev", tabId: 1 } }, { name: "computer", input: { action: "left_click", coordinate: [10, 20], action_summary: "Click" } }] });
+		expect(batch.detail).toBe("navigate url=https://x.dev → computer action=left_click coordinate=[10,20]");
+		expect(callDetail("mcp__x__tool", { opts: { a: 1 }, list: [1, 2] }).detail).toBe('{"opts":{"a":1},"list":[1,2]}');
+		expect(callDetail("mcp__x__tool", {}).detail).toBe("");
 		const tool = (command: string) => line({ type: "assistant", message: { content: [{ type: "tool_use", id: command, name: "Bash", input: { command } }] } });
 		const s = parseSession("calls", [ask("go"), tool("ls"), tool("git status"), tool("bun test")], now);
 		expect(s?.feed.at(-1)?.calls?.map((c) => c.detail)).toEqual(["ls", "git status", "bun test"]);
