@@ -158,6 +158,8 @@ function kTimes(t){const end=t.stage==="done"&&t.servedAt?t.servedAt:Date.now(),
 function kTimeLine(t){const x=kTimes(t);return H("div",{class:"ttime",title:"Lead time: since ordered. Cycle time: since an agent first picked it up."},"⏱ ",H("span",null,"lead ",H("b",null,kDur(x.lead))),x.cyc?H("span",null,"cycle ",H("b",null,kDur(x.cyc))):null,x.inSt?H("span",{class:x.inSt>15*60e3?"slow":""},"in "+STN[t.stage]+" ",H("b",null,kDur(x.inSt))):null)}
 /* The Zachman card from intake triage: What, How, Where, Who, When, Why. */
 function kZach(t){const z=t.zachman;if(!z||t.kind==="question")return null;return H("div",{class:"zgrid",title:"Zachman card from intake"},[["What",z.what],["How",z.how],["Where",z.where],["Who",z.who],["When",z.when],["Why",z.why]].map(([k,v])=>H("div",{key:k},H("small",null,k),H("span",{title:v},v))))}
+/* A stage whose note was too long to hand on whole: the next stage got its start plus the path to the rest. */
+function kCut(t){return (t.cut||[]).length?H("span",{style:"background:#b45309",title:"The "+t.cut.join(" and ")+" note was too long to hand on whole, so it was shortened. The whole text is kept in the board's data folder, as notes/order-"+t.n+"-<stage>.md."},"⚠ "+t.cut.join(", ")+" note shortened"):null}
 function kOrder(t,next){return H("div",{key:t.id,class:"ord"+(next?" next":"")+(t.stuck?" stuck":"")+(t.stuckWarning?" warning":""),draggable:"true","data-kid":t.id},
  H("div",{class:"top"},"#"+t.n+" ",H("span",{class:"pri "+t.priority,"data-kpri":t.id,title:"Click to change priority"},t.priority)),H("div",{class:"t"},t.title),
  t.kind==="question"?null:kPips(t),t.kind==="question"?null:kEstLine(t),kTimeLine(t),
@@ -165,7 +167,7 @@ function kOrder(t,next){return H("div",{key:t.id,class:"ord"+(next?" next":"")+(
   H("span",null,STN[t.stage]),H("span",null,"→ "+(t.stage==="build"?t.route:(KD.roles[t.stage]||[])[0]||"you")),t.rounds?H("span",null,"round "+(t.rounds+1)):null,
   t.retryOf?H("span",{style:"background:#b45309",title:"Second attempt after #"+t.retryOf+" failed"},"retry of #"+t.retryOf):null,
   t.parked?H("span",{style:"background:#4b5563",title:"Parked: no slot, autopilot skips it"},"parked"):null,
-  t.prStale?H("span",{style:"background:#b45309",title:"Its pull request has been open over 24 hours and still holds a WIP slot"},"PR open > 24 h"):null),
+  t.prStale?H("span",{style:"background:#b45309",title:"Its pull request has been open over 24 hours and still holds a WIP slot"},"PR open > 24 h"):null,kCut(t)),
  kSkills(t),kZach(t),t.answer?H("div",{class:"answer"},t.answer):null,kWho(t),kActs(t))}
 /* Orders waiting at the pass, shown on every kitchen tab so approving is never hidden. */
 function kPassBar(){const w=KD.tasks.filter(t=>t.atPass);if(!w.length)return null;return H("div",{class:"passbar"},H("b",null,"⏸ "+w.length+" at the pass"),H("span",null,"Specs done. Approve to send to build:"),H("div",{class:"kplist"},w.map(t=>H("span",{key:t.id,"data-kapprove":t.id,title:"Approve #"+t.n},"#"+t.n+" "+t.title.slice(0,40)+" ✓"))),H("button",{class:"kbtn sm go","data-kapproveall":true},"Approve all"))}
