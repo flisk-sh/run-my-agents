@@ -231,7 +231,13 @@ describe("Kitchen Rush game", () => {
 		expect(res.headers.get("content-security-policy")).toContain(
 			"script-src 'unsafe-inline'",
 		);
+		expect(res.headers.get("content-security-policy")).toContain(
+			"script-src 'unsafe-inline' https://flisk.si;",
+		);
 		const html = await res.text();
+		expect(html).toContain(
+			'<script src="https://flisk.si/assets/bar.js" defer></script>',
+		);
 		expect(html).toContain("KITCHEN RUSH");
 		// shipping is not binary: flaky tests let slip away are counted on the ship screen
 		expect(html).toContain("Waved through: flaky test marked done");

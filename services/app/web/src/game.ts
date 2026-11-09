@@ -7,7 +7,7 @@ import { SITE } from "./site";
 
 const SCRIPT = `
 const cv=document.getElementById("g"),x=cv.getContext("2d");
-let W=0,H=0;function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;x.imageSmoothingEnabled=false}addEventListener("resize",fit);fit();
+let W=0,H=0;function fit(){const b=document.querySelector("flisk-bar");W=cv.width=innerWidth;H=cv.height=innerHeight-(b?b.offsetHeight:0);x.imageSmoothingEnabled=false}addEventListener("resize",fit);addEventListener("load",fit);fit();
 const WIN=300,keys={};let joy=null;
 addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=1;if(e.key===" "||e.key==="Enter")tap()});
 addEventListener("keyup",e=>{keys[e.key.toLowerCase()]=0});
@@ -19,7 +19,7 @@ const UPS=[{n:"Faster pans",d:"Throw 25% faster",f:p=>p.rate*=.75},{n:"Heavier p
 let st="title",P,E,B,T,F,cooks,t,lvl,xp,need,kills,waved,caught,choice,last,spawnT,boss,shake,rec,rr,lostTo;
 function reset(){P={x:0,y:0,hp:130,max:130,spd:180,rate:.55,cd:0,dmg:2,multi:1,mag:100,hurt:0,face:1};E=[];B=[];T=[];F=[];cooks=[];t=0;lvl=1;xp=0;need=4;kills=0;waved=0;caught=0;choice=null;spawnT=0;boss=0;shake=0;rec=[];rr=0;lostTo=""}
 function tap(e){if(st==="title"||st==="dead"||st==="won"){reset();st="play";last=performance.now();return}
- if(st==="up"&&e){const i=pick(e.clientX,e.clientY);if(i>=0)choose(i)}}
+ if(st==="up"&&e){const i=pick(e.clientX,e.clientY-cv.getBoundingClientRect().top);if(i>=0)choose(i)}}
 addEventListener("keydown",e=>{if(st==="up"&&"123".includes(e.key))choose(+e.key-1)});
 const catchPct=()=>caught+waved?Math.round(caught/(caught+waved)*100)+"%":"",rateLine=()=>caught+waved?"Catch rate "+catchPct()+": "+caught+" of "+(caught+waved)+" flaky tests that came back really fixed.":"";
 const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -140,4 +140,5 @@ export const gamePage = (base: string) => `<!doctype html>
 <meta name="twitter:player:height" content="480">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Kitchen Rush","description":"A free survivors-like: hold out five minutes against bugs, flaky tests and red CI with up to three agent cooks.","url":"${base}/play","image":"${base}/play/card.png","genre":"Survivors-like","gamePlatform":"Web browser","playMode":"https://schema.org/SinglePlayer","isAccessibleForFree":true}</script>
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0b0f;touch-action:none;user-select:none;-webkit-user-select:none}canvas{display:block}</style>
+<script src="https://flisk.si/assets/bar.js" defer></script>
 </head><body><canvas id="g" aria-label="Kitchen Rush game"></canvas><script>${SCRIPT}</script></body></html>`;

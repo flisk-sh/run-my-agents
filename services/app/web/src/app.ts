@@ -189,7 +189,7 @@ export function createApp(options: AppOptions = {}) {
 	app.get("/play", (c) => {
 		c.header(
 			"content-security-policy",
-			"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com",
+			"default-src 'none'; script-src 'unsafe-inline' https://flisk.si; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com",
 		);
 		return c.html(gamePage(baseOf(c)));
 	});
