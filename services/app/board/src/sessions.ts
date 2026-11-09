@@ -392,7 +392,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 					optToolId = "";
 				}
 				const file = String(c.input?.file_path ?? c.input?.notebook_path ?? "");
-				s.doing = file ? `${toolLabel(c.name, c.input)} ${basename(file)}` : toolLabel(c.name, c.input);
+				s.doing = rowLabel(c.name, c.input);
 				if (file && EDIT_TOOLS.has(c.name)) s.edits.push({ file, at, ...editSize(c.name, c.input) });
 				if (c.name === "Bash") {
 					for (const m of String(c.input?.command ?? "").matchAll(/\bcd\s+("[^"]+"|'[^']+'|[~/][^\s;&|)]*)/g)) {

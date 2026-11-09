@@ -38,7 +38,7 @@ describe("sessions", () => {
 		const s = parseSession("abc", [ask("tune the login query"), "not json", edit("/repo/src/api.ts")], now);
 		expect(s?.title).toBe("tune the login query");
 		expect(s?.said).toBe("Fixing it.");
-		expect(s?.doing).toBe("Edit api.ts");
+		expect(s?.doing).toBe("Edited api.ts");
 		expect(s?.edits.map((e) => e.file)).toEqual(["/repo/src/api.ts"]);
 		expect(s?.role).toBe("Code");
 	});
