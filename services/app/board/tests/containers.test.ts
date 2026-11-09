@@ -911,8 +911,8 @@ describe("ship and the skill sidecar", () => {
 		expect(started.at(-1)?.text).toContain(`You are in this order's own git worktree: ${wt}`);
 		// A second stage reuses the same worktree instead of making another.
 		const { orderWorktree } = await import("../src/kitchen/routes");
-		expect(orderWorktree(repo, 7)).toBe(wt);
-		expect(orderWorktree("", 7)).toBeUndefined();
+		expect(await orderWorktree(repo, 7)).toBe(wt);
+		expect(await orderWorktree("", 7)).toBeUndefined();
 	});
 
 	it("moves an order when its builder says the code lives in another folder, and builds again there", async () => {

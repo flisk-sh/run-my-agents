@@ -17,12 +17,12 @@ const repo = () => {
 
 // #163: orders #24, #29 and #30 had worktrees, yet Build edited the shared checkout by its absolute path.
 describe("build edits that leak into the base repo", () => {
-	it("are the base repo's changes made after the snapshot, not the ones before it", () => {
+	it("are the base repo's changes made after the snapshot, not the ones before it", async () => {
 		const dir = repo();
 		writeFileSync(join(dir, "mine.txt"), "user's own edit\n");
 		const before = repoDirty(dir);
 		expect(before).toEqual(["?? mine.txt"]);
-		const wt = orderWorktree(dir, 7);
+		const wt = await orderWorktree(dir, 7);
 		expect(wt).toBeDefined();
 		writeFileSync(join(wt as string, "a.ts"), "worktree edit\n");
 		expect(leakedInto(dir, before)).toEqual([]);

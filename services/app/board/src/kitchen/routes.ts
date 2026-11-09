@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 // The kitchen's HTTP API, mounted on the board's app: orders, the scoreboard, skill sets and agent containers.
 // Everything the board owns (reading sessions, sending a message, starting an agent) comes in through KitchenCtx,
 // so this module never reaches into the board's internals and can be tested on its own.
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join as joinPath, resolve as resolvePath } from "node:path";
@@ -202,6 +203,11 @@ export function folderHint(text: string, folders: string[] = []): string | undef
 const git = (dir: string, args: string[], timeout = 20_000) =>
 	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout }).trim();
 
+const execFileP = promisify(execFile);
+// Same 20 s timeout and piped stderr as git(), off the server thread: a slow `git fetch` must not stall every request (#126).
+const gitAsync = async (dir: string, args: string[], timeout = 20_000): Promise<string> =>
+	(await execFileP("git", ["-C", dir, ...args], { encoding: "utf8", timeout })).stdout.trim();
+
 /** A path inside an order's own worktree: <repo>/.kitchen/order-<n>, or .git/kitchen/order-<n> before #256 moved it. */
 export const inOrderWorktree = (p: string) => /\/(?:\.kitchen|\.git\/kitchen)\/order-\d+(?:\/|$)/.test(p);
 /**
@@ -329,14 +335,25 @@ export function dropLostWorktrees(): string[] {
  * order starts its chat there, so no edit lands in the shared checkout, Review sees only this order's diff, and Ship
  * has a clean branch to push. Not a git repo, or git fails: undefined, and the order works in its folder as before.
  */
-export function orderWorktree(cwd: string, n: number): string | undefined {
+/** One worktree creation per order at a time: two ticks must not both run `git worktree add` for the same order (#126). */
+const makingWorktree = new Map<string, Promise<string | undefined>>();
+export function orderWorktree(cwd: string, n: number): Promise<string | undefined> {
+	const key = `${cwd}#${n}`;
+	const pending = makingWorktree.get(key);
+	if (pending) return pending;
+	const p = makeOrderWorktree(cwd, n).finally(() => makingWorktree.delete(key));
+	makingWorktree.set(key, p);
+	return p;
+}
+
+async function makeOrderWorktree(cwd: string, n: number): Promise<string | undefined> {
 	// Only a real folder: never let git fall back to the board's own working directory.
 	if (!cwd || !cwd.startsWith("/") || !isDir(cwd)) return undefined;
 	try {
 		// The main working tree, not cwd's own toplevel: inside another order's worktree show-toplevel is that worktree,
 		// and the new worktree was created under it, where sweepWorktrees' `git worktree remove` deletes it (#130).
-		const common = resolvePath(cwd, git(cwd, ["rev-parse", "--git-common-dir"]));
-		const top = /\/\.git$/.test(common) ? common.replace(/\/\.git$/, "") : git(cwd, ["rev-parse", "--show-toplevel"]);
+		const common = resolvePath(cwd, await gitAsync(cwd, ["rev-parse", "--git-common-dir"]));
+		const top = /\/\.git$/.test(common) ? common.replace(/\/\.git$/, "") : await gitAsync(cwd, ["rev-parse", "--show-toplevel"]);
 		// Under the repo's own folder, never under .git: Claude Code protects everything in .git, so agents could not
 		// edit a single file there ("File …/.git/kitchen/order-12/…/view.ts is protected"). Hidden from git status by
 		// .git/info/exclude.
@@ -354,22 +371,22 @@ export function orderWorktree(cwd: string, n: number): string | undefined {
 		const old = joinPath(common, "kitchen", `order-${n}`);
 		if (isDir(old)) {
 			mkdirSync(joinPath(top, ".kitchen"), { recursive: true });
-			git(top, ["worktree", "move", old, path]);
+			await gitAsync(top, ["worktree", "move", old, path]);
 			return path;
 		}
 		const branch = `kitchen/order-${n}`;
 		try {
-			git(top, ["fetch", "-q", "origin"]);
+			await gitAsync(top, ["fetch", "-q", "origin"]);
 		} catch {}
-		const has = (ref: string) => {
+		const has = async (ref: string) => {
 			try {
-				git(top, ["rev-parse", "--verify", "--quiet", ref]);
+				await gitAsync(top, ["rev-parse", "--verify", "--quiet", ref]);
 				return true;
 			} catch {
 				return false;
 			}
 		};
-		git(top, ["worktree", "add", path, ...(has(`refs/heads/${branch}`) ? [branch] : ["-b", branch, defaultBase(top).ref])]);
+		await gitAsync(top, ["worktree", "add", path, ...((await has(`refs/heads/${branch}`)) ? [branch] : ["-b", branch, defaultBase(top).ref])]);
 		worktreeErrors.delete(cwd);
 		return path;
 	} catch (e) {
@@ -752,10 +769,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (removeOrderWorktree(t.cwd, t.worktree as string, t.n)) updateTask(t.id, { worktree: undefined });
 		}
 	};
-	const tick = () => {
+	const tick = async () => {
 		missed();
 		dropLostWorktrees();
-		auto();
+		await auto();
 		sweepWorktrees();
 		retireLessons(readTasks().filter((t) => t.kind === "task" && t.servedAt).map((t) => t.servedAt as number));
 		const holding = new Set(readTasks().filter((t) => t.assignee && t.stage !== "done").map((t) => t.assignee));
@@ -1120,7 +1137,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * an idle agent (see pick). The step runs on the model policy (the container's own model if it set one).
 	 */
 
-	function dispatch(id: string, session?: string, podsOnly = false): Out {
+	async function dispatch(id: string, session?: string, podsOnly = false): Promise<Out> {
 		let t = readTasks().find((x) => x.id === id);
 		if (!t) return { status: 404, body: { error: "That order is gone." } };
 		if (t.stage === "done") return { status: 400, body: { error: "That order is already served." } };
@@ -1135,7 +1152,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			if (t.skills.some((n) => skillState(n) !== "failed" && skillState(n) !== "ok")) return { status: 409, body: { error: "Its skills are still installing." } };
 		}
 		const order = t;
-		if (agent() && order.kind === "task" && !session) return fliskDispatch(order);
+		if (agent() && order.kind === "task" && !session) return await fliskDispatch(order);
 		const chosen = session ? { session: k.read().find((x) => x.id === session), why: "That agent is gone." } : pick(order, podsOnly);
 		const s = chosen.session;
 		if (!s) return { status: 409, body: { error: chosen.why } };
@@ -1151,7 +1168,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const use = [...[...all.filter((n) => !own.has(n)), ...all.filter((n) => own.has(n))].slice(0, MAX_STEP_SKILLS), ...(box ? [lessonsSkill(lessonsKeyOf(box))] : [])];
 		// The order's worktree: made once by the board, then every stage's agent starts its chat inside it, Spec too, so
 		// nothing a stage writes lands in the shared checkout.
-		const wt = order.kind === "task" && ["spec", "build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
+		const wt = order.kind === "task" && ["spec", "build", "test", "review"].includes(order.stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : await orderWorktree(order.cwd, order.n)) : undefined;
 		const noTree = order.kind === "task" && !wt && worktreeError(order.cwd);
 		if (noTree) {
 			// A board fault, not the agents': the order waits for you with git's reason, and no follow-up is made.
@@ -1195,12 +1212,12 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * Flisk path: the order's step is one turn on the Flisk kitchen agent (session "order-<n>-<stage>[-r<round>]"), whose reply
 	 * comes back as the HTTP response. No pods, no waiting for an agent to go quiet, nobody left unanswered.
 	 */
-	function fliskDispatch(order: Task): Out {
+	async function fliskDispatch(order: Task): Promise<Out> {
 		const stage = order.stage;
 		// One session per step: a new round or a requeue is a fresh session that starts from the record, not a resume.
 		const sid = `order-${order.n}-${stage}${order.rounds ? `-r${order.rounds}` : ""}${order.requeued ? `-q${order.requeued}` : ""}`;
 		const who = `flisk:${sid}`;
-		const wt = ["spec", "build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
+		const wt = ["spec", "build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : await orderWorktree(order.cwd, order.n)) : undefined;
 		if (wt && wt !== order.worktree) {
 			updateTask(order.id, { worktree: wt, base: headOf(wt) });
 			installDeps(wt, (w) => updateTask(order.id, { depsFailed: w }));
@@ -1523,7 +1540,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 * their PASS or FAIL), then every waiting order goes to the next free container agent. On by default.
 	 * Your own chats only get orders you dispatch by hand.
 	 */
-	function auto(now = Date.now()) {
+	async function auto(now = Date.now()) {
 		const did: string[] = [];
 		// A question the front desk held when the board restarted: its call is gone, so ask it again (#183).
 		for (const t of readTasks())
@@ -1691,7 +1708,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			// whole inbox got through in one pass. P0 does not jump it: beltOrder already gives it the next free slot.
 			if (st.wipOn && !t.startedAt && readTasks().filter((x) => holdsSlot(x, since)).length >= st.wipLimit) continue;
 			// Auto-dispatch only uses container agents, so orders never land in a chat you are typing in.
-			const r = dispatch(t.id, undefined, true);
+			const r = await dispatch(t.id, undefined, true);
 			if (r.status === 202) did.push(`#${t.n} sent`);
 		}
 		return did;
@@ -1932,7 +1949,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const no = guard(c);
 		if (no) return no;
 		const b = await body<{ id?: string; session?: string }>(c);
-		const r = dispatch(String(b.id), b.session, true);
+		const r = await dispatch(String(b.id), b.session, true);
 		return c.json(r.body, r.status as 200);
 	});
 	app.post("/api/tasks/serve", async (c) => {
@@ -1973,7 +1990,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (on === undefined && (idleMinutes !== undefined || wipOn !== undefined || wipLimit !== undefined)) return c.json({ ...settings(), did: [] });
 		if (typeof on !== "boolean") return c.json({ error: "Say on or off." }, 400);
 		saveSettings({ auto: on });
-		return c.json({ auto: on, did: on ? auto() : [] });
+		return c.json({ auto: on, did: on ? await auto() : [] });
 	});
 
 	// ---------- skill sets ----------
@@ -2011,7 +2028,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!Number.isInteger(Number(replicas)) || Number(replicas) < 0 || Number(replicas) > 10) return c.json({ error: "A container runs 0 to 10 agents." }, 400);
 		const box = patchContainer(String(id), { replicas: Number(replicas), floor: Math.max(0, Math.min(10, Math.round(Number(replicas)))), floorByHand: true, idleSince: undefined, downReason: "Scaled down" });
 		if (!box) return c.json({ error: "That container is gone." }, 404);
-		tick();
+		void tick();
 		return c.json(view(readContainers().find((x) => x.id === box.id) ?? box));
 	});
 	app.post("/api/containers/delete", async (c) => {
@@ -2034,7 +2051,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		// One strike that fires it, and one lesson: the reason you typed, kept as you wrote it (#234).
 		strike(home.pod.session, "fired by hand", String(reason || "Fired by hand."), { fire: true, keep: !!reason });
 		k.close(home.pod.session);
-		return c.json({ fired: true, did: tick() });
+		return c.json({ fired: true, did: await tick() });
 	});
 	/** Clears a container's lessons, for when they came from orders that were never real work. */
 	app.post("/api/containers/lessons/clear", async (c) => {
@@ -2044,10 +2061,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const box = clearLessons(String(id));
 		return box ? c.json({ cleared: true, name: box.name }) : c.json({ error: "That container is gone." }, 404);
 	});
-	app.post("/api/containers/reconcile", (c) => {
+	app.post("/api/containers/reconcile", async (c) => {
 		const no = guard(c);
 		if (no) return no;
-		return c.json({ did: tick() });
+		return c.json({ did: await tick() });
 	});
 	return { tick, missed, auto };
 }

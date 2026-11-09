@@ -299,7 +299,7 @@ describe("kitchen pipeline bugs", () => {
 		await k.post("/api/tasks", { title: TITLE, cwd: a });
 		const id = k.tasks()[0].id;
 		const { orderWorktree, headOf } = await import("../src/kitchen/routes");
-		const wtA = orderWorktree(a, 1) as string;
+		const wtA = (await orderWorktree(a, 1)) as string;
 		k.setTasks(k.tasks().map((t: object) => ({ ...t, stage: "build", approved: true, worktree: wtA, base: headOf(wtA) })));
 		await k.post("/api/tasks/move", { id, cwd: b });
 		k.sessions.push({ ...(parseSession("b1", [JSON.stringify({ type: "user", cwd: b, message: { content: "hi" } })], Date.now()) as Session), cwd: b, role: "Build" });
@@ -497,7 +497,7 @@ describe("kitchen pipeline bugs", () => {
 		g("add", ".");
 		g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "other session");
 		expect(defaultBase(r)).toEqual({ name: "master", ref: "master" });
-		const wt = orderWorktree(r, 3) as string;
+		const wt = (await orderWorktree(r, 3)) as string;
 		expect(existsSync(join(wt, "other.ts"))).toBe(false);
 		// A remote with a default branch that is not main: that is the base, and the name Ship opens its pull request against.
 		const r2 = repo(true);
@@ -512,7 +512,7 @@ describe("kitchen pipeline bugs", () => {
 		const { orderWorktree, removeOrderWorktree } = await import("../src/kitchen/routes");
 		const r = repo(true);
 		const g = (...a: string[]) => execFileSync("git", ["-C", r, ...a], { encoding: "utf8" }).trim();
-		const wt = orderWorktree(r, 5) as string;
+		const wt = (await orderWorktree(r, 5)) as string;
 		expect(removeOrderWorktree(r, wt, 5)).toBe(false); // nothing pushed yet
 		writeFileSync(join(wt, "new.ts"), "export const x = 1;\n");
 		expect(removeOrderWorktree(r, wt, 5)).toBe(false); // dirty
@@ -524,7 +524,7 @@ describe("kitchen pipeline bugs", () => {
 		expect(g("branch", "--list", "kitchen/order-5")).toBe("");
 		// A local-only repo keeps its worktree: it holds the only copy.
 		const local = repo(false);
-		const lw = orderWorktree(local, 6) as string;
+		const lw = (await orderWorktree(local, 6)) as string;
 		expect(removeOrderWorktree(local, lw, 6)).toBe(false);
 		expect(existsSync(lw)).toBe(true);
 	});
@@ -532,9 +532,9 @@ describe("kitchen pipeline bugs", () => {
 	it("#130: an order worktree is created under the main repo root, never inside another order's worktree", async () => {
 		const { orderWorktree } = await import("../src/kitchen/routes");
 		const r = repo(true);
-		const wtA = orderWorktree(r, 11) as string;
+		const wtA = (await orderWorktree(r, 11)) as string;
 		mkdirSync(join(wtA, "services"), { recursive: true });
-		const wt12 = orderWorktree(join(wtA, "services"), 12) as string;
+		const wt12 = (await orderWorktree(join(wtA, "services"), 12)) as string;
 		expect(wt12).toBe(join(r, ".kitchen", "order-12"));
 		expect(existsSync(join(wtA, ".kitchen"))).toBe(false);
 	});
@@ -542,7 +542,7 @@ describe("kitchen pipeline bugs", () => {
 	it("#130: a worktree with another order's worktree nested inside it is not removed", async () => {
 		const { orderWorktree, removeOrderWorktree } = await import("../src/kitchen/routes");
 		const r = repo(true);
-		const wt = orderWorktree(r, 13) as string;
+		const wt = (await orderWorktree(r, 13)) as string;
 		execFileSync("git", ["-C", wt, "worktree", "add", "-q", join(wt, ".kitchen", "order-14"), "-b", "kitchen/order-14"], { stdio: "ignore" });
 		execFileSync("git", ["-C", r, "update-ref", "refs/remotes/origin/kitchen/order-13", "kitchen/order-13"], { stdio: "ignore" });
 		expect(removeOrderWorktree(r, wt, 13)).toBe(false);
@@ -681,11 +681,11 @@ describe("kitchen pipeline bugs", () => {
 		const { BOARD_FAULT } = await import("../src/kitchen/scores");
 		const empty = realpathSync(mkdtempSync(join(tmpdir(), "rma-hunt-empty-")));
 		execFileSync("git", ["-C", empty, "init", "-q", "-b", "main"], { stdio: "ignore" });
-		expect(orderWorktree(empty, 7)).toBeUndefined();
+		expect(await orderWorktree(empty, 7)).toBeUndefined();
 		expect(worktreeError(empty)).toBeTruthy();
 		expect(BOARD_FAULT.test(`board: no worktree: ${worktreeError(empty)}`)).toBe(true);
 		const r = repo(false);
-		expect(orderWorktree(r, 8)).toBe(join(r, ".kitchen", "order-8"));
+		expect(await orderWorktree(r, 8)).toBe(join(r, ".kitchen", "order-8"));
 		expect(worktreeError(r)).toBeUndefined();
 	});
 

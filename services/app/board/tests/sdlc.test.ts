@@ -229,7 +229,7 @@ describe("ship guard", () => {
 	it("serves an order whose worktree has nothing to commit without starting a Ship agent", async () => {
 		const r = repo();
 		const { orderWorktree, headOf } = await import("../src/kitchen/routes");
-		const wt = orderWorktree(r, 5) as string;
+		const wt = (await orderWorktree(r, 5)) as string;
 		const started: string[] = [];
 		const app = createApp(() => [], async () => {}, { start: async (n) => void started.push(n.text) });
 		writeFileSync(join(dir, "tasks.json"), JSON.stringify([{ id: "t", n: 5, title: "x", cwd: r, worktree: wt, base: headOf(wt), kind: "task", priority: "P1", stage: "review", assignee: "rev", sentAt: 1, approved: true, skills: [], route: "Code", rounds: 0, stuck: false, created: 1, updated: 1, notes: { build: "Nothing to do." } }]));
@@ -243,14 +243,14 @@ describe("worktree location", () => {
 	it("keeps order worktrees out of .git (agents cannot edit there), hidden from git status, and moves an old one", async () => {
 		const r = repo();
 		const { orderWorktree } = await import("../src/kitchen/routes");
-		const wt = orderWorktree(r, 3) as string;
+		const wt = (await orderWorktree(r, 3)) as string;
 		expect(wt).toBe(join(r, ".kitchen", "order-3"));
 		expect(wt.includes("/.git/")).toBe(false);
 		expect(execFileSync("git", ["-C", r, "status", "--porcelain"], { encoding: "utf8" })).toBe("");
 		// A worktree made under .git/kitchen before this fix moves to .kitchen with its branch and its edits.
 		execFileSync("git", ["-C", r, "worktree", "add", join(r, ".git", "kitchen", "order-4"), "-b", "kitchen/order-4"], { stdio: "ignore" });
 		writeFileSync(join(r, ".git", "kitchen", "order-4", "note.txt"), "work in progress");
-		const moved = orderWorktree(r, 4) as string;
+		const moved = (await orderWorktree(r, 4)) as string;
 		expect(moved).toBe(join(r, ".kitchen", "order-4"));
 		expect(readFileSync(join(moved, "note.txt"), "utf8")).toBe("work in progress");
 		expect(execFileSync("git", ["-C", moved, "branch", "--show-current"], { encoding: "utf8" }).trim()).toBe("kitchen/order-4");

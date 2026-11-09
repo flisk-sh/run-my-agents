@@ -929,7 +929,7 @@ export function createApp(
 		every: deps.kitchenEvery ?? 0,
 		...(deps.prState ? { prState: deps.prState } : {}),
 	});
-	if (deps.kitchenEvery) kick = () => kitchen.tick();
+	if (deps.kitchenEvery) kick = () => { void kitchen.tick(); };
 	// The page is one document with its script inline, so a cached copy keeps running yesterday's
 	// script against today's API. The board restarts on every edit; never let a tab hold the old one.
 	app.get("/", (c) => c.html(PAGE, 200, { "cache-control": "no-store" }));

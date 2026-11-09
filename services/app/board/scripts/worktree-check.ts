@@ -13,6 +13,6 @@ git("init", "-q", "-b", "main");
 writeFileSync(join(repo, "README.md"), "# check\n");
 git("add", ".");
 git("-c", "user.email=ci@example.com", "-c", "user.name=ci", "commit", "-qm", "init");
-const wt = orderWorktree(repo, 1);
+const wt = await orderWorktree(repo, 1);
 console.log(JSON.stringify({ repo, worktree: wt ?? null, error: worktreeError(repo) ?? null, path: process.env.PATH }));
 process.exit(wt ? 0 : 1);
