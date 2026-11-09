@@ -75,25 +75,48 @@ export function verdictIn(text: string): boolean | undefined {
 	return said.size > 1 ? undefined : m === "PASS";
 }
 
+/** What every shortened text says, so a stored note can be told from a whole one. */
+export const CUT_MARK = "characters cut";
+/**
+ * True when this text is a shortened copy of what the agent said, so the board can warn about it. It looks for the
+ * whole marker a cut leaves ("[… 1234 characters cut"), not the words alone: a reply may talk about cut characters.
+ */
+export const wasShortened = (text: string) => new RegExp(`\\[… \\d+ ${CUT_MARK}`).test(String(text ?? ""));
+
 /** A long text cut in the middle, so the start (a spec's goal and checks) and the end (its result) both survive. */
 export function clip(text: string, max = 6000): string {
 	if (text.length <= max) return text;
 	const head = Math.floor(max * 0.7);
-	return `${text.slice(0, head)}\n\n[… ${text.length - max} characters cut …]\n\n${text.slice(-(max - head))}`;
+	return `${text.slice(0, head)}\n\n[… ${text.length - max} ${CUT_MARK} …]\n\n${text.slice(-(max - head))}`;
 }
+
+/**
+ * Where a hand-off too long for its limit is kept whole: it is given the whole text and returns the path it wrote,
+ * or undefined when it could not write one.
+ */
+export type Spill = (full: string) => string | undefined;
 
 /**
  * What a step hands the next stages: its reply without the record, head kept. A record's "handoff" is a summary, not
  * the spec: when the reply holds more than the summary, the reply is handed on with the summary on top. Handing on
  * only the summary gave Build one paragraph instead of the Spec agent's 80-line spec (order #88).
+ *
+ * Too long for `max` and `spill` can keep it: the whole text goes to that file and the hand-off is its start (the
+ * summary, Goal, Steps and Acceptance checks) plus the path to the rest. The start is never dropped: order #133's
+ * spec was handed on from the middle of a test file, with no Goal, Steps or Acceptance checks.
  */
-export function handOffOf(text: string, max = 6000): string {
+export function handOffOf(text: string, max = 6000, spill?: Spill): string {
 	const r = recordIn(text);
 	const prose = withoutRecord(text);
 	const sum = r?.handoff ?? "";
 	const body = !sum ? prose : prose.length <= sum.length ? sum : prose.includes(sum) ? prose : `Summary: ${sum}\n\n${prose}`;
 	const verdict = r?.verdict ? `\n\nVerdict: ${r.verdict}${r.evidence ? `: ${r.evidence}` : ""}` : "";
-	return clip(body, max) + verdict;
+	if (body.length <= max) return body + verdict;
+	const path = spill?.(body + verdict);
+	if (!path) return clip(body, max) + verdict;
+	const note = (n: number) => `\n\n[… ${n} ${CUT_MARK}. The whole text of this step is in ${path}: read that file before you start …]`;
+	const head = Math.max(0, max - note(body.length).length);
+	return body.slice(0, head) + note(body.length - head) + verdict;
 }
 
 /**

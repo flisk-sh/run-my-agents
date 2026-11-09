@@ -100,6 +100,23 @@ export interface FeedItem {
 }
 
 const FEED_SIZE = 16;
+/**
+ * How much of one reply the board shows on screen. It is a display cap only: what a kitchen stage hands to the next
+ * one is read whole from the transcript (`fullReply`), so a long spec is never cut before the hand-off (order #133).
+ */
+export const FEED_TEXT_MAX = 8000;
+
+/**
+ * A reply's words added to what the same turn already said, cut in the middle when it outgrows `max`, so the start
+ * (a spec's Goal and Steps) and the end (its closing line) both stay on screen. It used to keep only the last 8000
+ * characters, which is how order #133's stored note started in the middle of a test file.
+ */
+export function feedText(prev: string, words: string, max = FEED_TEXT_MAX): { text: string; cut: boolean } {
+	const all = prev ? `${prev}\n\n${words}` : words;
+	if (all.length <= max) return { text: all, cut: false };
+	const head = Math.floor(max * 0.7);
+	return { text: `${all.slice(0, head)}\n\n[… ${all.length - max} characters cut …]\n\n${all.slice(-(max - head))}`, cut: true };
+}
 
 export interface Clash {
 	file: string;
@@ -333,7 +350,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 				last?.who === "agent" ? last : { at, t0: at, who: "agent" as const, text: "", tools: [] as string[] };
 			if (item !== last) s.feed.push(item);
 			// A turn can hold several text blocks between its tool calls; show all of them, newest last.
-			if (words) item.text = item.text ? `${item.text}\n\n${words}`.slice(-8000) : words.slice(0, 8000);
+			if (words) item.text = feedText(item.text, words).text;
 			item.at = at;
 			for (const c of e.message.content as { type?: string; id?: string; name?: string; input?: Record<string, unknown> }[]) {
 				if (c?.type !== "tool_use" || !c.name) continue;
@@ -377,6 +394,44 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 	s.feed = s.feed.filter((f) => f.text || f.tools.length).slice(-FEED_SIZE);
 	s.role = guessRole(s.title, s.edits.map((x) => x.file));
 	return s;
+}
+
+/**
+ * Everything the agent said in its last turn, straight from the transcript lines and with no cap: every text block
+ * of every reply since you last wrote to it. The feed on screen is capped (FEED_TEXT_MAX); a hand-off to the next
+ * kitchen stage reads this instead, so a 32,000-character spec arrives whole.
+ */
+export function fullReply(lines: string[]): string {
+	let said: string[] = [];
+	for (const line of lines) {
+		let e: { type?: string; isMeta?: boolean; message?: { content?: unknown; model?: string } };
+		try {
+			e = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (e.type === "user" && !e.isMeta) {
+			// A real message from you starts a new turn; a tool result or a `<…>` notice is not one.
+			const t = textOf(e.message?.content).trim();
+			if (t && !t.startsWith("<")) said = [];
+			continue;
+		}
+		// As in parseSession: Claude Code's own "<synthetic>" message is not the agent speaking.
+		if (e.type !== "assistant" || !Array.isArray(e.message?.content) || e.message?.model === "<synthetic>") continue;
+		const words = textOf(e.message.content).trim();
+		if (words) said.push(words);
+	}
+	return said.join("\n\n");
+}
+
+/** `fullReply` of a transcript file, or "" when it cannot be read or holds nothing the agent said. */
+export function readFullReply(path: string | undefined): string {
+	if (!path) return "";
+	try {
+		return fullReply(readFileSync(path, "utf8").split("\n"));
+	} catch {
+		return "";
+	}
 }
 
 /** One Codex rollout (~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl) to a Session. */
@@ -540,7 +595,7 @@ export function parseGrokSession(
 		const last = s.feed[s.feed.length - 1];
 		const item = last?.who === "agent" ? last : { at, t0: at, who: "agent" as const, text: "", tools: [] as string[] };
 		if (item !== last) s.feed.push(item);
-		if (words) item.text = item.text ? `${item.text}\n\n${words}`.slice(-8000) : words.slice(0, 8000);
+		if (words) item.text = feedText(item.text, words).text;
 		item.at = at;
 		for (const tc of d.tool_calls ?? []) {
 			if (!tc.name) continue;

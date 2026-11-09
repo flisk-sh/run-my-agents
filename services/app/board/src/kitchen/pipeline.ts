@@ -58,6 +58,8 @@ export type Task = {
 	zachman?: Zachman;
 	/** What each stage's agent handed on: the spec, the build summary, the test and review verdicts. */
 	notes?: Partial<Record<Stage, string>>;
+	/** Stages whose note was too long to hand on whole and was shortened; the order card warns about each. */
+	cut?: Stage[];
 	/** This order's own git worktree (branch kitchen/order-<n>), made by the board for Build, Test, Review and Ship. */
 	worktree?: string;
 	/** The commit the worktree started from, to tell whether Build changed anything. */
@@ -132,7 +134,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft" | "parked" | "mergedAt" | "closedAt">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft" | "parked" | "mergedAt" | "closedAt" | "cut">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
