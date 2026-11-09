@@ -124,7 +124,7 @@ const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lane
 let CR=null,SS=null,NB={name:"",role:"Code",stages:["build"],replicas:2,model:"haiku",strikes:3};
 let SC=null,scBy=(()=>{try{return localStorage.getItem("rma-scby")||"agents"}catch(e){return"agents"}})();
 let ktab=(()=>{try{return localStorage.getItem("rma-ktab")||"chat"}catch(e){return"chat"}})();
-let kIdleMin=10,kWipOn=true,kWipLimit=3,kpri="P1",KD={stages:[],roles:{},tasks:[],wip:{on:true,limit:3,held:0}},kauto=true,kdrag="",kbusy=false;
+let kIdleMin=10,kWipOn=true,kWipLimit=3,kpri="P1",KD={stages:[],roles:{},tasks:[],wip:{on:true,limit:3,held:0}},kauto=true,kmerge=true,kdrag="",kbusy=false;
 const STN={front:"Front",inbox:"Inbox",spec:"Spec",orchestrator:"Orchestrator",build:"Build",test:"Test",review:"Review",done:"Served"};
 function kTabs(){const n=KD.tasks.filter(t=>t.stage!=="done").length;
  pRender(H(Frag,null,KT.map(([k,l])=>H("button",{key:k,class:"ktab"+(ktab===k?" on":""),"data-ktab":k},l,k!=="chat"&&n?H("i",null,n):null))),$("ktabs"));
@@ -173,6 +173,7 @@ function kOrder(t,next){return H("div",{key:t.id,class:"ord"+(next?" next":"")+(
 function kPassBar(){const w=KD.tasks.filter(t=>t.atPass);if(!w.length)return null;return H("div",{class:"passbar"},H("b",null,"⏸ "+w.length+" at the pass"),H("span",null,"Specs done. Approve to send to build:"),H("div",{class:"kplist"},w.map(t=>H("span",{key:t.id,"data-kapprove":t.id,title:"Approve #"+t.n},"#"+t.n+" "+t.title.slice(0,40)+" ✓"))),H("button",{class:"kbtn sm go","data-kapproveall":true},"Approve all"))}
 function kAdd(){return H("div",{id:"kaddw",style:"display:grid;gap:8px"},kPassBar(),H("form",{class:"kbar",id:"kform"},H("span",{class:"kclip"+((ATT.order||[]).length?" kfull":""),"data-attfor":"order",title:"Attach files (or drop them here)"},ico(IC.clip)),H("input",{id:"ktitle",maxlength:"2000",placeholder:"New order: what should the agents do?",autocomplete:"off"}),
  H("span",{class:"kstats"},["P0","P1","P2"].map(p=>H("span",{key:p,class:"pri "+p,"data-knewpri":p,style:"opacity:"+(kpri===p?1:.35)},p))),H("button",{class:"kbtn go"},"Add order"),H("button",{type:"button",class:"kbtn"+(kauto?" go":""),"data-kauto":true},"Autopilot "+(kauto?"on":"off")),
+ H("button",{type:"button",class:"kbtn"+(kmerge?" go":""),"data-kmerge":true,title:"Autopilot merges a reviewed pull request by itself"},"Merge "+(kmerge?"on":"off")),
  H("button",{type:"button",class:"kbtn"+(kWipOn?" go":""),"data-kwip":true,title:"Only this many orders in progress at once"},"WIP limit "+(kWipOn?"on":"off")),
  H("span",{class:"kstats"},H("button",{type:"button",class:"kbtn sm","data-kwiplim":"-1",title:"Lower the limit"},"−"),H("b",null,kWipLimit),H("button",{type:"button",class:"kbtn sm","data-kwiplim":"1",title:"Raise the limit"},"+"),H("span",null,(((KD.wip||{}).held)||0)+" / "+kWipLimit+" in progress"))),H("div",{class:"katray",id:"ktray"},trayItems("order")))}
 function kStats(){const open=KD.tasks.filter(t=>t.stage!=="done"),wait=open.filter(t=>!t.assignee),idle=S.filter(s=>!s.hidden&&!KD.tasks.some(t=>t.assignee===s.id)&&state(s)==="z");
@@ -180,7 +181,7 @@ function kStats(){const open=KD.tasks.filter(t=>t.stage!=="done"),wait=open.filt
 /* The last orders served, newest first, with a question's answer. */
 function kServed(){const d=KD.tasks.filter(t=>t.stage==="done").sort((a,b)=>(b.servedAt||b.updated)-(a.servedAt||a.updated)).slice(0,6);if(!d.length)return null;
  return H(Frag,null,H("div",{class:"kh"},"Just served"),H("div",{class:"belt",style:"animation:none"},d.map(t=>H("div",{key:t.id,class:"ord",style:"cursor:default"+(t.failed?";box-shadow:0 4px 0 #b91c1c":"")},
-  H("div",{class:"top"},"#"+t.n+" ",H("span",null,(t.failed?"failed"+(t.followUp?" → retried as #"+t.followUp:""):t.kind==="question"?"answered":"served")+(t.requeued?" · try "+(t.requeued+1):""))),
+  H("div",{class:"top"},"#"+t.n+" ",H("span",null,(t.failed?"failed"+(t.followUp?" → retried as #"+t.followUp:""):t.kind==="question"?"answered":"served")+(t.requeued?" · try "+(t.requeued+1):"")),t.mergedAt?H("span",null,"merged"):null),
   H("div",{class:"t"},t.title),kTimeLine(t),t.answer?H("div",{class:"answer"},t.answer):null,
   H("div",{class:"oacts"},t.pr?H("a",{class:"kbtn sm go",href:t.pr,target:"_blank",rel:"noopener"},"PR ↗"):null,
    H("button",{class:"kbtn sm"+(t.failed?" go":""),"data-krequeue":t.id,title:"Not what you asked for? Send it back to the inbox as new."},"↻ Requeue"))))))}
@@ -382,7 +383,7 @@ function kLanes(){return H(Frag,null,kAdd(),kBlocked(),H("div",{class:"lanes"},K
  H("p",{class:"knote"},"Drag a card to another column to move it, or onto an agent in the sidebar to hand it over. The dashed line is the pass between Discovery and Delivery."))}
 function kDraw(){kTabs();if(ktab==="chat")return;
  pRender(ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():ktab==="crew"?kCrew():kLanes(),$("kview"));kStart()}
-async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();try{const ks=await (await fetch("api/kitchen")).json();kauto=ks.auto!==false;kIdleMin=ks.idleMinutes||10;kWipOn=ks.wipOn!==false;kWipLimit=ks.wipLimit||3}catch(_){}if(ktab==="scores")await kScoreLoad();if(ktab==="crew")await kCrewLoad();kDraw()}catch(e){}}
+async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();try{const ks=await (await fetch("api/kitchen")).json();kauto=ks.auto!==false;kIdleMin=ks.idleMinutes||10;kWipOn=ks.wipOn!==false;kWipLimit=ks.wipLimit||3;kmerge=ks.merge!==false}catch(_){}if(ktab==="scores")await kScoreLoad();if(ktab==="crew")await kCrewLoad();kDraw()}catch(e){}}
 function markPass(){for(const t of KD.tasks)t._atPass=!!t.atPass}
 function setPass(){}
 async function kServe(t,pass){
@@ -407,6 +408,7 @@ document.addEventListener("submit",async e=>{if(e.target.id!=="kform")return;e.p
  const cur=sess(sel);const r=await post("api/tasks",{title,priority:kpri,cwd:cur&&cur.cwd||"",files});if(r.error)return toast(r.error);i.value="";ATT.order=[];toast("Order #"+r.n+" is on the belt");kLoad()});
 document.addEventListener("click",e=>{const p=e.target.closest("[data-knewpri]");if(p){kpri=p.dataset.knewpri;kDraw()}});
 document.addEventListener("click",async e=>{if(!e.target.closest("[data-kauto]"))return;const r=await post("api/kitchen",{auto:!kauto});if(r.error)return toast(r.error);kauto=r.auto;toast(kauto?"Autopilot on: orders approve, scale and move by themselves":"Autopilot off: you approve and dispatch");kDraw();kLoad()});
+document.addEventListener("click",async e=>{if(!e.target.closest("[data-kmerge]"))return;const r=await post("api/kitchen",{merge:!kmerge});if(r.error)return toast(r.error);kmerge=r.merge!==false;toast(kmerge?"Merge on: a reviewed pull request merges by itself":"Merge off: reviewed pull requests wait for you");kDraw();kLoad()});
 document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-kwip],[data-kwiplim]");if(!el)return;
  if(el.dataset.kwip){const r=await post("api/kitchen",{wipOn:!kWipOn});if(r.error)return toast(r.error);kWipOn=r.wipOn!==false;toast(kWipOn?"WIP limit on: "+kWipLimit+" orders in progress at once":"WIP limit off: every waiting order starts");kDraw();return kLoad()}
  const n=Math.max(1,Math.min(20,kWipLimit+Number(el.dataset.kwiplim)));if(n===kWipLimit)return;const r=await post("api/kitchen",{wipLimit:n});if(r.error)return toast(r.error);kWipLimit=r.wipLimit||n;toast("WIP limit "+kWipLimit);kDraw();kLoad()});

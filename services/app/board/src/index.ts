@@ -529,7 +529,7 @@ export async function linkPreview(url: string, get: typeof fetch = fetch): Promi
 export function createApp(
 	read = () => applyNames(applyTune(applyRoles(applyHidden(readAllSessions())))),
 	send = sendToSession,
-	deps: { agent?: import("./kitchen/routes").AgentCall; fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string; system?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean; prState?: (cwd: string, url: string) => string } = {},
+	deps: { agent?: import("./kitchen/routes").AgentCall; fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string; system?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean; prState?: (cwd: string, url: string) => string; prWatch?: (cwd: string, url: string) => import("./kitchen/routes").PrSnapshot; mergeRun?: (m: import("./kitchen/routes").MergeMove, t: import("./kitchen/pipeline").Task) => string } = {},
 ) {
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
@@ -928,6 +928,8 @@ export function createApp(
 		promptLimit: PROMPT_LIMIT,
 		every: deps.kitchenEvery ?? 0,
 		...(deps.prState ? { prState: deps.prState } : {}),
+		...(deps.prWatch ? { prWatch: deps.prWatch } : {}),
+		...(deps.mergeRun ? { mergeRun: deps.mergeRun } : {}),
 	});
 	if (deps.kitchenEvery) kick = () => kitchen.tick();
 	// The page is one document with its script inline, so a cached copy keeps running yesterday's
