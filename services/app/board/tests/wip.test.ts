@@ -222,4 +222,24 @@ describe("the WIP limit", () => {
 		await post("/api/kitchen", { auto: true });
 		expect(one(1).mergedAt).toBeUndefined();
 	});
+
+	it("does not boot agents for a parked order", async () => {
+		const { post, get } = setup();
+		settings();
+		put([task(0, { parked: true })]);
+		const did = (await post("/api/kitchen", { auto: true })).body.did as unknown as string[];
+		expect(did).not.toContain("#1 sent");
+		const containers = (await get("/api/containers")).containers as unknown as { name: string }[];
+		expect(containers).toHaveLength(0);
+	});
+
+	it("does not boot agents for an order held back by the WIP limit", async () => {
+		const { post, get } = setup();
+		settings();
+		put([started(0), started(1), started(2), task(3)]);
+		const did = (await post("/api/kitchen", { auto: true })).body.did as unknown as string[];
+		expect(did).not.toContain("#4 sent");
+		const containers = (await get("/api/containers")).containers as unknown as { name: string }[];
+		expect(containers).toHaveLength(0);
+	});
 });

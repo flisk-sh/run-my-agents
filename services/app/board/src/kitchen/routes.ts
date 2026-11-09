@@ -1552,7 +1552,13 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	 */
 	function autoscale() {
 		const did: string[] = [];
-		const open = readTasks().filter((t) => t.stage !== "done" && !t.stuck && !t.atPass && t.assignee !== FRONT_DESK);
+		const st = settings();
+		const since = wipSince();
+		const open = readTasks().filter((t) => {
+			if (t.stage === "done" || t.stuck || t.atPass || t.assignee === FRONT_DESK || t.parked) return false;
+			if (st.wipOn && !t.startedAt && readTasks().filter((x) => holdsSlot(x, since)).length >= st.wipLimit) return false;
+			return true;
+		});
 		// One set of stage containers per repo: an order filed from a subfolder (…/src/kitchen) made a second set next to
 		// the repo's own, with its own agents and lessons (#246). An order belongs to the outermost known folder above it.
 		const known = [...open.map((t) => t.cwd), ...readContainers().map((x) => x.cwd)].filter(Boolean) as string[];
