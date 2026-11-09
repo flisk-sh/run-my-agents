@@ -222,6 +222,7 @@ describe("kitchen page", () => {
 		expect(KITCHEN_JS).toContain('class:"kwhorow","data-kopen":s.id');
 		expect(KITCHEN_JS).toContain("autopilot is off, so nobody reads its reply");
 		expect(KITCHEN_JS).toContain("its reply has not been picked up");
+		expect(KITCHEN_JS).toContain("It may be hung. Open the chat.");
 		expect(() => new Function(KITCHEN_JS)).not.toThrow();
 	});
 
