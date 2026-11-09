@@ -657,6 +657,16 @@ describe("failure causes found in the agents' chats", () => {
 		expect(whereOf("the kitchen menu in src/math.ts is wrong", repo, [])).toBe(repo);
 	});
 
+	it("#130: a folder inside an order worktree never matches, a repo root still matches by name", async () => {
+		const { whereOf, folderHint } = await import("../src/kitchen/routes");
+		expect(whereOf("tidy the services folder", "/x/other", ["/x/repo/.kitchen/order-118/services"])).toBe("/x/other");
+		expect(whereOf("tidy the services folder", "/x/other", ["/x/repo/.git/kitchen/order-9/services"])).toBe("/x/other");
+		expect(whereOf("fix the release script in flisk", "/x/other", ["/x/flisk", "/x/other"])).toBe("/x/flisk");
+		expect(whereOf("tidy the release script", "/x/repo/.kitchen/order-118/services/app/board", [])).toBe("/x/repo/.kitchen/order-118/services/app/board");
+		expect(folderHint("target is `pages`", ["/x/repo/.kitchen/order-118/pages"])).toBe(undefined);
+		expect(folderHint("target is `pages`", ["/x/pages"])).toBe("/x/pages");
+	});
+
 	it("hands on the whole spec reply, not its closing line, and lets the spec move the folder (#21)", async () => {
 		const sessions: Session[] = [];
 		const { post, sent, started } = setup(sessions);

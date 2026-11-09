@@ -195,12 +195,29 @@ export function folderHint(text: string, folders: string[] = []): string | undef
 	const named = /\b(?:build target|target|folder|repo)\b[^\n`]{0,40}`([\w.-]+)`/i.exec(text)?.[1];
 	if (!named) return undefined;
 	if (/^run[- ]my[- ]agents$/i.test(named)) return BOARD_ROOT;
-	return folders.find((f) => f.split("/").filter(Boolean).pop() === named);
+	return folders.find((f) => !inOrderWorktree(f) && f.split("/").filter(Boolean).pop() === named);
 }
 
 // stderr is piped (not shown) so a failure carries git's own message.
 const git = (dir: string, args: string[], timeout = 20_000) =>
 	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout }).trim();
+
+/** A path inside an order's own worktree: <repo>/.kitchen/order-<n>, or .git/kitchen/order-<n> before #256 moved it. */
+export const inOrderWorktree = (p: string) => /\/(?:\.kitchen|\.git\/kitchen)\/order-\d+(?:\/|$)/.test(p);
+/**
+ * The main working tree of the repo a folder belongs to: the parent of the git common dir. Agents start each order's
+ * chat in its worktree, so their cwds are worktree subfolders; mapped to the repo they no longer compete with real
+ * repos by name, and orders #125, #126, #128 and #129 were routed into #118's and #120's worktrees that way (#130).
+ */
+export function mainRepoRoot(p: string): string {
+	if (!p || !p.startsWith("/") || !isDir(p)) return p;
+	try {
+		const common = resolvePath(p, git(p, ["rev-parse", "--git-common-dir"]));
+		return /\/\.git$/.test(common) ? common.replace(/\/\.git$/, "") : git(p, ["rev-parse", "--show-toplevel"]);
+	} catch {
+		return p;
+	}
+}
 
 /** What GitHub says about one pull request, asked of `gh` in the order's folder. Throws when gh fails. */
 export const ghState = (cwd: string, url: string): string =>
@@ -266,6 +283,10 @@ export function removeOrderWorktree(repoDir: string, wt: string, n: number): boo
 		if (!isDir(wt) || git(wt, ["status", "--porcelain"])) return false;
 		if (!git(wt, ["branch", "-r", "--contains", "HEAD"])) return false;
 		const top = git(repoDir, ["rev-parse", "--show-toplevel"]);
+		// Another order's worktree nested inside this one: `git worktree remove` deletes everything under it, so the
+		// nested order would lose its work. Keep this one; it goes once the nested one has been swept (#130).
+		const all = git(top, ["worktree", "list", "--porcelain"]).split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice(9));
+		if (all.some((p) => p.startsWith(`${wt}/`) || p.startsWith(`${realpathSync(wt)}/`))) return false;
 		git(top, ["worktree", "remove", wt]);
 		try {
 			git(top, ["branch", "-D", `kitchen/order-${n}`]);
@@ -312,8 +333,10 @@ export function orderWorktree(cwd: string, n: number): string | undefined {
 	// Only a real folder: never let git fall back to the board's own working directory.
 	if (!cwd || !cwd.startsWith("/") || !isDir(cwd)) return undefined;
 	try {
-		const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-		const common = resolvePath(top, git(top, ["rev-parse", "--git-common-dir"]));
+		// The main working tree, not cwd's own toplevel: inside another order's worktree show-toplevel is that worktree,
+		// and the new worktree was created under it, where sweepWorktrees' `git worktree remove` deletes it (#130).
+		const common = resolvePath(cwd, git(cwd, ["rev-parse", "--git-common-dir"]));
+		const top = /\/\.git$/.test(common) ? common.replace(/\/\.git$/, "") : git(cwd, ["rev-parse", "--show-toplevel"]);
 		// Under the repo's own folder, never under .git: Claude Code protects everything in .git, so agents could not
 		// edit a single file there ("File …/.git/kitchen/order-12/…/view.ts is protected"). Hidden from git status by
 		// .git/info/exclude.
@@ -452,6 +475,7 @@ export const CHECK_PROMPT = "You check a reply before it is served to the person
 export const CANT_LOOK = /\b(?:(?:don'?t|do not) have (?:web|internet|live|real-time|access)|(?:can'?t|cannot|unable to) (?:access|browse|check|look up|search|get) (?:the )?(?:web|internet|live|real-time|current))/i;
 export function whereOf(title: string, cwd: string, folders: string[]): string {
 	const named = folders.find((f) => {
+		if (inOrderWorktree(f)) return false;
 		const base = f.split("/").filter(Boolean).pop() ?? "";
 		return base.length > 3 && new RegExp(`\\b${base.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")}\\b`, "i").test(title);
 	});
@@ -954,7 +978,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const skills = kind === "question" ? [] : orderSkills(title, route);
 		const lane = kind === "task" ? laneOf(title) : undefined;
 		const card = zachman({ title, cwd: b.cwd ?? "", priority: b.priority ?? "P1", route, skills, kind, lane });
-		const folders = [...new Set([...k.read().map((x) => x.cwd).filter(Boolean), ...readContainers().map((x) => x.cwd)])] as string[];
+		// A session cwd becomes its repo: a worktree subfolder must not compete with real repos by name (#130).
+		const folders = [...new Set([...k.read().map((x) => x.cwd).filter(Boolean).map((c) => mainRepoRoot(c as string)), ...readContainers().map((x) => x.cwd)])] as string[];
 		const where = kind === "task" ? whereOf(title, b.cwd ?? "", folders) : (b.cwd ?? "");
 		if (where !== (b.cwd ?? "")) card.where = where.split("/").filter(Boolean).pop() ?? where;
 		const added = addTask({ title, cwd: where, priority: b.priority, skills, route, kind, lane, zachman: card });
@@ -1000,7 +1025,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const skills = kind === "question" ? [] : orderSkills(t.title, route);
 		stock(skills, k.fetch);
 		// Requeue routes the folder again, so a board order filed under another folder lands in the board's repo.
-		const folders = [...new Set([...k.read().map((x) => x.cwd).filter(Boolean), ...readContainers().map((x) => x.cwd)])] as string[];
+		// A session cwd becomes its repo: a worktree subfolder must not compete with real repos by name (#130).
+		const folders = [...new Set([...k.read().map((x) => x.cwd).filter(Boolean).map((c) => mainRepoRoot(c as string)), ...readContainers().map((x) => x.cwd)])] as string[];
 		const cwd = kind === "task" ? whereOf(t.title, t.cwd, folders) : t.cwd;
 		updateTask(t.id, {
 			cwd,

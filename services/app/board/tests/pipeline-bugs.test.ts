@@ -2,7 +2,7 @@
 // The harness is the scripted SDLC kitchen from sdlc.test.ts, with a per-test override of what an agent answers.
 import { beforeEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/index";
@@ -527,6 +527,26 @@ describe("kitchen pipeline bugs", () => {
 		const lw = orderWorktree(local, 6) as string;
 		expect(removeOrderWorktree(local, lw, 6)).toBe(false);
 		expect(existsSync(lw)).toBe(true);
+	});
+
+	it("#130: an order worktree is created under the main repo root, never inside another order's worktree", async () => {
+		const { orderWorktree } = await import("../src/kitchen/routes");
+		const r = repo(true);
+		const wtA = orderWorktree(r, 11) as string;
+		mkdirSync(join(wtA, "services"), { recursive: true });
+		const wt12 = orderWorktree(join(wtA, "services"), 12) as string;
+		expect(wt12).toBe(join(r, ".kitchen", "order-12"));
+		expect(existsSync(join(wtA, ".kitchen"))).toBe(false);
+	});
+
+	it("#130: a worktree with another order's worktree nested inside it is not removed", async () => {
+		const { orderWorktree, removeOrderWorktree } = await import("../src/kitchen/routes");
+		const r = repo(true);
+		const wt = orderWorktree(r, 13) as string;
+		execFileSync("git", ["-C", wt, "worktree", "add", "-q", join(wt, ".kitchen", "order-14"), "-b", "kitchen/order-14"], { stdio: "ignore" });
+		execFileSync("git", ["-C", r, "update-ref", "refs/remotes/origin/kitchen/order-13", "kitchen/order-13"], { stdio: "ignore" });
+		expect(removeOrderWorktree(r, wt, 13)).toBe(false);
+		expect(existsSync(wt)).toBe(true);
 	});
 
 	it("#262: a Flisk spec turn that keeps crashing is stuck with the error, not sent again for ever", async () => {
