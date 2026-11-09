@@ -46,7 +46,7 @@ describe("startup", () => {
 				'import { hi } from "depx"; console.log(hi);'
 			);
 
-			const result = Bun.spawnSync(["bun", "src/index.ts"], {
+			const result = Bun.spawnSync(["bun", "--no-install", "src/index.ts"], {
 				cwd: appDir,
 				stderr: "pipe",
 			});
