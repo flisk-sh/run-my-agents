@@ -1250,6 +1250,92 @@ describe("agent to agent", () => {
 	});
 });
 
+describe("kitchen setup fixes", () => {
+	it("kitchenFlags excludes the personal CLAUDE.md", async () => {
+		const { kitchenFlags } = await import("../src/kitchen/containers");
+		const { homedir } = await import("node:os");
+		const { join: joinPath2 } = await import("node:path");
+		const flags = kitchenFlags();
+		const settingsIdx = flags.indexOf("--settings");
+		expect(settingsIdx).toBeGreaterThan(-1);
+		const settings = JSON.parse(flags[settingsIdx + 1]);
+		expect(settings.claudeMdExcludes).toEqual([joinPath2(homedir(), ".claude", "CLAUDE.md")]);
+		expect(flags.join(" ")).not.toContain("AGENTS.md");
+	});
+
+	it("new worktree gets its lockfile's install", async () => {
+		const { installsFor } = await import("../src/kitchen/routes");
+		const { mkdtempSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join: joinPath2 } = await import("node:path");
+		const tmp = mkdtempSync(joinPath2(tmpdir(), "rma-install-test-"));
+		writeFileSync(joinPath2(tmp, "bun.lock"), "");
+		const installs = installsFor(tmp);
+		expect(installs).toEqual([{ dir: tmp, cmd: ["bun", "install", "--frozen-lockfile"] }]);
+	});
+
+	it("no lockfile runs nothing", async () => {
+		const { installsFor } = await import("../src/kitchen/routes");
+		const { mkdtempSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join: joinPath2 } = await import("node:path");
+		const tmp = mkdtempSync(joinPath2(tmpdir(), "rma-install-empty-"));
+		const installs = installsFor(tmp);
+		expect(installs).toEqual([]);
+	});
+
+	it("failed install is recorded and does not throw", async () => {
+		const { installDeps } = await import("../src/kitchen/routes");
+		const { mkdtempSync, writeFileSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join: joinPath2 } = await import("node:path");
+		const tmp = mkdtempSync(joinPath2(tmpdir(), "rma-install-fail-"));
+		writeFileSync(joinPath2(tmp, "bun.lock"), "");
+		let failed = "";
+		installDeps(tmp, (w) => { failed = w; }, (_f) => ["sh", "-c", "exit 7"]);
+		await new Promise(r => setTimeout(r, 300));
+		expect(failed).toContain("exited 7");
+	});
+
+	it("lockfile is unchanged after install attempt", async () => {
+		const { installDeps } = await import("../src/kitchen/routes");
+		const { mkdtempSync, writeFileSync, statSync } = await import("node:fs");
+		const { tmpdir } = await import("node:os");
+		const { join: joinPath2 } = await import("node:path");
+		const tmp = mkdtempSync(joinPath2(tmpdir(), "rma-install-unchanged-"));
+		const lockPath = joinPath2(tmp, "bun.lock");
+		writeFileSync(lockPath, "test");
+		const before = statSync(lockPath).mtimeMs;
+		installDeps(tmp, undefined, (_f) => ["sh", "-c", "exit 7"]);
+		await new Promise(r => setTimeout(r, 300));
+		const after = statSync(lockPath).mtimeMs;
+		expect(before).toBe(after);
+	});
+
+	it("brief carries the habits and updated messages", async () => {
+		const { SHELL_HABITS, STAGE_BRIEF } = await import("../src/kitchen/routes");
+		expect(SHELL_HABITS).toContain("git -C");
+		expect(SHELL_HABITS).toContain("Write tool");
+		expect(SHELL_HABITS).toContain("heredoc");
+		expect(STAGE_BRIEF.spec).toContain("Sonnet at medium effort");
+		expect(STAGE_BRIEF.spec).toContain("at most one throwaway check");
+		expect(STAGE_BRIEF.spec).not.toContain("Build, Test and Review run on Haiku");
+		expect(STAGE_BRIEF.test).not.toContain("/tmp");
+	});
+
+	it("order 133's words pick nothing", async () => {
+		const { matchSkills } = await import("../src/kitchen/skills");
+		const skills = matchSkills("Add a WIP limit to autopilot so only a set number of orders are in progress at once. An order served before this change ships never holds a slot. The gate: in the belt loop, open each waiting order while its agent is live.");
+		expect(skills).toEqual([]);
+	});
+
+	it("page order still picks a browser skill", async () => {
+		const { matchSkills } = await import("../src/kitchen/skills");
+		const skills = matchSkills("the settings page renders wrong in chrome");
+		expect(skills.map((s) => s.name)).toContain("chrome-devtools");
+	});
+});
+
 describe("kitchen permissions", () => {
 	it("gives kitchen chats a temp folder they may write to, and leaves your own chats alone", async () => {
 		const { sendToSession, startNewSession } = await import("../src/index");
@@ -1266,7 +1352,7 @@ describe("kitchen permissions", () => {
 		expect(envs[1].TMPDIR).toBe(kitchenTmp());
 		expect(envs[2].TMPDIR).toBe(process.env.TMPDIR);
 		// The folder is only writable because it sits inside the directory kitchen agents are given.
-		expect(kitchenTmp().startsWith(kitchenFlags()[3])).toBe(true);
+		expect(kitchenTmp().startsWith(kitchenFlags()[5])).toBe(true);
 	});
 	it("starts and resumes kitchen chats with the tool allow-list, and leaves your own chats alone", async () => {
 		const { sendToSession, startNewSession } = await import("../src/index");

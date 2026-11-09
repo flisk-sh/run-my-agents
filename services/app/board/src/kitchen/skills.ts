@@ -41,6 +41,11 @@ export function skillsFor(role: string, n = 8): CatalogSkill[] {
 // "test" and "tests" are in most orders and in the name of every Terraform testing skill, so "add a mean() function
 // with tests" was handed three Terraform skills. The test stage loads its own testing skills anyway.
 const STOP = new Set("the and for with from that this into your have what when where which about make need want please some more them they then than just also only very like does should would could write fix add page change update create build guide style links link tasks task show seems really agents agent order orders work test tests testing function functions return returns empty list file files".split(" "));
+/** Name parts that are ordinary English, not a topic: "ships" and "the gate" in order #133 pulled in ship-gate (13 points). */
+const GENERIC = new Set("open close ship gate first last local live each next full auto".split(" "));
+/** A browser skill fits only an order about a page or a browser: #133 got open-gstack-browser for "open", "each", "live". */
+const BROWSER_PARTS = new Set(["browser", "chrome", "chromium", "puppeteer", "devtools", "playwright", "responsiveness"]);
+const BROWSER_TOPIC = /\b(browser|chrome|chromium|puppeteer|playwright|page|pages|website|web site|web page|url|dom|screenshot|selector|e2e|front ?end|css|layout|click)\b/i;
 /**
  * Catalog skills that fit an order's own words: a word in the skill's name counts 3, in its description 1. Only
  * words of four letters or more count, and a skill needs 3 points, so a passing mention never pulls one in.
@@ -61,10 +66,12 @@ export function matchSkills(title: string, n = 3): CatalogSkill[] {
 		const parts = s.name.toLowerCase().split(/[-_.]/);
 		const what = s.what.toLowerCase();
 		const same = (a: string, b: string) => a === b || a === `${b}s` || b === `${a}s`;
+		const topical = parts.filter((p) => !GENERIC.has(p));
+		if (parts.some((p) => BROWSER_PARTS.has(p)) && !BROWSER_TOPIC.test(low)) return { s, score: 0 };
 		let hits = 0;
 		const score = words.reduce((a, w) => {
 			// A word many skill names share ("flisk", "test") says little about which one fits.
-			const name = parts.some((p) => same(p, w)) ? ((PART_USE.get(w) ?? 0) >= 5 ? 1 : 3) : 0;
+			const name = topical.some((p) => same(p, w)) ? ((PART_USE.get(w) ?? 0) >= 5 ? 1 : 3) : 0;
 			// One long, rare name word is enough by itself ("playwright"); a short or common one ("loop", "flisk") is not.
 			if (name === 3 && w.length >= 6 && (PART_USE.get(w) ?? 0) <= 4) hits += 1;
 			const desc = new RegExp(`(^|[^a-z0-9])${w.replace(/[.+#]/g, "\\$&")}s?([^a-z0-9]|$)`).test(what) ? 1 : 0;
@@ -76,7 +83,7 @@ export function matchSkills(title: string, n = 3): CatalogSkill[] {
 		// The whole name as a word, and only a name of two parts or more: "pr" is inside "product", "review" is any review.
 		// Two of the skill's own name parts in the title ("terraform" and "tests" for terraform-test) is a strong match
 		// even when each part is common.
-		const both = parts.filter((p) => every.some((w) => same(p, w))).length >= 2 && words.some((w) => parts.some((p) => same(p, w)));
+		const both = topical.filter((p) => every.some((w) => same(p, w))).length >= 2 && words.some((w) => topical.some((p) => same(p, w)));
 		const named = (/[-_]/.test(s.name) || s.name.length >= 7) && new RegExp(`(^|[^a-z0-9-])${s.name.toLowerCase().replace(/[.+#]/g, "\\$&")}([^a-z0-9-]|$)`).test(low);
 		return { s, score: named ? score + 10 : both ? score + 4 : hits >= 2 ? score : 0 };
 	})

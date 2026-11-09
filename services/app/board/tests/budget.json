@@ -1,8 +1,8 @@
 {
 	"address": 1037,
-	"spec": 3362,
+	"spec": 3610,
 	"build": 1061,
-	"test": 1279,
+	"test": 1285,
 	"review": 792,
 	"maxStepSkills": 6
 }

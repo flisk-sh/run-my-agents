@@ -5,6 +5,7 @@
 // and the loop starts a fresh agent that reads those lessons.
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { dataDir } from "../prefs";
 import type { Stage } from "./pipeline";
@@ -42,7 +43,11 @@ export function kitchenFlags(): string[] {
 		if (has && readlinkSync(link) !== skillsDir()) rmSync(link, { force: true });
 		if (!existsSync(link)) symlinkSync(skillsDir(), link);
 	} catch {}
-	return ["--setting-sources", "project,local", "--add-dir", home];
+	// Claude discovers <dir>/.claude/CLAUDE.md in every parent folder, so the user's own file loads as a Project file
+	// for any repo under the home folder: order #133's first action read an unrelated README from it. claudeMdExcludes
+	// is matched against absolute paths, so this skips that one file and leaves the repo's CLAUDE.md and AGENTS.md.
+	const excludes = JSON.stringify({ claudeMdExcludes: [join(homedir(), ".claude", "CLAUDE.md")] });
+	return ["--setting-sources", "project,local", "--settings", excludes, "--add-dir", home];
 }
 /**
  * A temp folder inside a directory kitchen agents may already use (`--add-dir` above). /tmp is outside it, so every

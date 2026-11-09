@@ -68,6 +68,8 @@ export type Task = {
 	roundBase?: string;
 	/** `git status --porcelain` of the order's base repo when Build started, to catch edits that leak there (#163). */
 	baseDirty?: string[];
+	/** Why this worktree's dependencies could not be installed. */
+	depsFailed?: string;
 	/** Why its test or review said FAIL, one line per round, so a follow-up can learn from it. */
 	failures?: string[];
 	/** How many times the orchestrator answered a question from this step's agent (reset each step). */
@@ -134,7 +136,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft" | "parked" | "mergedAt" | "closedAt" | "cut">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "depsFailed" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft" | "parked" | "mergedAt" | "closedAt" | "cut">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;

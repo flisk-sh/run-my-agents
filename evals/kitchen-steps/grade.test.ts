@@ -26,10 +26,18 @@ describe("metrics", () => {
 		"not json",
 		result("Done.\n\n```kitchen\n{\"verdict\": \"PASS\", \"evidence\": \"5 pass\"}\n```"),
 	].join("\n");
-	it("counts calls, skills, issue reads, whole-suite runs and re-reads", () => {
+	it("counts calls, skills, issue reads, whole-suite runs, re-reads and refused commands", () => {
 		const m = metrics(t);
-		expect(m).toMatchObject({ toolCalls: 6, skills: 1, issueReads: 2, fullSuite: 1, rereads: 1, turns: 4, costUsd: 0.012, inputTokens: 100, outputTokens: 5 });
+		expect(m).toMatchObject({ toolCalls: 6, skills: 1, issueReads: 2, fullSuite: 1, rereads: 1, refusals: 0, turns: 4, costUsd: 0.012, inputTokens: 100, outputTokens: 5 });
 		expect(m.byTool).toEqual({ Skill: 1, Bash: 2, WebFetch: 1, Read: 2 });
+	});
+	it("counts refused commands: cd && git and heredocs with braces or quotes", () => {
+		const refused = [
+			tool("Bash", { command: "cd services/app/board && git diff" }),
+			tool("Bash", { command: "cat > f.ts <<'EOF'\nconst a = {\"b\": 1};\nEOF" }),
+			result("Done"),
+		].join("\n");
+		expect(metrics(refused).refusals).toBe(2);
 	});
 	it("reads the verdict from the record, else a last PASS or FAIL line", () => {
 		expect(verdictOf(metrics(t).reply)).toBe("PASS");
@@ -46,12 +54,13 @@ describe("grade", () => {
 		expect(build && grade(build, { metrics: lean, verified: true })).toEqual([]);
 	});
 	it("names every way a sample fails", () => {
-		expect(build && grade(build, { metrics: { ...lean, toolCalls: 30, skills: 2, fullSuite: 1, issueReads: 1 }, verified: false })).toEqual([
+		expect(build && grade(build, { metrics: { ...lean, toolCalls: 30, skills: 2, fullSuite: 1, issueReads: 1, refusals: 2 }, verified: false })).toEqual([
 			"the work is wrong (verify failed)",
 			"tool calls 30 > 12",
 			"skill calls 2 > 0",
 			"issue reads 1 > 0",
 			"whole-suite runs 1 > 0",
+			"refused commands 2 > 0",
 		]);
 	});
 	it("fails a checker that passes a defect or edits the worktree", () => {

@@ -12,6 +12,8 @@ export type Limits = {
 	issueReads?: number;
 	/** Whole-suite runs allowed (a test command with no file). */
 	fullSuite?: number;
+	/** Refused commands allowed. */
+	refusals?: number;
 	/** Test and Review: tracked files they may change in the worktree (they check, they do not edit). */
 	worktreeEdits?: number;
 };
@@ -129,7 +131,7 @@ export const CASES: Case[] = [
 		notes: { spec: SPEC },
 		files: repo,
 		verify: VERIFY,
-		limits: { toolCalls: 12, skills: 0, issueReads: 0, fullSuite: 0 },
+		limits: { toolCalls: 12, skills: 0, issueReads: 0, fullSuite: 0, refusals: 0 },
 	},
 	{
 		id: "build-moved-function",
@@ -139,7 +141,7 @@ export const CASES: Case[] = [
 		notes: { spec: SPEC },
 		files: { ...Object.fromEntries(Object.entries(repo).filter(([f]) => f !== "src/up-progress.ts")), "src/progress/up.ts": progress("failed"), "src/up-progress.ts": `export * from "./progress/up";\n` },
 		verify: VERIFY.replace("./src/up-progress.ts", "./src/progress/up.ts"),
-		limits: { toolCalls: 20, issueReads: 0, fullSuite: 0 },
+		limits: { toolCalls: 20, issueReads: 0, fullSuite: 0, refusals: 0 },
 		control: true,
 	},
 	{
@@ -151,7 +153,7 @@ export const CASES: Case[] = [
 		files: repo,
 		change: { "src/up-progress.ts": progress("starting"), "tests/up-progress.test.ts": progressTest("starting") },
 		verdict: "PASS",
-		limits: { toolCalls: 10, skills: 0, issueReads: 0, fullSuite: 0, worktreeEdits: 0 },
+		limits: { toolCalls: 10, skills: 0, issueReads: 0, fullSuite: 0, refusals: 0, worktreeEdits: 0 },
 	},
 	{
 		id: "test-catches-crash-regression",
@@ -162,7 +164,7 @@ export const CASES: Case[] = [
 		files: repo,
 		change: { "src/up-progress.ts": progress("starting", "starting"), "tests/up-progress.test.ts": progressTest("starting").replace(`it("a crashed container is failed", () => expect(classifyUpProgress(item("error"))).toBe("failed"));\n`, "") },
 		verdict: "FAIL",
-		limits: { toolCalls: 16, issueReads: 0, fullSuite: 0, worktreeEdits: 0 },
+		limits: { toolCalls: 16, issueReads: 0, fullSuite: 0, refusals: 0, worktreeEdits: 0 },
 		control: true,
 	},
 	{
@@ -203,6 +205,6 @@ export function printLabel(s) {
 }`,
 		},
 		verify: `(grep -q "console.log('getLabel'" src/progress/labels.ts && grep -q "console.log('printLabel'" src/progress/labels.ts && grep -q "console.log('updateStatus'" src/progress/status.ts) || exit 1`,
-		limits: { toolCalls: 30, skills: 0, issueReads: 0, fullSuite: 0 },
+		limits: { toolCalls: 30, skills: 0, issueReads: 0, fullSuite: 0, refusals: 0 },
 	},
 ];

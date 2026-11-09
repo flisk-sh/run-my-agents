@@ -10,6 +10,7 @@ export type Metrics = {
 	fullSuite: number;
 	/** Files read more than once. */
 	rereads: number;
+	refusals: number;
 	turns: number;
 	costUsd: number;
 	inputTokens: number;
@@ -58,6 +59,7 @@ export function runsWholeSuite(command: string): boolean {
 }
 
 const ISSUE = /\/issues\/\d+|\bgh\s+issue\s+(?:view|list)|\bgh\s+api\s+\S*issues/;
+const REFUSED = [/(^|&&|;|\|)\s*cd\s+\S+\s*&&\s*git\b/, /<<-?\s*['"]?\w+['"]?[\s\S]*[{}"']/];
 
 export function metrics(transcript: string, durationMs = 0): Metrics {
 	const { calls, result } = parseTranscript(transcript);
@@ -65,12 +67,14 @@ export function metrics(transcript: string, durationMs = 0): Metrics {
 	const reads = new Map<string, number>();
 	let issueReads = 0;
 	let fullSuite = 0;
+	let refusals = 0;
 	for (const c of calls) {
 		byTool[c.name] = (byTool[c.name] ?? 0) + 1;
 		const cmd = c.name === "Bash" ? String(c.input.command ?? "") : "";
 		const url = String(c.input.url ?? "");
 		if ((c.name === "WebFetch" && ISSUE.test(url)) || (cmd && ISSUE.test(cmd))) issueReads++;
 		if (cmd && runsWholeSuite(cmd)) fullSuite++;
+		if (cmd && REFUSED.some((r) => r.test(cmd))) refusals++;
 		if (c.name === "Read") {
 			const f = String(c.input.file_path ?? "");
 			reads.set(f, (reads.get(f) ?? 0) + 1);
@@ -84,6 +88,7 @@ export function metrics(transcript: string, durationMs = 0): Metrics {
 		issueReads,
 		fullSuite,
 		rereads: [...reads.values()].filter((n) => n > 1).length,
+		refusals,
 		turns: Number(result?.num_turns ?? 0),
 		costUsd: Number(result?.total_cost_usd ?? 0),
 		inputTokens: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
@@ -125,6 +130,7 @@ export function grade(c: Case, s: Sample): string[] {
 	over("skill calls", m.skills, c.limits.skills);
 	over("issue reads", m.issueReads, c.limits.issueReads);
 	over("whole-suite runs", m.fullSuite, c.limits.fullSuite);
+	over("refused commands", m.refusals, c.limits.refusals);
 	over("worktree edits", s.worktreeEdits ?? 0, c.limits.worktreeEdits);
 	return why;
 }

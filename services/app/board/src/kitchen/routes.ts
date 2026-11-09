@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 // The kitchen's HTTP API, mounted on the board's app: orders, the scoreboard, skill sets and agent containers.
 // Everything the board owns (reading sessions, sending a message, starting an agent) comes in through KitchenCtx,
 // so this module never reaches into the board's internals and can be tested on its own.
-import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { Context, Hono } from "hono";
@@ -369,6 +369,44 @@ export function restoreLockfiles(wt: string, title: string): string[] {
 	return done;
 }
 
+/** The frozen install for each lockfile: never resolves a new version, so no lockfile can change. */
+export const INSTALLS: Record<string, string[]> = {
+	"bun.lock": ["bun", "install", "--frozen-lockfile"], "bun.lockb": ["bun", "install", "--frozen-lockfile"],
+	"pnpm-lock.yaml": ["pnpm", "install", "--frozen-lockfile"], "package-lock.json": ["npm", "ci"],
+	"yarn.lock": ["yarn", "install", "--immutable"],
+};
+export const INSTALL_MS = 5 * 60_000;
+export type Install = { dir: string; cmd: string[] };
+/** Every folder of the worktree with a JS lockfile, and its frozen install. node_modules, .git and .kitchen are skipped. */
+export function installsFor(wt: string, depth = 4): Install[] {
+	const out: Install[] = [];
+	const walk = (dir: string, left: number) => {
+		let names: string[] = [];
+		try { names = readdirSync(dir); } catch { return; }
+		for (const f of Object.keys(INSTALLS)) if (names.includes(f)) { out.push({ dir, cmd: INSTALLS[f] }); break; }
+		if (left <= 0) return;
+		for (const n of names) if (!n.startsWith(".") && n !== "node_modules" && isDir(joinPath(dir, n))) walk(joinPath(dir, n), left - 1);
+	};
+	walk(wt, depth);
+	return out;
+}
+/**
+ * Installs a new worktree's dependencies in the background, with no agent: order #133 ran the suite in an empty
+ * worktree and then its install dirtied bun.lock. A failure never fails the order; `onFail` records it for the brief.
+ */
+export function installDeps(wt: string, onFail?: (why: string) => void, cmdFor: (f: string) => string[] | undefined = (f) => INSTALLS[f]): Install[] {
+	const todo = installsFor(wt).map((i) => ({ dir: i.dir, cmd: cmdFor(Object.keys(INSTALLS).find((f) => INSTALLS[f] === i.cmd) ?? "") ?? i.cmd }));
+	for (const i of todo) {
+		const why = (what: string) => onFail?.(`${i.cmd.join(" ")} in ${i.dir}: ${what}`.slice(0, 200));
+		try {
+			const p = spawn(i.cmd[0], i.cmd.slice(1), { cwd: i.dir, stdio: "ignore", timeout: INSTALL_MS });
+			p.on("error", (e) => why(errText(e)));
+			p.on("exit", (code) => { if (code !== 0) why(`exited ${code}`); });
+		} catch (e) { why(errText(e)); }
+	}
+	return todo;
+}
+
 /**
  * The changed paths of the order's base repo (`git status --porcelain`, one line each). Orders #24, #29 and #30 ran
  * in their own worktrees, yet their Build agents edited the shared checkout by its absolute path (#163).
@@ -440,9 +478,9 @@ export function whereOf(title: string, cwd: string, folders: string[]): string {
  * change against the spec, and never FAIL an order for being vague, since nobody is there to answer questions.
  */
 export const STAGE_BRIEF = {
-	spec: "Write the spec the next agents will build, test and review from. Build, Test and Review run on Haiku at low effort, read nothing but your reply, and follow it literally: anything you leave out, they guess. So read the code first (open the files, find the functions, run the failing test if there is one) and write what you found, not what the order says. Detailed beats short: a good spec is 60 to 150 lines, and 150 lines is the limit; a longer one does not reach Build whole. Describe each test case in one line (name, input, the value it expects) and never paste a complete test file, or any whole file, into the spec: quote only the lines that matter. Use these sections, in this order, each with a markdown heading:\n## Goal: one or two sentences on the outcome.\n## Why: the user-visible problem, inferred if the order does not say.\n## Current behaviour: what the code does today, with file:line references (src/x.ts:42) and the few lines of code that cause it, quoted in a code block.\n## Baseline: the exact commands to set up and run the relevant tests (install, test, lint, typecheck) and what they print before the change, naming every test that already fails.\n## Acceptance checks: 3 to 6 numbered checks (AC-1, AC-2, ...), each with the exact command or the file:line to read and the exact expected result (output, return value, text). Checks are about this change (its new tests pass, no test that passed before fails), never 'the whole suite passes' when a test already fails before the change.\n## Files to change: each file named relative to the repo root (src/x.ts), never by an absolute path, with the function and line range and one line on what changes there. Also name files that must NOT change.\n## Steps: a numbered list of 3 to 8 small steps. Each names the exact file, the function or line, shows the code to write (the new lines, or before and after) in a code block, and ends with the command that proves it (bun test tests/x.test.ts) and what it should print. No step may say 'investigate', 'consider', 'as needed', 'if necessary' or 'appropriate'. New tests are one line each: test name, input, expected value, never a pasted test file.\n## Out of scope: what not to touch or create.\n## Assumptions: each choice you made instead of asking.\nIf the order asks to fix or change a file, function or behaviour that does not exist in this repo, do not create it and write no spec: end with ```kitchen\n{\"blocked\": \"<what the order names that does not exist>\"}\n```. An order to add something new is built as usual. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. For an order that asks for analysis, research, a brainstorm or a document, the spec lists the claims the document must make and, for each, where it is checked (a file:line in this repo, a command, or a URL); it never tells Build to transcribe or guess a fact. Do not change code. Put the whole spec in your reply and do not write it to a file: the next agents only get your reply (a SPEC_ORDER_25.md in the shared checkout reached nobody). Never squeeze the spec into the record's \"handoff\" field: it is at most a one-line summary, and the spec itself is your reply. For each edit give the function name and the exact text to replace, so Build need not search.",
+	spec: "Write the spec the next agents will build, test and review from. Build runs on Haiku at low effort, Test and Review on Sonnet at medium effort; they read nothing but your reply, and follow it literally: anything you leave out, they guess. So read the code first (open the files, find the functions, run the failing test if there is one) and write what you found, not what the order says. Detailed beats short: a good spec is 60 to 150 lines, and 150 lines is the limit; a longer one does not reach Build whole. Describe each test case in one line (name, input, the value it expects) and never paste a complete test file, or any whole file, into the spec: quote only the lines that matter. Use these sections, in this order, each with a markdown heading:\n## Goal: one or two sentences on the outcome.\n## Why: the user-visible problem, inferred if the order does not say.\n## Current behaviour: what the code does today, with file:line references (src/x.ts:42) and the few lines of code that cause it, quoted in a code block.\n## Baseline: the exact commands to set up and run the relevant tests (install, test, lint, typecheck) and what they print before the change, naming every test that already fails.\n## Acceptance checks: 3 to 6 numbered checks (AC-1, AC-2, ...), each with the exact command or the file:line to read and the exact expected result (output, return value, text). Checks are about this change (its new tests pass, no test that passed before fails), never 'the whole suite passes' when a test already fails before the change.\n## Files to change: each file named relative to the repo root (src/x.ts), never by an absolute path, with the function and line range and one line on what changes there. Also name files that must NOT change.\n## Steps: a numbered list of 3 to 8 small steps. Each names the exact file, the function or line, shows the code to write (the new lines, or before and after) in a code block, and ends with the command that proves it (bun test tests/x.test.ts) and what it should print. No step may say 'investigate', 'consider', 'as needed', 'if necessary' or 'appropriate'. New tests are one line each: test name, input, expected value, never a pasted test file.\n## Out of scope: what not to touch or create.\n## Assumptions: each choice you made instead of asking.\nIf the order asks to fix or change a file, function or behaviour that does not exist in this repo, do not create it and write no spec: end with ```kitchen\n{\"blocked\": \"<what the order names that does not exist>\"}\n```. An order to add something new is built as usual. Make sensible assumptions instead of asking questions: nobody will answer them. If the code for this order lives in another folder, add a line 'Folder: <absolute path>'. For an order that asks for analysis, research, a brainstorm or a document, the spec lists the claims the document must make and, for each, where it is checked (a file:line in this repo, a command, or a URL); it never tells Build to transcribe or guess a fact. Do not change code. The worktree's dependencies are already installed: never run an install. Make at most one throwaway check, and only for a question reading the code cannot answer; its file goes under $TMPDIR, never in the worktree. Put the whole spec in your reply and do not write it to a file: the next agents only get your reply (a SPEC_ORDER_25.md in the shared checkout reached nobody). Never squeeze the spec into the record's \"handoff\" field: it is at most a one-line summary, and the spec itself is your reply. For each edit give the function name and the exact text to replace, so Build need not search.",
 	build: "The spec already read the code and lists every step: do not re-read the order's issue, search the repo, or run the whole test suite. Do the spec's Steps in order, run only the commands it names (install once, if it says to), and finish. Make the change the spec describes, in this order's worktree. Never ask questions or wait for approval: nobody will answer, and the order stalls. Where something is unclear, take the most likely meaning, do it, and say what you assumed. Leave your changes in the working tree; do not commit or push. Edit files only by paths inside this worktree; never use the absolute path of the repo it came from. End with the files you changed and how to check the change. If the order needs no file change, never invent one (a version bump, a changelog line, a notes file): reply with one line starting with FAIL that says why. Find every place you will change with one grep that lists all the symbols (sym1|sym2|sym3), read each file's regions once, then make all the edits for that file in a row without searching again between them.",
-	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. The check is the spec's acceptance checks plus the tests of the files the diff touches: run those commands and read the diff with the lines around it. That is the whole job: do not explore the rest of the repo, re-run what already answered, or edit files in the worktree. If no test covers the change, try it once from a throwaway script in /tmp, never in the worktree. PASS when the checks hold. FAIL only for a concrete defect this change caused: say what you ran, what you expected and what you got. A test that already fails on the branch the change started from (check with git stash, or on that branch) is not this change's defect: name it and PASS. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval. When the change is a document (markdown, docs, a README), open every file the change touches and read it whole. Check each fact it states against the repo (every file, function, flag and command it names must exist; run the command), and FAIL on an invented or unverifiable fact, a number with no source, text that contradicts itself or another part of the change, or a garbled or unfinished sentence. Say which line and what you found.",
+	test: "The change is in this order's worktree (branch kitchen/order-{n}); check it there. The check is the spec's acceptance checks plus the tests of the files the diff touches: run those commands and read the diff with the lines around it. That is the whole job: do not explore the rest of the repo, re-run what already answered, or edit files in the worktree. If no test covers the change, try it once from a throwaway script under $TMPDIR, never in the worktree. PASS when the checks hold. FAIL only for a concrete defect this change caused: say what you ran, what you expected and what you got. A test that already fails on the branch the change started from (check with git stash, or on that branch) is not this change's defect: name it and PASS. Never FAIL because the order is vague or has no test file, and never ask for clarification or approval. When the change is a document (markdown, docs, a README), open every file the change touches and read it whole. Check each fact it states against the repo (every file, function, flag and command it names must exist; run the command), and FAIL on an invented or unverifiable fact, a number with no source, text that contradicts itself or another part of the change, or a garbled or unfinished sentence. Say which line and what you found.",
 	review: "The change is in this order's worktree (branch kitchen/order-{n}). Read only its diff (git diff against the branch it started from) against the order and the spec. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks. Read the diff as a maintainer who will be blamed for it: judge it against the order itself, not only the spec (a spec can be wrong), and check its claims against the code and sources, not against the spec. FAIL on an invented or unverifiable fact, a claim that contradicts the repo's own rules (AGENTS.md), a section that is nonsense or cut off, an effort or ranking the evidence does not support, or work the order did not ask for. Loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.",
 } as const;
 /**
@@ -450,7 +488,7 @@ export const STAGE_BRIEF = {
  * size budget covers STAGE_BRIEF, so this sits beside it in the order's text.
  */
 export const SHELL_HABITS =
-	"In the shell: run git in another folder as `git -C <dir> ...`, never `cd <dir> && git ...`, which is refused. Temp files go under $TMPDIR, because /tmp is refused.";
+	"In the shell: run git in another folder as `git -C <dir> ...`, never `cd <dir> && git ...`, which is refused. Write every file with the Write tool, never with a shell heredoc (`cat > f <<EOF`): a heredoc holding braces or quotes is refused. Nobody can approve a refused command, so each one costs you the turn. Temp files go under $TMPDIR, because /tmp is refused.";
 /** The review step once the change is a pull request: the Review agent reviews the pull request itself. */
 const REVIEW_PR =
 	"Review pull request {pr} (branch kitchen/order-{n}, also checked out in this order's worktree). Read its diff with `gh pr diff {pr}` against the order and the spec. Post your review on the pull request: `gh pr review {pr} --comment --body \"<your findings, or: Looks good>\"`. PASS unless you find a concrete bug, a security problem, or the change does not do what the order asks; then FAIL with what is wrong, and Build fixes it on the same pull request. Also FAIL on an invented or unverifiable fact, a claim that contradicts AGENTS.md, a nonsense or cut-off section, or work the order did not ask for: judge the pull request against the order and the code, not only the spec. Loose wording or a missing extra test is not a reason to FAIL. Never ask for clarification.";
@@ -591,6 +629,7 @@ export function orderText(order: Task, use: string[], wt: string | undefined, le
 		.map((st) => `\n\nFrom the ${STAGE_TYPE[st]} agent:\n${order.notes?.[st]}`)
 		.join("");
 	const where = wt ? `\n\nYou are in this order's own git worktree: ${wt} (branch kitchen/order-${order.n}). Work only there, never in ${order.cwd}.` : "";
+	const deps = order.depsFailed ? `\n\nThis worktree's dependencies could not be installed (${order.depsFailed}): a failing test run may be that, not the change.` : "";
 	// The change itself is the record Test and Review check, not Build's summary of it.
 	const diff = wt && order.base && (order.stage === "test" || order.stage === "review") ? `\n\nThe change to check is \`git -C ${wt} diff ${order.base}\` (plus untracked files in \`git -C ${wt} status\`). Judge it, not the summary above.` : "";
 	// A step sent back in this run is told why, first thing: until now the reason reached Build only mixed into the
@@ -608,7 +647,7 @@ export function orderText(order: Task, use: string[], wt: string | undefined, le
 	const text =
 		order.kind === "question"
 			? `Question #${order.n} from the board: ${order.title}${attachedBlock(order.files ?? [])}\n\nAnswer it in one short reply. Do not change any files.`
-			: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${diff}${sentBack}${lastTime}${known}${fresh}${attachedBlock(order.files ?? [])}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\n${SHELL_HABITS}\n\nSkills you can open if this step needs one (most steps need none; never open one just to read it): ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
+			: `Order #${order.n} (${order.stage}): ${order.title}${card}${handed}${where}${deps}${diff}${sentBack}${lastTime}${known}${fresh}${attachedBlock(order.files ?? [])}\n\nYour job: ${(order.stage === "review" && order.pr ? REVIEW_PR : (STAGE_BRIEF[order.stage as keyof typeof STAGE_BRIEF] ?? "Do this step.")).replaceAll("{n}", String(order.n)).replaceAll("{pr}", order.pr ?? "")}\n\n${SHELL_HABITS}\n\nSkills you can open if this step needs one (most steps need none; never open one just to read it): ${use.map((n) => `/${n}`).join(", ")}.\n\n${verdict ? "Run commands in the foreground and wait for their results; never end your turn while one still runs. End with your verdict record." : `When this ${order.stage} step is finished, say so in one line.`}\n\n${ADDRESS}`;
 	const context = { ...(wt ? { worktree: wt } : {}), ...(order.base ? { base: order.base } : {}), round: order.rounds ?? 0, records: (["spec", "build", "test"] as const).filter((st) => st !== order.stage && order.notes?.[st]) };
 	return order.kind === "question" ? text : envelope(text, { from: "Orchestrator", to: STAGE_TYPE[order.stage as keyof typeof STAGE_TYPE] ?? order.stage, type: "order", order: order.n, stage: order.stage, expects: verdict ? "verdict" : "record", context });
 }
@@ -1066,7 +1105,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			updateTask(order.id, { stuck: true, assignee: "", sentAt: 0, failures: [...(order.failures ?? []), `board: no worktree: ${noTree}`.slice(0, 300)].slice(-6) });
 			return { status: 409, body: { error: `#${order.n} has no worktree: ${noTree}` } };
 		}
-		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
+		if (wt && wt !== order.worktree) {
+			updateTask(order.id, { worktree: wt, base: headOf(wt) });
+			installDeps(wt, (w) => updateTask(order.id, { depsFailed: w }));
+		}
 		// Each build round is judged on its own: after Ship committed round 1, HEAD never equals base again (#187).
 		if (wt && order.stage === "build") updateTask(order.id, { roundBase: headOf(wt) });
 		// Kept from the first build round: a retry after a leak must still see the leak.
@@ -1106,7 +1148,10 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const sid = `order-${order.n}-${stage}${order.rounds ? `-r${order.rounds}` : ""}${order.requeued ? `-q${order.requeued}` : ""}`;
 		const who = `flisk:${sid}`;
 		const wt = ["spec", "build", "test", "review"].includes(stage) ? (order.worktree && !order.worktree.includes("/.git/kitchen/") ? order.worktree : orderWorktree(order.cwd, order.n)) : undefined;
-		if (wt && wt !== order.worktree) updateTask(order.id, { worktree: wt, base: headOf(wt) });
+		if (wt && wt !== order.worktree) {
+			updateTask(order.id, { worktree: wt, base: headOf(wt) });
+			installDeps(wt, (w) => updateTask(order.id, { depsFailed: w }));
+		}
 		// Each build round is judged on its own: after Ship committed round 1, HEAD never equals base again (#187).
 		if (wt && order.stage === "build") updateTask(order.id, { roundBase: headOf(wt) });
 		if (wt && stage === "build" && !order.baseDirty) updateTask(order.id, { baseDirty: repoDirty(order.cwd) });
