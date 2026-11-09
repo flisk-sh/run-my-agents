@@ -92,6 +92,12 @@ export type Task = {
 	answer?: string;
 	/** How many times you sent it back to the inbox after it was served or failed. */
 	requeued?: number;
+	/** Parked by hand: autopilot skips it and it takes no WIP slot. Its worktree is kept (#133). */
+	parked?: boolean;
+	/** Its pull request was merged: the slot it held is free. */
+	mergedAt?: number;
+	/** Its pull request was closed without merging: the slot it held is free. */
+	closedAt?: number;
 	created: number;
 	updated: number;
 };
@@ -126,7 +132,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft" | "parked" | "mergedAt" | "closedAt">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
@@ -166,5 +172,18 @@ export function sendBack(t: Task): Pick<Task, "stage" | "rounds" | "stuck"> {
 /** Belt order: P0 first, then the oldest. */
 export function beltOrder(tasks: Task[]): Task[] {
 	return [...tasks].sort((a, b) => a.priority.localeCompare(b.priority) || a.created - b.created);
+}
+
+/**
+ * Does this order hold one of autopilot's WIP slots? A task that an agent has started and that is neither stuck,
+ * failed nor parked does, until its stage is done; a done order holds its slot only while its pull request is still
+ * open. An order served before the WIP limit first ran here never holds anything, so old pull requests block nothing.
+ */
+export function holdsSlot(t: Task, wipSince = 0): boolean {
+	if (t.kind !== "task" || !t.startedAt) return false;
+	if (t.stuck || t.failed || t.parked) return false;
+	if (t.servedAt && t.servedAt < wipSince) return false;
+	if (t.stage !== "done") return true;
+	return !!t.pr && !t.mergedAt && !t.closedAt;
 }
 

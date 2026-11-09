@@ -124,7 +124,7 @@ const KT=[["chat","Chat"],["queue","Queue"],["kitchen","Kitchen"],["lanes","Lane
 let CR=null,SS=null,NB={name:"",role:"Code",stages:["build"],replicas:2,model:"haiku",strikes:3};
 let SC=null,scBy=(()=>{try{return localStorage.getItem("rma-scby")||"agents"}catch(e){return"agents"}})();
 let ktab=(()=>{try{return localStorage.getItem("rma-ktab")||"chat"}catch(e){return"chat"}})();
-let kIdleMin=10,kpri="P1",KD={stages:[],roles:{},tasks:[]},kauto=true,kdrag="",kbusy=false;
+let kIdleMin=10,kWipOn=true,kWipLimit=3,kpri="P1",KD={stages:[],roles:{},tasks:[],wip:{on:true,limit:3,held:0}},kauto=true,kdrag="",kbusy=false;
 const STN={front:"Front",inbox:"Inbox",spec:"Spec",orchestrator:"Orchestrator",build:"Build",test:"Test",review:"Review",done:"Served"};
 function kTabs(){const n=KD.tasks.filter(t=>t.stage!=="done").length;
  pRender(H(Frag,null,KT.map(([k,l])=>H("button",{key:k,class:"ktab"+(ktab===k?" on":""),"data-ktab":k},l,k!=="chat"&&n?H("i",null,n):null))),$("ktabs"));
@@ -148,6 +148,7 @@ function kActs(t){const s=sess(t.assignee),r=[],B=(c,d,l,x)=>H("button",Object.a
  if(!t.stuck&&t.stage!=="done"&&!t.assignee)r.push(t.stage==="spec"&&t._atPass?B("go",{"data-kapprove":t.id},"Approve at the pass"):B("go",{"data-kgo":t.id},"Dispatch"));
  if(t.assignee&&(t.stage==="test"||t.stage==="review"))r.push(B("go",{"data-kserve":t.id},"Pass"),B("bad",{"data-kfail":t.id},"Fail"));
  else if(t.assignee)r.push(B("go",{"data-kserve":t.id},"Done →"));
+ if(t.stage!=="done")r.push(B(t.parked?"go":"",{"data-kpark":t.id,title:"Parking keeps the order and its worktree; it takes no slot and autopilot skips it."},t.parked?"Un-park":"Park"));
  if(s)r.push(B("",{"data-kopen":s.id},"Open"));
  r.push(B("",{"data-kdrop":t.id},"Drop"));return H("div",{class:"oacts"},r)}
 function kWho(t){const s=sess(t.assignee);if(!s&&t.why)return H("div",{class:"kwho",style:"color:#92400e"},"⏸ "+t.why);if(!s)return t.stuck?H("div",{class:"kwho"},"⚠ sent back "+t.rounds+" times"):t.stuckWarning?H("div",{class:"kwho",style:"color:#ea580c"},"⏱ "+Math.round((Date.now()-t.created)/1000)+"s"):null;return H("div",{class:"kwho"},kFace(s,22),(t.assigneeLabel||s.role)+(kReady(t)?" · ready":" · cooking"))}
@@ -162,14 +163,18 @@ function kOrder(t,next){return H("div",{key:t.id,class:"ord"+(next?" next":"")+(
  t.kind==="question"?null:kPips(t),t.kind==="question"?null:kEstLine(t),kTimeLine(t),
  H("div",{class:"ochips"},t.kind==="question"?H("span",{class:"qchip"},"Question"):t.lane==="fast"?H("span",{style:"background:#0e7490",title:"Small task: build, test, pull request, review. No spec."},"⚡ Fast lane"):null,
   H("span",null,STN[t.stage]),H("span",null,"→ "+(t.stage==="build"?t.route:(KD.roles[t.stage]||[])[0]||"you")),t.rounds?H("span",null,"round "+(t.rounds+1)):null,
-  t.retryOf?H("span",{style:"background:#b45309",title:"Second attempt after #"+t.retryOf+" failed"},"retry of #"+t.retryOf):null),
+  t.retryOf?H("span",{style:"background:#b45309",title:"Second attempt after #"+t.retryOf+" failed"},"retry of #"+t.retryOf):null,
+  t.parked?H("span",{style:"background:#4b5563",title:"Parked: no slot, autopilot skips it"},"parked"):null,
+  t.prStale?H("span",{style:"background:#b45309",title:"Its pull request has been open over 24 hours and still holds a WIP slot"},"PR open > 24 h"):null),
  kSkills(t),kZach(t),t.answer?H("div",{class:"answer"},t.answer):null,kWho(t),kActs(t))}
 /* Orders waiting at the pass, shown on every kitchen tab so approving is never hidden. */
 function kPassBar(){const w=KD.tasks.filter(t=>t.atPass);if(!w.length)return null;return H("div",{class:"passbar"},H("b",null,"⏸ "+w.length+" at the pass"),H("span",null,"Specs done. Approve to send to build:"),H("div",{class:"kplist"},w.map(t=>H("span",{key:t.id,"data-kapprove":t.id,title:"Approve #"+t.n},"#"+t.n+" "+t.title.slice(0,40)+" ✓"))),H("button",{class:"kbtn sm go","data-kapproveall":true},"Approve all"))}
 function kAdd(){return H("div",{id:"kaddw",style:"display:grid;gap:8px"},kPassBar(),H("form",{class:"kbar",id:"kform"},H("span",{class:"kclip"+((ATT.order||[]).length?" kfull":""),"data-attfor":"order",title:"Attach files (or drop them here)"},ico(IC.clip)),H("input",{id:"ktitle",maxlength:"2000",placeholder:"New order: what should the agents do?",autocomplete:"off"}),
- H("span",{class:"kstats"},["P0","P1","P2"].map(p=>H("span",{key:p,class:"pri "+p,"data-knewpri":p,style:"opacity:"+(kpri===p?1:.35)},p))),H("button",{class:"kbtn go"},"Add order"),H("button",{type:"button",class:"kbtn"+(kauto?" go":""),"data-kauto":true},"Autopilot "+(kauto?"on":"off"))),H("div",{class:"katray",id:"ktray"},trayItems("order")))}
+ H("span",{class:"kstats"},["P0","P1","P2"].map(p=>H("span",{key:p,class:"pri "+p,"data-knewpri":p,style:"opacity:"+(kpri===p?1:.35)},p))),H("button",{class:"kbtn go"},"Add order"),H("button",{type:"button",class:"kbtn"+(kauto?" go":""),"data-kauto":true},"Autopilot "+(kauto?"on":"off")),
+ H("button",{type:"button",class:"kbtn"+(kWipOn?" go":""),"data-kwip":true,title:"Only this many orders in progress at once"},"WIP limit "+(kWipOn?"on":"off")),
+ H("span",{class:"kstats"},H("button",{type:"button",class:"kbtn sm","data-kwiplim":"-1",title:"Lower the limit"},"−"),H("b",null,kWipLimit),H("button",{type:"button",class:"kbtn sm","data-kwiplim":"1",title:"Raise the limit"},"+"),H("span",null,(((KD.wip||{}).held)||0)+" / "+kWipLimit+" in progress"))),H("div",{class:"katray",id:"ktray"},trayItems("order")))}
 function kStats(){const open=KD.tasks.filter(t=>t.stage!=="done"),wait=open.filter(t=>!t.assignee),idle=S.filter(s=>!s.hidden&&!KD.tasks.some(t=>t.assignee===s.id)&&state(s)==="z");
- return H("div",{class:"kstats"},[["waiting",wait.length],["cooking",open.filter(t=>t.assignee).length],["at the pass",open.filter(t=>t._atPass).length],["stuck",open.filter(t=>t.stuck).length],["served",KD.tasks.filter(t=>t.stage==="done").length],["idle chefs",idle.length]].map(([l,n])=>H("span",{key:l},l+" ",H("b",null,n))))}
+ return H("div",{class:"kstats"},[["in progress",((KD.wip||{}).held)||0],["waiting",wait.length],["cooking",open.filter(t=>t.assignee).length],["at the pass",open.filter(t=>t._atPass).length],["stuck",open.filter(t=>t.stuck).length],["served",KD.tasks.filter(t=>t.stage==="done").length],["idle chefs",idle.length]].map(([l,n])=>H("span",{key:l},l+" ",H("b",null,n))))}
 /* The last orders served, newest first, with a question's answer. */
 function kServed(){const d=KD.tasks.filter(t=>t.stage==="done").sort((a,b)=>(b.servedAt||b.updated)-(a.servedAt||a.updated)).slice(0,6);if(!d.length)return null;
  return H(Frag,null,H("div",{class:"kh"},"Just served"),H("div",{class:"belt",style:"animation:none"},d.map(t=>H("div",{key:t.id,class:"ord",style:"cursor:default"+(t.failed?";box-shadow:0 4px 0 #b91c1c":"")},
@@ -303,7 +308,7 @@ document.addEventListener("click",e=>{const cv=e.target.closest&&e.target.closes
  else{sel=h.id;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}});
 document.addEventListener("mousemove",e=>{const cv=e.target.closest&&e.target.closest("#kcv");if(!cv)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*1000/r.width,y=(e.clientY-r.top)*580/r.height;cv.style.cursor=KG.hits.some(h=>kHit(h,x,y))?"pointer":"default"});
 function kFlow(){const f=SC.flow;if(!f)return null;const tile=(l,v,sub)=>H("div",{key:l},H("small",null,l),H("b",null,v),H("i",null,sub));
- return H(Frag,null,H("div",{class:"kh"},"Flow · lead and cycle time"),H("div",{class:"flow"},tile("Lead time",f.served?kDur(f.leadMedian):"–","median · p85 "+(f.served?kDur(f.leadP85):"–")),tile("Cycle time",f.cycleCount?kDur(f.cycleMedian):"–","median · p85 "+(f.cycleCount?kDur(f.cycleP85):"–")),tile("Throughput",f.throughput24h,"served in 24 h"),tile("In progress",f.wip,"open orders"),tile("Failed",f.failed,"closed after FAILs"),tile("Fail rate",f.failOrders?f.failRate+"%":"–",(f.failGoal==null?"every goal met":"goal under "+f.failGoal+"% · last "+f.failOrders+" orders")+(f.failBoard?" · "+f.failBoard+" board faults left out":"")+(f.failRefused?" · "+f.failRefused+" refused by Spec left out":""))))}
+ return H(Frag,null,H("div",{class:"kh"},"Flow · lead and cycle time"),H("div",{class:"flow"},tile("Lead time",f.served?kDur(f.leadMedian):"–","median · p85 "+(f.served?kDur(f.leadP85):"–")),tile("Cycle time",f.cycleCount?kDur(f.cycleMedian):"–","median · p85 "+(f.cycleCount?kDur(f.cycleP85):"–")),tile("Throughput",f.throughput24h,"served in 24 h"),tile("In progress",f.inProgress,"holding a WIP slot"),tile("Waiting",f.waiting,"open, not started"),tile("Failed",f.failed,"closed after FAILs"),tile("Fail rate",f.failOrders?f.failRate+"%":"–",(f.failGoal==null?"every goal met":"goal under "+f.failGoal+"% · last "+f.failOrders+" orders")+(f.failBoard?" · "+f.failBoard+" board faults left out":"")+(f.failRefused?" · "+f.failRefused+" refused by Spec left out":""))))}
 function kRatings(){const rs=SC.ratings||[];if(!rs.length)return H(Frag,null,H("div",{class:"kh"},"Agent ratings"),H("p",{class:"knote"},"No agent has cooked an order yet. Ratings appear as soon as one does."));
  const col=v=>v>=70?"#22c55e":v>=40?"#f59e0b":"#ef4444";
  return H(Frag,null,H("div",{class:"kh"},"Agent ratings · live, all orders"),H("div",{style:"overflow-x:auto"},H("div",{class:"rates"},
@@ -375,19 +380,20 @@ function kLanes(){return H(Frag,null,kAdd(),kBlocked(),H("div",{class:"lanes"},K
  H("p",{class:"knote"},"Drag a card to another column to move it, or onto an agent in the sidebar to hand it over. The dashed line is the pass between Discovery and Delivery."))}
 function kDraw(){kTabs();if(ktab==="chat")return;
  pRender(ktab==="queue"?kQueue():ktab==="kitchen"?kKitchen():ktab==="scores"?kScores():ktab==="crew"?kCrew():kLanes(),$("kview"));kStart()}
-async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();try{const ks=await (await fetch("api/kitchen")).json();kauto=ks.auto!==false;kIdleMin=ks.idleMinutes||10}catch(_){}if(ktab==="scores")await kScoreLoad();if(ktab==="crew")await kCrewLoad();kDraw()}catch(e){}}
+async function kLoad(){if(kdrag)return;try{KD=await (await fetch("api/tasks")).json();markPass();try{const ks=await (await fetch("api/kitchen")).json();kauto=ks.auto!==false;kIdleMin=ks.idleMinutes||10;kWipOn=ks.wipOn!==false;kWipLimit=ks.wipLimit||3}catch(_){}if(ktab==="scores")await kScoreLoad();if(ktab==="crew")await kCrewLoad();kDraw()}catch(e){}}
 function markPass(){for(const t of KD.tasks)t._atPass=!!t.atPass}
 function setPass(){}
 async function kServe(t,pass){
  const r=await post("api/tasks/serve",{id:t.id,pass,stage:t.stage,assignee:t.assignee||""});if(r.error)toast(r.error);else toast(pass===false?(r.stuck?"#"+t.n+" is stuck: look at it":"#"+t.n+" back to build"):"#"+t.n+" → "+STN[r.stage]);kLoad()}
 async function kGo(id,session){const r=await post("api/tasks/dispatch",session?{id,session}:{id});if(r.error)toast(r.error);else toast("#"+r.n+" sent to "+((sess(r.assignee)||{}).role||"an agent"));kLoad()}
-document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-krequeue],[data-kapproveall],[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen],[data-kblk]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
+document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-krequeue],[data-kapproveall],[data-ktab],[data-kgo],[data-kserve],[data-kfail],[data-kdrop],[data-kmove],[data-kapprove],[data-kpri],[data-kskill],[data-kopen],[data-kblk],[data-kpark]");if(!el)return;const d=el.dataset,find=id=>KD.tasks.find(t=>t.id===id);
  if(d.ktab){ktab=d.ktab;if(ktab==="scores")kScoreLoad();if(ktab==="crew")kCrewLoad();try{localStorage.setItem("rma-ktab",ktab)}catch(_){}kDraw();if(ktab==="chat")last="";return}
  if(d.kblk){const bt=find(d.kblk)||{},sid=(bt.blocked||{}).session||bt.assignee;if(sid&&sess(sid)){sel=sid;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();last="";render()}else toast("No chat to open: this order waits on you");return}
  if(d.kgo)return kGo(d.kgo);
  if(d.kserve){const t=find(d.kserve);if(t)return kServe(t,true)}
  if(d.kfail){const t=find(d.kfail);if(t)return kServe(t,false)}
  if(d.kdrop){await post("api/tasks/drop",{id:d.kdrop});setPass(d.kdrop,false);toast("Dropped");return kLoad()}
+ if(d.kpark){const r=await post("api/tasks/park",{id:d.kpark});toast(r.error||("#"+r.n+(r.parked?" parked: it takes no slot":" un-parked")));return kLoad()}
  if(d.kmove){await post("api/tasks/move",{id:d.kmove,stage:d.to});return kLoad()}
  if(d.krequeue){const r=await post("api/tasks/requeue",{id:d.krequeue});toast(r.error||"#"+r.n+" is back in the inbox"+(r.kind==="question"?" as a question":""));return kLoad()}
  if(d.kapproveall!==undefined){const w=KD.tasks.filter(t=>t.atPass);for(const t of w)await post("api/tasks/move",{id:t.id,approved:true,stage:"build"});toast(w.length+" approved: on to build");return kLoad()}
@@ -399,6 +405,9 @@ document.addEventListener("submit",async e=>{if(e.target.id!=="kform")return;e.p
  const cur=sess(sel);const r=await post("api/tasks",{title,priority:kpri,cwd:cur&&cur.cwd||"",files});if(r.error)return toast(r.error);i.value="";ATT.order=[];toast("Order #"+r.n+" is on the belt");kLoad()});
 document.addEventListener("click",e=>{const p=e.target.closest("[data-knewpri]");if(p){kpri=p.dataset.knewpri;kDraw()}});
 document.addEventListener("click",async e=>{if(!e.target.closest("[data-kauto]"))return;const r=await post("api/kitchen",{auto:!kauto});if(r.error)return toast(r.error);kauto=r.auto;toast(kauto?"Autopilot on: orders approve, scale and move by themselves":"Autopilot off: you approve and dispatch");kDraw();kLoad()});
+document.addEventListener("click",async e=>{const el=e.target.closest&&e.target.closest("[data-kwip],[data-kwiplim]");if(!el)return;
+ if(el.dataset.kwip){const r=await post("api/kitchen",{wipOn:!kWipOn});if(r.error)return toast(r.error);kWipOn=r.wipOn!==false;toast(kWipOn?"WIP limit on: "+kWipLimit+" orders in progress at once":"WIP limit off: every waiting order starts");kDraw();return kLoad()}
+ const n=Math.max(1,Math.min(20,kWipLimit+Number(el.dataset.kwiplim)));if(n===kWipLimit)return;const r=await post("api/kitchen",{wipLimit:n});if(r.error)return toast(r.error);kWipLimit=r.wipLimit||n;toast("WIP limit "+kWipLimit);kDraw();kLoad()});
 document.addEventListener("dragstart",e=>{const c=e.target.closest&&e.target.closest("[data-kid]");if(c){kdrag=c.dataset.kid;e.dataTransfer.setData("text/plain",kdrag)}});
 document.addEventListener("dragend",()=>{kdrag="";document.querySelectorAll(".lane.over").forEach(x=>x.classList.remove("over"))});
 document.addEventListener("dragover",e=>{const l=e.target.closest&&(e.target.closest("[data-klane]")||e.target.closest("#side [data-sel]"));if(l&&kdrag){e.preventDefault();if(l.dataset.klane)l.classList.add("over")}});

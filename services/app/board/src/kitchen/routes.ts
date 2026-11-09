@@ -11,7 +11,7 @@ import type { Session } from "../sessions";
 import { KITCHEN_AGENTS, STAGE_TYPE, WORK_STAGES } from "./agents";
 import { blockedOn } from "./blocked";
 import { clearLessons, injectSkills, KITCHEN_CHAT, KITCHEN_MODE, freshChat, lessonsFor, lessonsKeyOf, retireLessons, podName, podOrder, createContainer, type Container, patchContainer, podOf, readContainers, reconcile, removeContainer, served, strike as strikePod } from "./containers";
-import { addTask, beltOrder, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
+import { addTask, beltOrder, holdsSlot, MAX_ROUNDS, nextStage, PRIORITIES, readTasks, removeTask, sendBack, STAGE_ROLES, STAGES, type Stage, type Task, updateTask } from "./pipeline";
 import { crewKey, flow, ratings, scoreboard } from "./scores";
 import { askInput, canAsk, envelope, handOffOf, type MessageType, recordIn, verdictIn, withoutRecord, type AskStage } from "./protocol";
 import { JsonStore } from "./store";
@@ -43,6 +43,8 @@ export type KitchenCtx = {
 	promptLimit: number;
 	/** How often the container control loop runs; 0 turns it off (tests call /api/containers/reconcile). */
 	every?: number;
+	/** The state GitHub has for a pull request url: OPEN, MERGED or CLOSED. Throws if gh fails (tests inject one). */
+	prState?: (cwd: string, url: string) => string;
 };
 
 const body = async <T>(c: Context) => (await c.req.json().catch(() => ({}))) as T;
@@ -192,6 +194,10 @@ export function folderHint(text: string, folders: string[] = []): string | undef
 // stderr is piped (not shown) so a failure carries git's own message.
 const git = (dir: string, args: string[], timeout = 20_000) =>
 	execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout }).trim();
+
+/** What GitHub says about one pull request, asked of `gh` in the order's folder. Throws when gh fails. */
+export const ghState = (cwd: string, url: string): string =>
+	(JSON.parse(execFileSync("gh", ["pr", "view", url, "--json", "state"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000, ...(cwd && isDir(cwd) ? { cwd } : {}) })) as { state?: string }).state ?? "";
 
 /** Why the last orderWorktree() for a folder failed, in git's words; cleared when one succeeds. */
 const worktreeErrors = new Map<string, string>();
@@ -456,7 +462,7 @@ const lastSaid = (s: Session | undefined) => {
  */
 const orderSkills = (title: string, _route: string) => matchSkills(title, 3).map((s) => s.name);
 
-type Settings = { auto: boolean; idleMinutes: number; agentUrl?: string };
+type Settings = { auto: boolean; idleMinutes: number; agentUrl?: string; wipOn: boolean; wipLimit: number; wipSince?: number };
 /** One turn on a Flisk kitchen agent session ("order-26-build"): the agent's reply. */
 export type AgentCall = (session: string, turn: { input: string; cwd?: string; model?: string; effort?: string }) => Promise<string>;
 /** POST /turn on the Flisk kitchen agent at `url` (services/app/kitchen, a local process using your own claude). */
@@ -469,8 +475,8 @@ export const httpAgent =
 		return j.reply;
 	};
 const SETTINGS = new JsonStore<Partial<Settings>>("kitchen.json");
-/** Autopilot on, and idle agents let go after 10 minutes, unless kitchen.json says otherwise. */
-const settings = (): Settings => ({ auto: true, idleMinutes: 10, ...(SETTINGS.read()[0] ?? {}) });
+/** Autopilot on, idle agents let go after 10 minutes, and 3 orders in progress at once, unless kitchen.json says otherwise. */
+const settings = (): Settings => ({ auto: true, idleMinutes: 10, wipOn: true, wipLimit: 3, ...(SETTINGS.read()[0] ?? {}) });
 /** How many of a container's latest orders a learned skill must show up in, at least once, to stay. */
 const RECENT_ORDERS = 10;
 /** How many learned skills the sidecar keeps per container. */
@@ -515,6 +521,18 @@ const staffStage = (t: Task) => (t.stage === "inbox" ? (t.lane === "fast" ? "bui
 /** The assignee of a question the front desk is answering. */
 export const FRONT_DESK = "front-desk";
 const saveSettings = (v: Partial<Settings>) => SETTINGS.write([{ ...settings(), ...v }]);
+
+/**
+ * When the WIP limit first ran on this board, stamped the first time it is asked for. An order served before it
+ * never holds a slot, so pull requests from before this feature shipped block nothing (#133).
+ */
+const wipSince = (): number => {
+	const v = SETTINGS.read()[0]?.wipSince;
+	if (v) return v;
+	const now = Date.now();
+	saveSettings({ wipSince: now });
+	return now;
+};
 
 /**
  * The message an order's stage agent gets: the order, its card, what earlier stages handed on, its job, its skills. Pure, so the step
@@ -576,6 +594,8 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	const inFlight = new Set<string>();
 	/** When this board process started: a Flisk turn sent before it belongs to a process that is gone. */
 	const bootedAt = Date.now();
+	/** When gh was last asked about open pull requests: at most once a minute. */
+	let prChecked = 0;
 	const replyOf = (id: string | undefined) => (id && fliskReplies.has(id) ? (fliskReplies.get(id) as string) : handOff(k.read().find((x) => x.id === id)));
 	const guard = (c: Context) => (k.sameOrigin(c) ? undefined : c.json({ error: "Send JSON from the board." }, 403));
 	/** A strike on a pod; when it fires the pod, the skills its container gained are installed for the next agent. */
@@ -808,10 +828,14 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		const strikes: Record<string, number> = {};
 		// Strikes its agents carry now: a fired agent's strikes already cost it, and would keep a container at 0 for good.
 		for (const box of readContainers()) strikes[box.name] = (strikes[box.name] ?? 0) + box.pods.filter((p) => p.status !== "evicted").reduce((a, p) => a + p.strikes, 0);
-		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes), flow: flow(readTasks()) });
+		return c.json({ ...scoreboard(readTasks()), ratings: ratings(readTasks(), strikes), flow: flow(readTasks(), Date.now(), wipSince()) });
 	});
 	app.get("/api/tasks", (c) => {
 		const now = Date.now();
+		const st = settings();
+		const since = wipSince();
+		const held = readTasks().filter((x) => holdsSlot(x, since)).length;
+		const full = st.wipOn && held >= st.wipLimit;
 		// Read the sessions once per request, not once per order.
 		let sessions: Session[] | undefined;
 		const getAssigneeLabel = (t: Task): string => {
@@ -828,14 +852,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		return c.json({
 			stages: STAGES,
 			roles: STAGE_ROLES,
+			wip: { on: st.wipOn, limit: st.wipLimit, held },
 			tasks: beltOrder(readTasks()).map((t) => ({
 				...t,
 				assigneeLabel: getAssigneeLabel(t),
 				pickedUpAt: t.sentAt || undefined,
 				stuckWarning: hasStuckWarning(t),
 				blocked: blockedOn(t),
+				prStale: t.stage === "done" && !!t.pr && !t.mergedAt && !t.closedAt && now - (t.servedAt ?? t.updated) > 86_400_000,
 				skills: t.skills.map((name) => ({ name, state: skillState(name), haiku: haikuFit(name) })),
-				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? (settings().auto ? "Spec done: crossing the pass." : "Waiting at the pass for your approval.") : t.skills.some((n) => skillState(n) === "get" || skillState(n) === "miss") ? "Installing its skills." : pick(t, settings().auto).why,
+				why: t.assignee || t.stage === "done" ? "" : t.stuck ? "Stuck: look at it, then serve it or send it back." : t.atPass ? (settings().auto ? "Spec done: crossing the pass." : "Waiting at the pass for your approval.") : t.skills.some((n) => skillState(n) === "get" || skillState(n) === "miss") ? "Installing its skills." : t.parked ? "Parked: it takes no slot until you un-park it." : full && !t.startedAt ? `Waiting: ${held} of ${st.wipLimit} orders in progress.` : pick(t, settings().auto).why,
 			})),
 		});
 	});
@@ -926,6 +952,16 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (no) return no;
 		const { id } = await body<{ id?: string }>(c);
 		return removeTask(String(id)) ? c.json({ dropped: true }) : c.json({ error: "That order is gone." }, 404);
+	});
+	/** Parks or un-parks an order: autopilot skips it and it takes no WIP slot. The order and its worktree are kept. */
+	app.post("/api/tasks/park", async (c) => {
+		const no = guard(c);
+		if (no) return no;
+		const { id, parked } = await body<{ id?: string; parked?: boolean }>(c);
+		const t = readTasks().find((x) => x.id === String(id));
+		if (!t) return c.json({ error: "That order is gone." }, 404);
+		const on = typeof parked === "boolean" ? parked : !t.parked;
+		return c.json(updateTask(t.id, { parked: on, ...(on ? { assignee: "", sentAt: 0 } : {}) }));
 	});
 	app.post("/api/tasks/skills", async (c) => {
 		const no = guard(c);
@@ -1291,6 +1327,42 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	}
 
 	/**
+	 * The open pull requests of done orders that still hold a WIP slot, asked of gh at most once a minute. A merged
+	 * or closed one frees the slot; if gh fails the slot stays held and it is asked again next minute. Merging is not
+	 * this board's job (order #118 owns it): this only reads.
+	 */
+	function checkPrs(now: number): string[] {
+		const did: string[] = [];
+		const since = wipSince();
+		const open = readTasks().filter((t) => t.stage === "done" && t.pr && !t.mergedAt && !t.closedAt && holdsSlot(t, since));
+		// Only a call that actually has a pull request to look at spends the once-a-minute budget: a tick with
+		// nothing open yet (e.g. containers reconcile, run before the order was even served) must not block the
+		// next call that does have one.
+		if (!open.length) return did;
+		if (now - prChecked < 60_000) return did;
+		prChecked = now;
+		const look = k.prState ?? ghState;
+		for (const t of open) {
+			if (!t.pr) continue;
+			let state = "";
+			try {
+				state = String(look(t.cwd, t.pr)).toUpperCase();
+			} catch {
+				did.push(`#${t.n} pull request state unknown: gh failed`);
+				continue;
+			}
+			if (state === "MERGED") {
+				updateTask(t.id, { mergedAt: now });
+				did.push(`#${t.n} pull request merged`);
+			} else if (state === "CLOSED") {
+				updateTask(t.id, { closedAt: now });
+				did.push(`#${t.n} pull request closed`);
+			}
+		}
+		return did;
+	}
+
+	/**
 	 * Autopilot, run by the server loop so orders move with no board page open and no buttons: specs cross the pass,
 	 * stuck orders close as failed, the autoscaler sizes the containers, finished steps move on (test and review by
 	 * their PASS or FAIL), then every waiting order goes to the next free container agent. On by default.
@@ -1452,8 +1524,17 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 			did.push(`#${t.n} ${t.stage} ${v ? "done" : "FAIL"}`);
 		}
 		did.push(...answerStrays(all, now));
+		did.push(...checkPrs(now));
+		const st = settings();
+		const since = wipSince();
 		for (const t of beltOrder(readTasks())) {
 			if (t.assignee || t.stage === "done" || t.stuck || t.atPass) continue;
+			// Parked by hand: autopilot never starts it.
+			if (t.parked) continue;
+			// WIP limit: an order that has not started waits while the slots are full. One already started always goes on,
+			// including a FAIL on its way back to Build, so the limit cannot deadlock. Counted again for each order, or a
+			// whole inbox got through in one pass. P0 does not jump it: beltOrder already gives it the next free slot.
+			if (st.wipOn && !t.startedAt && readTasks().filter((x) => holdsSlot(x, since)).length >= st.wipLimit) continue;
 			// Auto-dispatch only uses container agents, so orders never land in a chat you are typing in.
 			const r = dispatch(t.id, undefined, true);
 			if (r.status === 202) did.push(`#${t.n} sent`);
@@ -1709,18 +1790,26 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 	app.post("/api/kitchen", async (c) => {
 		const no = guard(c);
 		if (no) return no;
-		const { auto: on, idleMinutes, agentUrl } = await body<{ auto?: boolean; idleMinutes?: number; agentUrl?: string }>(c);
+		const { auto: on, idleMinutes, agentUrl, wipOn, wipLimit } = await body<{ auto?: boolean; idleMinutes?: number; agentUrl?: string; wipOn?: boolean; wipLimit?: number }>(c);
 		if (agentUrl !== undefined) {
 			// Loopback only: the kitchen agent runs your own claude with edit rights.
 			if (agentUrl && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(agentUrl)) return c.json({ error: "The kitchen agent must be on this computer (http://127.0.0.1:<port>)." }, 400);
 			saveSettings({ agentUrl: agentUrl || undefined });
-			if (on === undefined && idleMinutes === undefined) return c.json({ ...settings(), did: [] });
+			if (on === undefined && idleMinutes === undefined && wipOn === undefined && wipLimit === undefined) return c.json({ ...settings(), did: [] });
+		}
+		if (wipLimit !== undefined) {
+			if (!Number.isInteger(wipLimit) || (wipLimit as number) < 1 || (wipLimit as number) > 20) return c.json({ error: "Pick a whole WIP limit of 1 to 20." }, 400);
+			saveSettings({ wipLimit });
+		}
+		if (wipOn !== undefined) {
+			if (typeof wipOn !== "boolean") return c.json({ error: "Say on or off for the WIP limit." }, 400);
+			saveSettings({ wipOn });
 		}
 		if (idleMinutes !== undefined) {
 			if (!Number.isFinite(idleMinutes) || idleMinutes < 1 || idleMinutes > 24 * 60) return c.json({ error: "Pick 1 to 1440 idle minutes." }, 400);
 			saveSettings({ idleMinutes: Math.round(idleMinutes) });
 		}
-		if (on === undefined && idleMinutes !== undefined) return c.json({ ...settings(), did: [] });
+		if (on === undefined && (idleMinutes !== undefined || wipOn !== undefined || wipLimit !== undefined)) return c.json({ ...settings(), did: [] });
 		if (typeof on !== "boolean") return c.json({ error: "Say on or off." }, 400);
 		saveSettings({ auto: on });
 		return c.json({ auto: on, did: on ? auto() : [] });

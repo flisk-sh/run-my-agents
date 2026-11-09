@@ -260,7 +260,7 @@ describe("auto-dispatch on the server", () => {
 		const chat = { ...session("my-chat", "Planner"), updatedAt: Date.now() - 60_000 };
 		const sessions: Session[] = [chat];
 		const { app, post, sent, started } = setup(sessions);
-		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: true, idleMinutes: 10 });
+		expect(await (await app.request("/api/kitchen")).json()).toMatchObject({ auto: true, idleMinutes: 10, wipOn: true, wipLimit: 3 });
 		order({ stage: "inbox", approved: false });
 		// Your own idle chat never gets an order from auto-dispatch.
 		expect((await post("/api/kitchen", { auto: true })).body.did).toEqual([]);
@@ -287,7 +287,7 @@ describe("auto-dispatch on the server", () => {
 		expect(started.at(-1)).toMatchObject({ id: built.assignee });
 		expect(started.at(-1)?.text).toContain("Order #1 (build)");
 		expect((await post("/api/kitchen", { auto: false })).body).toEqual({ auto: false, did: [] });
-		expect(await (await app.request("/api/kitchen")).json()).toEqual({ auto: false, idleMinutes: 10 });
+		expect(await (await app.request("/api/kitchen")).json()).toMatchObject({ auto: false, idleMinutes: 10, wipOn: true, wipLimit: 3 });
 	});
 });
 

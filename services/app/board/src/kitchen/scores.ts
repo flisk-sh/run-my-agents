@@ -1,5 +1,5 @@
 // The scoreboard: served orders scored like bowling, ranked per agent, per pair of agents and per skill.
-import { MAX_ROUNDS, type Task } from "./pipeline";
+import { holdsSlot, MAX_ROUNDS, type Task } from "./pipeline";
 
 /**
  * One served order is one frame. Served with no FAIL is a strike (X): 10 plus the next two frames' pins. One FAIL
@@ -143,7 +143,7 @@ export function ratings(tasks: Task[], strikes: Record<string, number> = {}): Ra
  * Lead time runs from ordering to served, cycle time from the first agent picking it up to served. Medians and the
  * 85th percentile are over served orders (failed ones are counted apart); WIP is everything still open.
  */
-export function flow(tasks: Task[], now = Date.now()) {
+export function flow(tasks: Task[], now = Date.now(), wipSince = 0) {
 	// Questions the front desk answered in milliseconds are not served orders: they would drag the lead time to 5 ms (#191).
 	const done = tasks.filter((t) => t.stage === "done" && t.kind !== "question" && !t.failed && t.servedAt);
 	const pct = (xs: number[], p: number) => {
@@ -156,7 +156,12 @@ export function flow(tasks: Task[], now = Date.now()) {
 	return {
 		served: done.length,
 		failed: tasks.filter((t) => t.failed).length,
+		/** Everything not done, the inbox included: kept so older callers read the same number. */
 		wip: tasks.filter((t) => t.stage !== "done").length,
+		/** Of those, the ones holding a WIP slot (see holdsSlot); a done order with an open pull request counts too. */
+		inProgress: tasks.filter((t) => holdsSlot(t, wipSince)).length,
+		/** Open, not in progress: the queue behind the limit. */
+		waiting: tasks.filter((t) => t.stage !== "done" && !holdsSlot(t, wipSince)).length,
 		leadMedian: pct(lead, 50),
 		leadP85: pct(lead, 85),
 		/** Served orders that have a pick-up time (older orders were served before it was recorded). */
