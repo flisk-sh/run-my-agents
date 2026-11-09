@@ -80,6 +80,7 @@ button,input,textarea,select{font-family:inherit}.nm::first-letter{font-weight:7
 .tools::before{content:"";position:absolute;left:3px;top:3px;bottom:9px;width:1px;background:linear-gradient(var(--line),transparent 94%)}
 .tool{display:inline-flex;align-items:center;gap:6px;max-width:100%;font:11px var(--mono);color:var(--muted);padding:2px 6px;border-radius:6px;cursor:pointer;transition:color .15s,background .15s}.tool:hover{color:var(--text);background:rgba(255,255,255,.045)}
 .tool::before{content:"";flex:none;width:5px;height:5px;border-radius:50%;background:#52525b;transition:background .2s}
+.tool.bad{color:#f87171}
 .tool .chv{width:6px;height:6px;flex:none;margin-left:1px;border-right:1.4px solid currentColor;border-bottom:1.4px solid currentColor;opacity:.4;transform:rotate(45deg);transition:transform .2s,opacity .2s}
 .tool.on{color:var(--text);background:rgba(110,231,160,.08)}.tool.on::before{background:#6ee7a0}.tool.on .chv{transform:rotate(-135deg);opacity:.85}
 .tools.live .tool:last-child::before{background:#6ee7a0;box-shadow:0 0 0 3px rgba(110,231,160,.18);animation:ldot 1.2s ease-in-out infinite}
@@ -646,7 +647,7 @@ function SideRow({s}){const unread=!(s.id in seen)?0:s.feed.filter(x=>x.at>seen[
  H("div",{class:"t"},H("b",{class:"nm"},s.title||"Untitled session"),
   H("span",{class:"meta"},H("span",{class:"ag "+s.agent},AGENT_BADGE[s.agent]),mtag(s),ago(Date.now()-s.updatedAt),prRow(s),
    s.links?H("span",{class:"prc lnc","data-links":s.id,title:s.links+" link"+(s.links>1?"s":"")+" in this chat. Hover to see them"},ico(IC.link),s.links):null,rowAct(s)),
-  H("small",null,[s.doing||"",kt(s.tokens.used)+" tok"+(L.sessionTokens?" / "+kt(L.sessionTokens):"")].filter(Boolean).join(" · "))),
+  H("small",null,[s.doing||"",kt(s.tokens.used)+" tok"+(limFor(s)?" / "+kt(limFor(s)):"")].filter(Boolean).join(" · "))),
  unread>0&&s.id!==sel?H("span",{class:"badge"},unread):null)}
 function SideGroup({g,f}){const xs=ordSort(S.filter(f));
  if(!xs.length)return g==="Pinned"?H("div",{class:"grp phold","data-grp":"Pinned"},"Drag an agent here to pin it"):null;
@@ -671,9 +672,9 @@ function Head({s}){const t=s.title||"";return H(Frag,null,face(s,34),
   H("span",{class:"mc","data-ctext":s.cwd,title:"Copy folder path"},ico(IC.folder),s.cwd.split("/").pop()||""),
   H("span",{class:"mc","data-ctext":s.id,title:"Copy session ID"},ico(IC.hash),"session "+s.id.slice(0,8)))),
  H("div",{class:"hb"},hb("rename","Rename",ico(IC.edit),renaming),hb("pin",s.pinned?"Unpin":"Pin",ico(IC.pin),s.pinned),hb("roles","Type: "+s.role,mini(s.face,14),showRoles),hb("skills","Skills",ico(IC.star),showSkills),hb("files","Files",ico(IC.files),false),hb("mute",muted[s.id]?"Unmute":"Mute",ico(IC.bell),muted[s.id])))}
-function Meter({s}){const over=L.sessionTokens&&s.tokens.used>=L.sessionTokens,pct=L.sessionTokens?Math.min(100,s.tokens.used/L.sessionTokens*100):0,tag=mtag(s);
+function Meter({s}){const lim=limFor(s),over=lim&&s.tokens.used>=lim,pct=lim?Math.min(100,s.tokens.used/lim*100):0,tag=mtag(s);
  return H("div",{class:"meter"},tag||H("span",null,s.agent),
- L.sessionTokens?H(Frag,null,H("div",{class:"bar"+(over?" hot":"")},H("i",{style:"width:"+pct+"%"})),H("span",null,kt(s.tokens.used)+" / "+kt(L.sessionTokens)))
+ lim?H(Frag,null,H("div",{class:"bar"+(over?" hot":"")},H("i",{style:"width:"+pct+"%"})),H("span",null,kt(s.tokens.used)+" / "+kt(lim)))
   :H("span",{style:"flex:1"},kt(s.tokens.used)+" tokens · "+kt(s.tokens.cached)+" cached"),
  s.lower?H("button",{class:"btn"+(over?" go":""),"data-act":"down"},"Move to "+s.lower):null)}
 const Skills=({s})=>showSkills?H("div",{class:"skills"},s.skills.map(k=>H("div",{key:k.name,class:"sk","data-skill":k.name,title:k.source+"/"+k.path},H("b",null,"/"+k.name),H("p",null,k.what)))):null;
@@ -940,13 +941,14 @@ function ctxInfo(s){const used=s.context||0,win=(s.ctxPeak||0)>200000||/\[1m\]/i
 function ctxColor(f){return f>=.85?"#f43f5e":f>=.6?"#fbbf24":"#6ee7a0"}
 function fileStats(s){const m=new Map();for(const e of s.edits||[]){const o=m.get(e.file)||{file:e.file,add:0,del:0,n:0,at:0};o.add+=e.add||0;o.del+=e.del||0;o.n++;o.at=Math.max(o.at,e.at);m.set(e.file,o)}return[...m.values()].sort((a,b)=>b.at-a.at)}
 function clock(ms){const t=Math.max(0,Math.floor(ms/1000)),h=Math.floor(t/3600),m=Math.floor(t%3600/60),x=t%60;return(h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0")}
-const VERBS=["Working","Thinking","Reading","Editing","Testing","Wiring","Polishing"];
+function workVerb(s){const d=s.doing||"";return /^Ran .*(bun test|npm test|vitest|jest|pytest|go test|cargo test)/.test(d)?"Testing":/^Read/.test(d)?"Reading":/^Edited/.test(d)?"Editing":/^Searched/.test(d)?"Searching":"Working"}
+function limFor(s){return s.limited?L.sessionTokens:0}
 function actChips(s){const fs=fileStats(s),ps=planStat(s),ra=(s.agents||[]).filter(a=>!a.done).length,m=MODE[(s.tune&&s.tune.mode)||s.mode],c=s.context?ctxInfo(s):null,A=(cls,pop,...kids)=>H("span",{class:"mc act"+cls,"data-pop":pop,"data-sid":s.id},...kids);
  return [
- state(s)==="g"&&s.asked&&!s.awaiting?H("span",{key:"w",class:"mc act work","data-pop":"work","data-sid":s.id},H("i",{class:"spin"}),H("b",{"data-verb":true},VERBS[Math.floor(Date.now()/4000)%VERBS.length]),H("span",{"data-since":s.asked},clock(Date.now()-s.asked))):null,
+ state(s)==="g"&&s.asked&&!s.awaiting?H("span",{key:"w",class:"mc act work","data-pop":"work","data-sid":s.id},H("i",{class:"spin"}),H("b",null,workVerb(s)),H("span",{"data-since":s.asked},clock(Date.now()-s.asked))):null,
  s.awaiting?H("span",{key:"n",class:"mc act need","data-pop":"work","data-sid":s.id},H("i"),"Needs your answer"):null,
  c?H("span",{key:"c",class:"mc act","data-pop":"ctx","data-sid":s.id},ring(c.f,ctxColor(c.f)),"Context "+Math.round(c.f*100)+"%"):null,
- fs.length?H("span",{key:"f",class:"mc act","data-pop":"changes","data-sid":s.id},ico(IC.files),H("b",{class:"dadd"},"+"+fs.reduce((t,x)=>t+x.add,0)),H("b",{class:"ddel"},"−"+fs.reduce((t,x)=>t+x.del,0)),fs.length+" file"+(fs.length>1?"s":"")):null,
+ fs.length||s.diff?H("span",{key:"f",class:"mc act","data-pop":"changes","data-sid":s.id},ico(IC.files),H("b",{class:"dadd"},"+"+(s.diff?s.diff.add:fs.reduce((t,x)=>t+x.add,0))),H("b",{class:"ddel"},"−"+(s.diff?s.diff.del:fs.reduce((t,x)=>t+x.del,0))),fs.length?" "+fs.length+" file"+(fs.length>1?"s":""):""):null,
  ps.all?H("span",{key:"p",class:"mc act"+(ps.now?" live":""),"data-pop":"plan","data-sid":s.id},ring(ps.done/ps.all,"#6ee7a0"),"Plan "+ps.done+"/"+ps.all):null,
  s.agents&&s.agents.length?H("span",{key:"a",class:"mc act"+(ra?" live":""),"data-pop":"agents","data-sid":s.id},ico(AIC.agents),ra?ra+" running":s.agents.length+" subagents"):null,
  s.bg&&s.bg.length?H("span",{key:"b",class:"mc act","data-pop":"bg","data-sid":s.id},ico(AIC.bg),s.bg.length+" background"):null,
@@ -1043,7 +1045,7 @@ document.addEventListener("keydown",e=>{const typing=e.target&&e.target.matches&
  if(e.altKey&&(e.key==="ArrowUp"||e.key==="ArrowDown")&&(!typing||e.target.id==="msg")){e.preventDefault();goAgent(e.key==="ArrowUp"?-1:1);return}
  if(typing||e.metaKey||e.ctrlKey||e.altKey)return;
  if(e.key==="?"){e.preventDefault();showKeys()}else if(e.key==="/"){const m=$("msg");if(m){e.preventDefault();m.focus()}}});
-setInterval(()=>{document.querySelectorAll("[data-since]").forEach(e=>{e.textContent=clock(Date.now()-Number(e.dataset.since))});document.querySelectorAll("[data-verb]").forEach(e=>{const v=VERBS[Math.floor(Date.now()/4000)%VERBS.length];if(e.textContent!==v){e.textContent=v;e.classList.remove("vin");void e.offsetWidth;e.classList.add("vin")}})},1000);
+setInterval(()=>{document.querySelectorAll("[data-since]").forEach(e=>{e.textContent=clock(Date.now()-Number(e.dataset.since))})},1000);
 /* ⌘K: jump to any agent or action by typing a few letters. */
 function palItems(){const acts=[["New session",()=>document.querySelector('[data-act="newopen"]')?.click()],["Keyboard shortcuts",()=>showKeys()],["Rate the board (UMUX-Lite)",()=>showUmux(document.querySelector(".umux")||document.body)]].concat(GBY.map(([k,l])=>["Group by "+l,()=>{gby=k;try{localStorage.setItem("rma-group",k)}catch(_){}last="";render()}]));
  return S.filter(s=>!s.hidden).map(s=>({label:s.title||"Untitled",sub:s.role+" · "+(s.branch||s.cwd.split("/").pop()),face:s.face,run:()=>{sel=s.id;try{localStorage.setItem("rma-sel",sel)}catch(_){}kChat();first=true;render()}})).concat(acts.map(([l,f])=>({label:l,sub:"Action",run:f})))}
@@ -1132,8 +1134,8 @@ function richHtml(m){
  const head=lines.slice(0,2).join("\\n"),tail=lines.slice(-2).join("\\n"),hidden=lines.length-4;
  return H(Frag,null,H("div",{class:"rich-prev"},H("div",Object.assign({class:"rich"},md(head))),H("div",{class:"rp-more",title:"Show the whole reply"},"⋯ "+hidden+" more line"+(hidden===1?"":"s")+" · Show"),H("div",Object.assign({class:"rich"},md(tail)))),H("div",Object.assign({class:"rich full"+longCls},md(m.text))))
 }
-function toolRuns(ts,sid,fi,calls){const r=[];for(const t of ts){const l=r[r.length-1];if(l&&l[0]===t)l[1]++;else r.push([t,1])}let at=0;return r.map(([t,n])=>{const from=at;at+=n;const cs=(calls||[]).slice(from,from+n),tk=sid+":"+fi+":"+from,open=cs.length>0&&OPEN.has(tk);
- return H(Frag,{key:tk},H("span",Object.assign({class:"tool"+(open?" on":""),title:t+(n>1?" ×"+n:"")},cs.length?{"data-act":"toolx","data-tk":tk}:{}),t,n>1?H("b",null,"×"+n):null,cs.length?H("i",{class:"chv"}):null),
+function toolRuns(ts,sid,fi,calls){const r=[];for(const t of ts){const l=r[r.length-1];if(l&&l[0]===t)l[1]++;else r.push([t,1])}let at=0;return r.map(([t,n])=>{const from=at;at+=n;const cs=(calls||[]).slice(from,from+n),tk=sid+":"+fi+":"+from,open=cs.length>0&&OPEN.has(tk),c0=cs[0],label=c0?c0.label:t,result=c0?.result,bad=c0?.bad;
+ return H(Frag,{key:tk},H("span",Object.assign({class:"tool"+(open?" on":"")+(bad?" bad":""),title:label+(n>1?" ×"+n:"")},cs.length?{"data-act":"toolx","data-tk":tk}:{}),label+(result?" · "+result:""),n>1?H("b",null,"×"+n):null,cs.length?H("i",{class:"chv"}):null),
   open?H("div",{class:"clist"},cs.map((c,i)=>H("div",{key:i,class:"ci",style:"--i:"+i,"data-ctext":c.detail},c.what?H("small",null,c.what):null,H("code",null,c.detail)))):null)})}
 function pinSession(id,on){post("api/pin",{id,pinned:on}).then(r=>{if(r.error){toast(r.error);return}last="";load();toast(on?"Pinned to the top":"Unpinned")})}
 let tipT=0;function tipHide(){clearTimeout(tipT);$("tip").classList.remove("on")}
@@ -1156,7 +1158,7 @@ function menuClick(e){e.stopPropagation();
 const ICON={finder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',terminal:'<path d="M4 6l6 6-6 6M12 18h8" stroke-linecap="round"/>',vscode:'<path d="M9 7l-5 5 5 5M15 7l5 5-5 5" stroke-linecap="round"/>',skills:'<path d="M12 3l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6-5-2.8-5 2.8 1.1-5.6L4 8.9l5.6-.7z" stroke-linejoin="round"/>'};
 const TILES=[["finder","Finder","Open the folder in Finder"],["terminal","Terminal","Open a terminal in the folder"],["vscode","VS Code","Open the folder in VS Code"],["skills","Skills","Show the skills this agent can use"]];
 function GaugePanel({s}){
- const lim=L.sessionTokens,pct=Math.max(0,Math.min(1,s.tokens.used/(lim||2000000))),claude=s.agent==="claude",cm=(s.tune&&s.tune.model)||"",ce=(s.tune&&s.tune.effort)||"";
+ const lim=limFor(s),pct=Math.max(0,Math.min(1,s.tokens.used/(lim||2000000))),claude=s.agent==="claude",cm=(s.tune&&s.tune.model)||"",ce=(s.tune&&s.tune.effort)||"";
  let ticks="";for(let i=0;i<=10;i++){const a=-90+18*i,p1=polar(a,41),p2=polar(a,i%5?38:35);ticks+='<line x1="'+p1[0].toFixed(1)+'" y1="'+p1[1].toFixed(1)+'" x2="'+p2[0].toFixed(1)+'" y2="'+p2[1].toFixed(1)+'" stroke="#3a3a48" stroke-width="1"/>'}
  const tok='<svg viewBox="0 0 120 70" class="gsv"><path d="M10 62A50 50 0 0 1 110 62" fill="none" stroke="#242430" stroke-width="9" stroke-linecap="round"/><path class="arc" d="M10 62A50 50 0 0 1 110 62" fill="none" stroke="url(#gz)" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="100" style="--p:'+(pct*100).toFixed(1)+'"/>'+ticks+'<g class="needle'+(pct>=.7?" hot":" idle")+'" style="--a:'+(-90+180*pct).toFixed(1)+'deg"><line x1="60" y1="62" x2="60" y2="24" stroke="#fff" stroke-width="2" stroke-linecap="round"/></g><circle cx="60" cy="62" r="6" fill="url(#hub)"/></svg>';
  return H(Frag,null,
@@ -1180,7 +1182,7 @@ function EffortSeg({ce}){return H("div",{class:"pseg"},H("b",{class:ce?"":"on","
 function PSec({t,off,children}){return H("div",{class:"ps"+(off||"")},H("div",{class:"pl"},t),children)}
 function PlainTune({cm,ce,off}){return H(Frag,null,H(PSec,{t:"Model",off},H(ModelSeg,{cm})),H(PSec,{t:"Effort",off},H(EffortSeg,{ce})))}
 function PlainPanel({s}){
- const lim=L.sessionTokens,used=s.tokens.used,ratio=used/(lim||2000000),claude=s.agent==="claude",cm=(s.tune&&s.tune.model)||"",ce=(s.tune&&s.tune.effort)||"",off=claude?"":" off",cc=claude?"":" (Claude Code only)";
+ const lim=limFor(s),used=s.tokens.used,ratio=used/(lim||2000000),claude=s.agent==="claude",cm=(s.tune&&s.tune.model)||"",ce=(s.tune&&s.tune.effort)||"",off=claude?"":" off",cc=claude?"":" (Claude Code only)";
  return H(Frag,null,
   H("div",{class:"ph"},mini(s.face,28),H("div",{style:"min-width:0"},H("b",null,s.title||"Untitled session"),H("small",null,s.role+" agent · "+AGENT_LABEL[s.agent]))),
   H("div",{class:"ps","data-tip":kt(s.tokens.cached||0)+" of these tokens were cached"},H("div",{class:"pl"},"Tokens",H("span",null,kt(used)+(lim?" of "+kt(lim):"")+" ("+Math.round(ratio*100)+"%"+(lim?"":" of 2M, no limit set")+")")),H("div",{class:"pbar"+(lim&&used>=lim?" over":ratio>=.7?" hot":"")},H("i",{style:"width:"+Math.min(100,ratio*100).toFixed(1)+"%"}))),

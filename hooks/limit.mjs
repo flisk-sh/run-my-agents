@@ -22,6 +22,12 @@ function main() {
   const session = input.session_id;
   if (!session || !input.transcript_path) return;
   const limits = readLimits();
+  const hookedFile = join(DIR, "usage", "hooked.json");
+  const hooked = readJson(hookedFile, {});
+  hooked[session] = Date.now();
+  const entries = Object.entries(hooked).sort((a, b) => b[1] - a[1]).slice(0, 200);
+  mkdirSync(join(DIR, "usage"), { recursive: true });
+  writeFileSync(hookedFile, JSON.stringify(Object.fromEntries(entries)));
   if (!limits.sessionTokens) return;
 
   const usage = transcriptUsage(session, input.transcript_path);

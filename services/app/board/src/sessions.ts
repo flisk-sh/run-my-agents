@@ -5,6 +5,7 @@
 //   files edited by 2+ sessions in the last 10 min ──► Clash
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { type DesktopMeta, type Pr, readDesktopMeta } from "./desktop";
@@ -93,7 +94,7 @@ export interface FeedItem {
 	text: string;
 	tools: string[];
 	/** Each tool call in this reply, with what it actually ran: the command, file, URL or search. */
-	calls?: { label: string; what?: string; detail: string }[];
+	calls?: { label: string; what?: string; detail: string; result?: string; bad?: boolean }[];
 	options?: Options;
 	/** When this reply started; stays the same while it grows, so the page can remember if you collapsed it. */
 	t0?: number;
@@ -244,6 +245,37 @@ export function callDetail(name: string, input?: Record<string, unknown>): { wha
 	return { detail: cut(JSON.stringify(small), 300) };
 }
 
+export function rowLabel(name: string, input?: Record<string, unknown>): string {
+	const f = String(input?.file_path ?? input?.notebook_path ?? input?.path ?? "");
+	if (name === "Bash") return `Ran ${String(input?.command ?? "").replace(/\s+/g, " ").slice(0, 60)}`;
+	if (name === "Grep" || name === "Glob") return `Searched ${f ? basename(f) : "files"} for ${String(input?.pattern ?? "").slice(0, 40)}`;
+	if (name === "Read") return `Read ${basename(f)}`;
+	if (EDIT_TOOLS.has(name)) return `Edited ${basename(f)}`;
+	return toolLabel(name, input);
+}
+export function rowResult(text: string, bad?: boolean): string {
+	const t = text.replace(/\s+/g, " ").trim();
+	if (bad) return `failed: ${t.slice(0, 120)}`;
+	const p = /(\d+)\s+pass/.exec(t), fl = /(\d+)\s+fail/.exec(t), m = /Found (\d+) (?:match|file)/.exec(t);
+	if (p) return `${p[1]} pass, ${fl ? fl[1] : 0} fail`;
+	if (m) return `${m[1]} matches`;
+	return t.slice(0, 80);
+}
+
+export function diffStat(cwd: string): { add: number; del: number } | undefined {
+	try {
+		const output = execFileSync("git", ["-C", cwd, "diff", "--numstat", "HEAD"], { encoding: "utf8", timeout: 5000 });
+		let add = 0, del = 0;
+		for (const line of output.trim().split("\n")) {
+			const m = /^(\d+)\s+(\d+)/.exec(line);
+			if (m) { add += parseInt(m[1], 10); del += parseInt(m[2], 10); }
+		}
+		return { add, del };
+	} catch {
+		return undefined;
+	}
+}
+
 /** One transcript to a Session, or undefined when it has no conversation in it. */
 /** Session ids are UUID-like. Anything else is dropped: ids go into the page's HTML and into `claude --resume <id>`. */
 export const SESSION_ID = /^[\w-]{1,128}$/;
@@ -254,6 +286,8 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 	let optItem: FeedItem | undefined;
 	let optToolId = "";
 	const running = new Map<string, NonNullable<Session["agents"]>[number]>();
+	const seen = new Set<string>();
+	const byId = new Map<string, NonNullable<FeedItem["calls"]>[number]>();
 	for (const line of lines) {
 		let e: {
 			type?: string;
@@ -288,11 +322,16 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 		}
 		// a subagent is done once its result comes back
 		if (e.type === "user" && Array.isArray(e.message?.content) && running.size)
-			for (const x of e.message.content as { type?: string; tool_use_id?: string }[]) {
+			for (const x of e.message.content as { type?: string; tool_use_id?: string; content?: string; is_error?: boolean }[]) {
 				const a = x?.type === "tool_result" && x.tool_use_id ? running.get(x.tool_use_id) : undefined;
 				if (a) {
 					a.done = true;
 					running.delete(x.tool_use_id as string);
+				}
+				const call = x?.type === "tool_result" && x.tool_use_id ? byId.get(x.tool_use_id) : undefined;
+				if (call) {
+					call.result = rowResult(String(x.content ?? ""), x.is_error === true);
+					call.bad = x.is_error === true;
 				}
 			}
 		// An answer to a question call arrives as its tool result; a typed answer arrives as a user message.
@@ -315,7 +354,10 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			}
 		}
 		const u = e.type === "assistant" ? e.message?.usage : undefined;
-		if (u) {
+		const msgId = String(e.message?.id ?? Math.random());
+		const isNewMessage = !seen.has(msgId);
+		if (isNewMessage) seen.add(msgId);
+		if (u && isNewMessage) {
 			s.context = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
 			s.ctxPeak = Math.max(s.ctxPeak ?? 0, s.context);
 			s.tokens.used += (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
@@ -359,7 +401,15 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 					}
 				}
 				if (item.tools.length < 6) item.tools.push(s.doing);
-				if ((item.calls ??= []).length < 40) item.calls.push({ label: s.doing, ...callDetail(c.name, c.input) });
+				const call = { label: rowLabel(c.name, c.input), ...callDetail(c.name, c.input) } as NonNullable<FeedItem["calls"]>[number];
+				if (EDIT_TOOLS.has(c.name)) {
+					const es = editSize(c.name, c.input);
+					if (es.add !== undefined && es.del !== undefined) {
+						call.result = `+${es.add} −${es.del}`;
+					}
+				}
+				if ((item.calls ??= []).length < 40) item.calls.push(call);
+				if (c.id) byId.set(String(c.id), call);
 				if (c.name === "TodoWrite" || c.name.endsWith("update_plan")) s.plan = applyPlan(s.plan, c.name, c.input);
 				if ((c.name === "Agent" || c.name === "Task") && c.id) {
 					const a = { what: String(c.input?.description ?? "Subagent").slice(0, 80), kind: String(c.input?.subagent_type ?? "general-purpose"), at, done: false };

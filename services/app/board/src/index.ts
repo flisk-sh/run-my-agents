@@ -8,12 +8,12 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writ
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { Hono } from "hono";
-import { lowerModel, readLimits, setProjectModel, writeLimits } from "../../../../hooks/limits.mjs";
+import { lowerModel, readLimits, setProjectModel, writeLimits, readHooked } from "../../../../hooks/limits.mjs";
 import { AGENTS } from "../../web/src/avatars";
 import { PAGE } from "./page";
 import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
-import { findClashes, guessRole, readAllSessions, type Session } from "./sessions";
+import { findClashes, guessRole, readAllSessions, diffStat, type Session } from "./sessions";
 import { KITCHEN_AGENTS } from "./kitchen/agents";
 import { KITCHEN_CHAT, KITCHEN_TOOLS, kitchenFlags, kitchenTmp } from "./kitchen/containers";
 import { mountKitchen } from "./kitchen/routes";
@@ -591,6 +591,7 @@ export function createApp(
 	app.get("/api/sessions", (c) => {
 		const sessions = read();
 		const limits = readLimits();
+		const hooked = readHooked();
 		return c.json({
 			sessions: sessions.map(({ file, ...s }) => ({
 				...s,
@@ -601,6 +602,8 @@ export function createApp(
 				prs: mergePrs(s.prs ?? [], cachedPrs(s, prsFor)),
 				links: file ? linkCount(file) : 0,
 				queue: (queues.get(s.id) ?? []).map(({ qid, text }) => ({ qid, text })),
+				diff: s.cwd ? diffStat(s.cwd) : undefined,
+				limited: !!hooked[s.id],
 			})),
 			clashes: findClashes(sessions),
 			limits,

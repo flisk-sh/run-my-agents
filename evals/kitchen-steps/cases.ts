@@ -165,4 +165,44 @@ export const CASES: Case[] = [
 		limits: { toolCalls: 16, issueReads: 0, fullSuite: 0, worktreeEdits: 0 },
 		control: true,
 	},
+	{
+		id: "build-many-places",
+		source: "order #133 build: 84 calls, one grep+Read+Edit per location",
+		stage: "build",
+		title: `add a log line to progress tracking ${ISSUE}`,
+		notes: {
+			spec: `## Goal\nAdd logging to three functions in two files for debugging.\n\n## Why\nOrder #133 spent 84 tool calls searching one-by-one instead of batching.\n\n## Current behaviour\nNo logging exists.\n\n## Files to change\n- src/progress/labels.ts: getLabel function (line 5), printLabel function (line 12).\n- src/progress/status.ts: updateStatus function (line 8).\n\n## Steps\n1. Read src/progress/labels.ts completely. Find getLabel and printLabel. In getLabel (line 7), replace OLD_GET with "console.log('getLabel', name);". In printLabel (line 14), replace OLD_PRINT with "console.log('printLabel', s);". Make both edits in one turn.\n2. Read src/progress/status.ts completely. Find updateStatus (line 8). Replace OLD_STATUS with "console.log('updateStatus', id, status);".`
+		},
+		files: {
+			...repo,
+			"src/progress/labels.ts": `export function getLabel(name) {
+	// OLD_GET
+	return name;
+}
+export function printLabel(s) {
+	// OLD_PRINT
+	return \`[\${s}]\`;
+}`,
+			"src/progress/status.ts": `export function updateStatus(id, status) {
+	// OLD_STATUS
+	return { id, status };
+}`,
+		},
+		change: {
+			"src/progress/labels.ts": `export function getLabel(name) {
+	console.log('getLabel', name);
+	return name;
+}
+export function printLabel(s) {
+	console.log('printLabel', s);
+	return \`[\${s}]\`;
+}`,
+			"src/progress/status.ts": `export function updateStatus(id, status) {
+	console.log('updateStatus', id, status);
+	return { id, status };
+}`,
+		},
+		verify: `(grep -q "console.log('getLabel'" src/progress/labels.ts && grep -q "console.log('printLabel'" src/progress/labels.ts && grep -q "console.log('updateStatus'" src/progress/status.ts) || exit 1`,
+		limits: { toolCalls: 30, skills: 0, issueReads: 0, fullSuite: 0 },
+	},
 ];

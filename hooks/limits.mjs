@@ -9,6 +9,7 @@ import { dirname, isAbsolute, join } from "node:path";
 
 export const DIR = process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
 const LIMITS = join(DIR, "limits.json");
+const HOOKED = join(DIR, "usage", "hooked.json");
 export const LADDER = ["opus", "sonnet", "haiku"];
 export const DEFAULT_LIMITS = { sessionTokens: 0, autoDowngrade: false };
 
@@ -52,6 +53,12 @@ export function lowerModel(model) {
   const m = String(model || "").toLowerCase();
   const i = LADDER.findIndex((tier) => m.includes(tier));
   return i >= 0 && i < LADDER.length - 1 ? LADDER[i + 1] : null;
+}
+
+/** Sessions that were hooked (i.e., the limit was enforced on them). */
+export function readHooked() {
+  const raw = readJson(HOOKED, {});
+  return raw;
 }
 
 /**
