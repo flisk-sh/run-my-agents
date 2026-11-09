@@ -17,12 +17,12 @@ describe("pages", () => {
 		const csp = res.headers.get("content-security-policy") ?? "";
 		expect(csp).toContain("default-src 'none'");
 		expect(csp.match(/script-src ([^;]*)/)?.[1]).toMatch(
-			/^'sha256-[A-Za-z0-9+/=]+'$/,
+			/^'sha256-[A-Za-z0-9+/=]+' https:\/\/flisk\.si$/,
 		);
-		// every other page keeps the strict default: no scripts at all
+		// every other page keeps the strict default: only the Flisk bar script may run
 		const about = await app.request("/about");
-		expect(about.headers.get("content-security-policy")).not.toContain(
-			"script-src",
+		expect(about.headers.get("content-security-policy")).toContain(
+			"script-src https://flisk.si;",
 		);
 	});
 

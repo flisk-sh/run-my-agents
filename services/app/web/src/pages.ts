@@ -114,7 +114,7 @@ function layout(base: string, meta: PageMeta, body: string): string {
 	const root = new URL(`${base}/`).pathname.replace(/\/$/, "");
 	return `<!doctype html><html lang="${SITE.lang}"><head>
 ${head(base, meta)}
-<style>${STYLE}</style></head><body>
+<style>${STYLE}</style><script src="https://flisk.si/assets/bar.js" defer></script></head><body>
 <header class="top"><nav class="wrap" aria-label="Site"><a href="${root}/"><img src="${root}/icon.svg" alt="" width="20" height="20">${esc(SITE.name)}</a><a href="${root}/play">Play</a><a href="${root}/about">About</a><a href="${SITE.repo}">GitHub</a></nav></header>
 <main>${body}</main>
 <footer><div class="wrap">MIT licensed. Made by <a href="${SITE.author.url}">${esc(SITE.author.name)}</a> and run locally with <a href="https://github.com/flisk-sh/flisk">Flisk</a>. <a href="${SITE.repo}">Source on GitHub</a>.</div></footer>

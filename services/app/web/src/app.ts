@@ -97,7 +97,7 @@ export function createApp(options: AppOptions = {}) {
 	app.get("/", (c) => {
 		c.header(
 			"content-security-policy",
-			`default-src 'none'; script-src ${DL_SCRIPT_HASH}; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
+			`default-src 'none'; script-src ${DL_SCRIPT_HASH} https://flisk.si; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
 		);
 		return c.html(homePage(baseOf(c)));
 	});
