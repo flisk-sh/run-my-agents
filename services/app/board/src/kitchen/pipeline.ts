@@ -6,6 +6,8 @@ import type { Kind, Lane, Zachman } from "./triage";
 
 export const STAGES = ["inbox", "spec", "build", "test", "review", "done"] as const;
 export type Stage = (typeof STAGES)[number];
+/** How far the merge step got on an order's pull request (#142). */
+export type MergeState = { startedAt: number; conflicts?: number; lint?: boolean; rerun?: boolean; gates?: string[]; haiku?: number; sonnet?: number; rounds?: number; evidence?: boolean; queued?: boolean; admin?: string; who?: string };
 /** Which agent types can cook each stage. The first is the one the order asks for. */
 export const STAGE_ROLES: Record<Stage, string[]> = {
 	inbox: ["Spec", "Planner"],
@@ -100,6 +102,8 @@ export type Task = {
 	mergedAt?: number;
 	/** Its pull request was closed without merging: the slot it held is free. */
 	closedAt?: number;
+	/** How far the merge step got on this order's pull request (#142). */
+	merge?: { startedAt: number; conflicts?: number; lint?: boolean; rerun?: boolean; gates?: string[]; haiku?: number; sonnet?: number; rounds?: number; evidence?: boolean; queued?: boolean; admin?: string; who?: string };
 	created: number;
 	updated: number;
 };
@@ -134,7 +138,7 @@ export function addTask(t: { title: string; cwd?: string; priority?: string; ski
 	return task;
 }
 
-export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft" | "parked" | "mergedAt" | "closedAt" | "cut">>): Task | undefined {
+export function updateTask(id: string, patch: Partial<Pick<Task, "stage" | "assignee" | "sentAt" | "approved" | "priority" | "title" | "rounds" | "stuck" | "crew" | "servedAt" | "atPass" | "missedBy" | "failed" | "startedAt" | "stageAt" | "answer" | "kind" | "zachman" | "skills" | "route" | "missedBy" | "requeued" | "lane" | "notes" | "cwd" | "shipping" | "pr" | "worktree" | "failures" | "carried" | "retryOf" | "followUp" | "answered" | "base" | "roundBase" | "waitingOn" | "asked" | "talk" | "draft" | "parked" | "mergedAt" | "closedAt" | "merge" | "cut">>): Task | undefined {
 	const all = readTasks();
 	const t = all.find((x) => x.id === id);
 	if (!t) return undefined;
