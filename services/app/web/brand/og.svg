@@ -1,10 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Contrast: WCAG color contrast, as a link you can share"><title>Contrast</title>
-  <rect width="1200" height="630" fill="#fbfaf7"/>
-  <g transform="translate(96 96) scale(2)"><rect width="64" height="64" rx="14" fill="#2d4cc8"/><circle cx="32" cy="32" r="18" fill="#fbfaf7"/><path d="M32 14a18 18 0 0 1 0 36z" fill="#1d1c1a"/></g>
-  <text x="250" y="178" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="60" font-weight="800" fill="#1d1c1a">Contrast</text>
-  <text x="96" y="340" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="64" font-weight="800" fill="#1d1c1a" letter-spacing="-1.5">WCAG color contrast,</text>
-  <text x="96" y="420" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="64" font-weight="800" fill="#1d1c1a" letter-spacing="-1.5">as a link you can share</text>
-  <text x="96" y="530" font-family="ui-monospace, Menlo, monospace" font-size="34" fill="#6b6862">your-tool.example.com/1d1c1a/fbfaf7</text>
-  <g transform="translate(940 96)"><rect width="164" height="164" rx="24" fill="#1d1c1a"/><text x="82" y="112" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="72" font-weight="800" fill="#fbfaf7">Aa</text></g>
-  <text x="1022" y="320" text-anchor="middle" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="40" font-weight="800" fill="#1f7a4d">16.31:1</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Run My Agents: Run many Claude Code agents on one repo, safely"><title>Run My Agents</title>
+  <defs>
+    <radialGradient id="glow" cx="0.12" cy="0.1" r="0.7"><stop offset="0" stop-color="#1c2a5e"/><stop offset="1" stop-color="#08080c"/></radialGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#ffffff" stroke-opacity="0.04"/></pattern>
+    <linearGradient id="rule" x1="0" x2="1"><stop offset="0" stop-color="#5c7cfa" stop-opacity="0"/><stop offset="0.25" stop-color="#5c7cfa"/><stop offset="1" stop-color="#5c7cfa" stop-opacity="0.2"/></linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <g transform="translate(72 70) scale(1.0625)"><rect width="64" height="64" rx="14" fill="#3b5bdb"/><path d="M24 17l22 15-22 15z" fill="#fbfaf7" stroke="#fbfaf7" stroke-width="2" stroke-linejoin="round"/></g>
+  <text x="160" y="110" font-family="ui-monospace, Menlo, monospace" font-size="19" font-weight="700" letter-spacing="4" fill="#748ffc">RUN MY AGENTS / FREE PLUGIN</text>
+  <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="56" font-weight="800" fill="#ffffff" letter-spacing="-1">
+    <text x="72" y="240">Run many Claude</text>
+    <text x="72" y="306">Code agents on</text>
+    <text x="72" y="372">one repo, safely.</text>
+  </g>
+  <text x="72" y="424" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="25" fill="#9aa0ab">A warning before an agent edits a file</text>
+  <text x="72" y="456" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="25" fill="#9aa0ab">another session just changed.</text>
+  <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#f1f3f5" text-anchor="middle">
+    <rect x="72" y="490" width="90" height="44" rx="22" fill="#15161d" stroke="#2c2f3a"/><text x="117" y="519">Free</text>
+    <rect x="174" y="490" width="150" height="44" rx="22" fill="#15161d" stroke="#2c2f3a"/><text x="249" y="519">Open source</text>
+    <rect x="336" y="490" width="120" height="44" rx="22" fill="#15161d" stroke="#2c2f3a"/><text x="396" y="519">No keys</text>
+  </g>
+  <rect x="72" y="552" width="720" height="2" fill="url(#rule)"/>
+  <text x="72" y="596" font-family="ui-monospace, Menlo, monospace" font-size="30" fill="#e9ecef">run-my-agents.flisk.si</text>
+  <g transform="translate(640 64)">
+    <rect width="620" height="440" rx="18" fill="#101118" stroke="#2a2d38"/>
+    <circle cx="28" cy="28" r="6" fill="#3a3d48"/><circle cx="48" cy="28" r="6" fill="#3a3d48"/><circle cx="68" cy="28" r="6" fill="#3a3d48"/>
+    <text x="96" y="34" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" fill="#868e96">session B, branch main</text>
+    <rect x="0" y="56" width="620" height="1" fill="#2a2d38"/>
+    <g font-family="ui-monospace, Menlo, monospace" font-size="19">
+      <text x="32" y="104" fill="#adb5bd">&gt; Edit api.ts</text>
+      <rect x="28" y="126" width="560" height="176" rx="10" fill="#1a1f36" stroke="#3b5bdb" stroke-opacity="0.6"/>
+      <text x="48" y="162" fill="#91a7ff" font-weight="700">Run My Agents</text>
+      <text x="48" y="194" fill="#dee2e6">Another Claude session (9d5f2846</text>
+      <text x="48" y="222" fill="#dee2e6">on fix-login) edited api.ts</text>
+      <text x="48" y="250" fill="#dee2e6">2 min ago. Read the file again</text>
+      <text x="48" y="278" fill="#dee2e6">first, or work on another file.</text>
+      <text x="32" y="346" fill="#adb5bd">&gt; Read api.ts</text>
+      <text x="32" y="384" fill="#adb5bd">&gt; Edit api.ts</text>
+      <text x="220" y="384" fill="#51cf66" font-weight="700">done</text>
+    </g>
+  </g>
 </svg>
