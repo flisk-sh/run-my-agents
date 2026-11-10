@@ -257,7 +257,9 @@ describe("Kitchen Rush game", () => {
 		);
 		const card = await app.request("/play/card.png");
 		expect(card.headers.get("content-type")).toBe("image/png");
-		expect(await (await app.request("/")).text()).toContain('/play">Play</a>');
+		expect(await (await app.request("/")).text()).toMatch(
+			/<a class="play" href="[^"]*\/play">.*Play<\/a>/,
+		);
 		expect(await (await app.request("/sitemap.xml")).text()).toContain("/play");
 	});
 });

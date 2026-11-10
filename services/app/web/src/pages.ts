@@ -14,8 +14,16 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:radial-gradient(60rem 30rem at 85% -10%,var(--glow),transparent 70%),radial-gradient(40rem 24rem at -10% 20%,rgba(14,165,233,.05),transparent 70%),var(--bg);color:var(--text);font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 a{color:var(--accent-text)}.wrap{max-width:56rem;margin:0 auto;padding:0 16px}
-header.top{border-bottom:1px solid var(--line)}header.top .wrap{display:flex;align-items:center;gap:12px;height:56px}
-header.top a{color:var(--muted);text-decoration:none;font-size:.9rem}header.top a:first-child{color:var(--text);font-weight:700;font-size:1rem;display:flex;gap:8px;align-items:center;margin-right:auto}
+header.top{position:sticky;top:0;z-index:20;background:rgba(10,10,14,.72);-webkit-backdrop-filter:blur(14px) saturate(1.4);backdrop-filter:blur(14px) saturate(1.4);border-bottom:1px solid var(--line)}
+header.top::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,rgba(34,197,94,.55),rgba(14,165,233,.35),transparent)}
+header.top .wrap{display:flex;align-items:center;gap:4px;height:48px}
+header.top a{color:var(--muted);text-decoration:none;font-size:.84rem;font-weight:500;padding:5px 10px;border-radius:8px;transition:color .15s,background .15s}header.top a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+header.top a.brand{color:var(--text);font-weight:800;font-size:.95rem;letter-spacing:-.01em;display:flex;gap:8px;align-items:center;margin-right:auto;padding-left:0}header.top a.brand:hover{background:none}
+header.top a.brand img{filter:drop-shadow(0 0 6px rgba(34,197,94,.55))}
+header.top a.play{display:inline-flex;align-items:center;gap:6px;margin-left:6px;padding:5px 13px 5px 10px;border-radius:999px;background:linear-gradient(180deg,#34d572,var(--accent));color:#04130a;font-weight:700;box-shadow:0 0 0 1px rgba(110,231,160,.35),0 6px 18px -4px rgba(34,197,94,.55),inset 0 1px 0 rgba(255,255,255,.35);transition:transform .15s,filter .15s,box-shadow .15s}
+header.top a.play:hover{color:#04130a;background:linear-gradient(180deg,#34d572,var(--accent));filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 0 0 1px rgba(110,231,160,.5),0 8px 24px -4px rgba(34,197,94,.7),inset 0 1px 0 rgba(255,255,255,.35)}
+header.top a.play svg{width:11px;height:11px}header.top a:focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
+@media (max-width:420px){header.top a{padding:5px 7px}header.top a.brand span{display:none}}
 .hero{padding:72px 0 40px}
 .pill{display:inline-block;font:500 .75rem var(--mono);color:var(--accent-text);background:var(--accent-tint);border-radius:999px;padding:4px 12px}
 h1{font-size:clamp(2.4rem,7vw,4rem);line-height:1.05;letter-spacing:-.03em;margin:18px 0 16px;font-weight:900}h1 span{color:var(--accent)}
@@ -115,7 +123,7 @@ function layout(base: string, meta: PageMeta, body: string): string {
 	return `<!doctype html><html lang="${SITE.lang}"><head>
 ${head(base, meta)}
 <style>${STYLE}</style><script src="https://flisk.si/assets/bar.js" defer></script></head><body>
-<header class="top"><nav class="wrap" aria-label="Site"><a href="${root}/"><img src="${root}/icon.svg" alt="" width="20" height="20">${esc(SITE.name)}</a><a href="${root}/play">Play</a><a href="${root}/about">About</a><a href="${SITE.repo}">GitHub</a></nav></header>
+<header class="top"><nav class="wrap" aria-label="Site"><a class="brand" href="${root}/"><img src="${root}/icon.svg" alt="" width="20" height="20"><span>${esc(SITE.name)}</span></a><a href="${root}/about">About</a><a href="${SITE.repo}">GitHub</a><a class="play" href="${root}/play"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.6v8.8a.6.6 0 0 0 .9.5l7-4.4a.6.6 0 0 0 0-1L3.9 1.1a.6.6 0 0 0-.9.5z" fill="currentColor"/></svg>Play</a></nav></header>
 <main>${body}</main>
 <footer><div class="wrap">MIT licensed. Made by <a href="${SITE.author.url}">${esc(SITE.author.name)}</a> and run locally with <a href="https://github.com/flisk-sh/flisk">Flisk</a>. <a href="${SITE.repo}">Source on GitHub</a>.</div></footer>
 </body></html>`;
