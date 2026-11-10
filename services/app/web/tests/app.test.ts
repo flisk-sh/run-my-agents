@@ -312,3 +312,22 @@ describe("Kitchen Rush receipts round (#338)", () => {
 		expect(html).toContain("if(e.lb)lostTo=e.lb");
 	});
 });
+
+describe("images passed in (the Cloudflare Worker has no disk)", () => {
+	it("serves the given bytes for the preview, the hero and the game card", async () => {
+		const bytes = (n: number) => new Uint8Array([n, n, n]);
+		const worker = createApp({
+			images: { preview: bytes(1), heroKitchen: bytes(2), card: bytes(3) },
+		});
+		for (const [path, n, type] of [
+			["/preview.gif", 1, "image/gif"],
+			["/hero-kitchen.jpg", 2, "image/jpeg"],
+			["/play/card.png", 3, "image/png"],
+		] as const) {
+			const res = await worker.request(path);
+			expect(res.status).toBe(200);
+			expect(res.headers.get("content-type")).toBe(type);
+			expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes(n));
+		}
+	});
+});

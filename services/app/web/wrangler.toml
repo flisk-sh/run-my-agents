@@ -1,0 +1,16 @@
+# run-my-agents.flisk.si runs on Cloudflare Workers. Deploy: cd services/app/web && bunx wrangler@4 deploy
+# The custom domain needs no DNS record of its own; Cloudflare creates it (it replaces the old run-my-agents-proxy).
+name = "run-my-agents"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+routes = [{ pattern = "run-my-agents.flisk.si", custom_domain = true }]
+
+[[rules]]
+type = "Data"
+globs = ["**/*.gif", "**/*.jpg", "**/*.png"]
+fallthrough = false
+
+[vars]
+PUBLIC_URL = "https://run-my-agents.flisk.si/"
+TRUST_PROXY = "cloudflare"

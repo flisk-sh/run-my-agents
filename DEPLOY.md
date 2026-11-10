@@ -1,4 +1,20 @@
-# Deploy on Render (free)
+# Deploy
+
+## run-my-agents.flisk.si: a Cloudflare Worker
+
+The live site is the Cloudflare Worker `run-my-agents`, running the same Hono app (`services/app/web/src/worker.ts`):
+
+```bash
+cd services/app/web && bunx wrangler@4 deploy
+```
+
+`services/app/web/wrangler.toml` holds the settings (`PUBLIC_URL`, `TRUST_PROXY=cloudflare`) and attaches the custom
+domain; Cloudflare creates its DNS record. The three images are bundled as binary modules (its `Data` rule).
+
+It moved off Render on 2026-11-10: Render's edge put `run-my-agents.onrender.com` behind a bot challenge (HTTP 429,
+`cf-mitigated: challenge`) that browsers could not pass, and the old proxy Worker in front of it could not either.
+
+## Or on Render (free)
 
 One Render web service on the free plan, from [`render.yaml`](render.yaml) and the root [`Dockerfile`](Dockerfile).
 Nothing to sign up for besides Render: no database, no keys.

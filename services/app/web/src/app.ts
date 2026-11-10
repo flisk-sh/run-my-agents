@@ -34,6 +34,23 @@ export interface AppOptions {
 	callsPerMinute?: number;
 	/** The date sitemap.xml gives as lastmod: when this build started. */
 	builtAt?: Date;
+	/** The three images the pages show. Without them, read from next to this file (Bun); the Worker passes them in. */
+	images?: Images;
+}
+
+export interface Images {
+	preview: Uint8Array;
+	heroKitchen: Uint8Array;
+	card: Uint8Array;
+}
+
+function readImages(): Images {
+	const read = (name: string) => readFileSync(join(import.meta.dir, name));
+	return {
+		preview: read("preview.gif"),
+		heroKitchen: read("hero-kitchen.jpg"),
+		card: read("play-card.png"),
+	};
 }
 
 /** The icons and the social card from assets.generated.ts, decoded once. tests/seo.test.ts fails on a missing one. */
@@ -55,6 +72,7 @@ export function createApp(options: AppOptions = {}) {
 	const limit = new RateLimiter(options.callsPerMinute ?? 120, 60 * 1000);
 	const lastmod = (options.builtAt ?? new Date()).toISOString().slice(0, 10);
 	const files = loadAssets();
+	const images = options.images ?? readImages();
 	const app = new Hono();
 
 	/**
@@ -141,7 +159,7 @@ export function createApp(options: AppOptions = {}) {
 		}),
 	);
 	// The board preview on the home page, read once from next to this file.
-	const preview = readFileSync(join(import.meta.dir, "preview.gif"));
+	const preview = images.preview;
 	app.get("/preview.gif", (c) =>
 		c.body(preview as unknown as Uint8Array<ArrayBuffer>, 200, {
 			"content-type": "image/gif",
@@ -170,7 +188,7 @@ export function createApp(options: AppOptions = {}) {
 		});
 	});
 	// The kitchen behind the home page's hero, a screenshot of the board's Kitchen tab.
-	const heroKitchen = readFileSync(join(import.meta.dir, "hero-kitchen.jpg"));
+	const heroKitchen = images.heroKitchen;
 	app.get("/hero-kitchen.jpg", (c) =>
 		c.body(heroKitchen as unknown as Uint8Array<ArrayBuffer>, 200, {
 			"content-type": "image/jpeg",
@@ -179,7 +197,7 @@ export function createApp(options: AppOptions = {}) {
 	);
 	// Kitchen Rush, the browser game (see game.ts). One inline script and nothing else; X may frame it, so the
 	// game plays inside a post.
-	const card = readFileSync(join(import.meta.dir, "play-card.png"));
+	const card = images.card;
 	app.get("/play/card.png", (c) =>
 		c.body(card as unknown as Uint8Array<ArrayBuffer>, 200, {
 			"content-type": "image/png",

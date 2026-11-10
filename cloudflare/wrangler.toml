@@ -1,6 +1,0 @@
-# Deploy: cd cloudflare && bunx wrangler@4 deploy
-# The custom domain needs no DNS record of its own; Cloudflare creates it.
-name = "run-my-agents-proxy"
-main = "worker.js"
-compatibility_date = "2026-10-01"
-routes = [{ pattern = "run-my-agents.flisk.si", custom_domain = true }]
