@@ -18,9 +18,16 @@ import { JsonStore } from "./store";
  * file and ran git.
  */
 export const KITCHEN_MODE = "acceptEdits";
-/** What a kitchen agent may run without asking: git and gh (ship), the usual build and test runners, reads, web. */
-export const KITCHEN_TOOLS = [
-	"Bash(git:*)", "Bash(gh:*)", "Bash(bun:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)", "Bash(pnpm:*)", "Bash(yarn:*)",
+/** The git commands a Build, Test, Review or container agent needs. `git push` is not among them: only Ship pushes. */
+const GIT_LOCAL = [
+	"add", "apply", "blame", "branch", "cat-file", "checkout", "cherry-pick", "clean", "commit", "config", "describe", "diff", "diff-tree",
+	"fetch", "for-each-ref", "grep", "init", "log", "ls-files", "ls-tree", "merge", "merge-base", "mv", "pull", "rebase", "remote", "reset",
+	"restore", "rev-list", "rev-parse", "rm", "shortlog", "show", "show-ref", "stash", "status", "switch", "symbolic-ref", "tag", "worktree",
+].map((c) => `Bash(git ${c}:*)`);
+/** Read-only gh commands. Opening a pull request (`gh pr create`) is Ship's job. */
+const GH_READ = ["pr view", "pr list", "pr diff", "pr checks", "pr status", "issue view", "issue list", "repo view", "run view", "run list"].map((c) => `Bash(gh ${c}:*)`);
+const RUNNERS = [
+	"Bash(bun:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)", "Bash(pnpm:*)", "Bash(yarn:*)",
 	"Bash(make:*)", "Bash(python3:*)", "Bash(pytest:*)", "Bash(go:*)", "Bash(cargo:*)", "Bash(ls:*)", "Bash(cat:*)",
 	"Bash(grep:*)", "Bash(rg:*)", "Bash(find:*)", "Bash(mkdir:*)", "WebFetch", "WebSearch",
 	// Every part of a piped or chained command must be allowed: `find … | grep … | head` was refused 110 times (#249).
@@ -28,6 +35,42 @@ export const KITCHEN_TOOLS = [
 	"Bash(awk:*)", "Bash(echo:*)", "Bash(printf:*)", "Bash(pwd)", "Bash(which:*)", "Bash(test:*)", "Bash(xargs:*)",
 	"Bash(diff:*)", "Bash(jq:*)", "Bash(tee:*)", "Bash(true)", "Bash(cd:*)",
 ];
+/**
+ * What a kitchen agent may run without asking: local git, read-only gh, the usual build and test runners, reads, web.
+ * No `git push`, no `gh pr create`: they are in the Ship list only, so an order's content cannot make Build publish.
+ */
+export const KITCHEN_TOOLS = [...GIT_LOCAL, ...GH_READ, ...RUNNERS];
+/** What the Ship agent may run: all of git and gh (it commits, pushes and opens the pull request), plus the runners. */
+export const SHIP_TOOLS = ["Bash(git:*)", "Bash(gh:*)", ...RUNNERS];
+/** The tools a kitchen agent is allowed: Ship's list for Ship, the narrower one for every other stage. */
+export function kitchenTools(ship = false): string[] {
+	return ship ? SHIP_TOOLS : KITCHEN_TOOLS;
+}
+/**
+ * Refused for every kitchen stage, Ship included, whatever else is allowed (a deny rule wins over an allow rule). Orders
+ * run on outside repos whose content is untrusted. The board merges pull requests itself, so no agent needs `gh pr
+ * merge`; nothing needs to delete a repo or rewrite a remote's history. The same rules are in .claude/settings.json,
+ * which applies to orders on this repo itself.
+ */
+export const KITCHEN_DENY = [
+	"Bash(gh pr merge:*)", "Bash(gh repo delete:*)", "Bash(gh api -X DELETE:*)", "Bash(gh api --method DELETE:*)",
+	"Bash(git push --force:*)", "Bash(git push -f:*)", "Bash(git push * --force*)", "Bash(git push * -f)",
+	"Read(.env*)", "Read(**/.env*)",
+];
+
+const ENV_KEEP = /^(PATH|HOME|USER|LOGNAME|SHELL|LANG|LANGUAGE|LC_[A-Z_]+|TZ|TERM|TMPDIR|XDG_[A-Z_]+)$/;
+/** The model provider's own auth, which the agent CLI needs to run at all. */
+const ENV_PROVIDER = /^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL)$/;
+/** What only the Ship agent gets: the means to push and open a pull request. */
+const ENV_SHIP = /^(GH_TOKEN|GITHUB_TOKEN|SSH_AUTH_SOCK)$/;
+/**
+ * The environment a kitchen agent starts with, built from an allowlist instead of the board's own: a token in the shell
+ * that started the board (GH_TOKEN, CLOUDFLARE_API_TOKEN, any cloud key) must not reach an agent that reads untrusted
+ * repos. Only Ship gets GH_TOKEN, since only Ship pushes. `gh` and `git` still find their saved login through HOME.
+ */
+export function kitchenEnv(ship = false, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+	return Object.fromEntries(Object.entries(env).filter(([k]) => ENV_KEEP.test(k) || ENV_PROVIDER.test(k) || (ship && ENV_SHIP.test(k))));
+}
 
 /**
  * What every kitchen agent starts with besides its tools: its repo's own settings only, not the user's. The user's

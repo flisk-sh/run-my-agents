@@ -15,7 +15,7 @@ import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, diffStat, type Session } from "./sessions";
 import { KITCHEN_AGENTS } from "./kitchen/agents";
-import { KITCHEN_CHAT, KITCHEN_TOOLS, kitchenFlags, kitchenTmp } from "./kitchen/containers";
+import { KITCHEN_CHAT, KITCHEN_DENY, kitchenEnv, kitchenFlags, kitchenTmp, kitchenTools } from "./kitchen/containers";
 import { mountKitchen } from "./kitchen/routes";
 import { skillsFor } from "./kitchen/skills";
 
@@ -209,6 +209,9 @@ export function agentEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
 	return Object.fromEntries(Object.entries(env).filter(([k]) => !/^(CLAUDECODE$|CLAUDE_CODE_|CLAUDE_AGENT_SDK|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_PREVIEW_)/.test(k)));
 }
 
+/** The Ship agent's chat, named "Ship · #12" by the kitchen. */
+const isShip = (s: Session) => /^Ship · #\d+$/.test(s.title ?? "");
+
 export function sendToSession(s: Session, text: string, run = spawn, dirs: string[] = []): Promise<void> {
 	dirs = [...dirs, ...workDirs(s)];
 	// Grok has no `--add-dir`: a resumed copy only reaches its own folder.
@@ -216,9 +219,9 @@ export function sendToSession(s: Session, text: string, run = spawn, dirs: strin
 	const [cmd, args] =
 		s.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "resume", s.id]]
-			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(boardModel(s) ? ["--model", boardModel(s) as string] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d]), ...(KITCHEN_CHAT.test(s.title ?? "") ? [...kitchenFlags(), "--allowedTools", ...KITCHEN_TOOLS] : [])]];
+			: ["claude", ["-p", "--resume", s.id, "--permission-mode", boardMode(s), ...(boardModel(s) ? ["--model", boardModel(s) as string] : []), ...(s.tune?.effort ? ["--effort", s.tune.effort] : []), ...dirs.flatMap((d) => ["--add-dir", d]), ...(KITCHEN_CHAT.test(s.title ?? "") ? [...kitchenFlags(), "--allowedTools", ...kitchenTools(isShip(s)), "--disallowedTools", ...KITCHEN_DENY] : [])]];
 	return new Promise((resolve, reject) => {
-		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"], env: KITCHEN_CHAT.test(s.title ?? "") ? { ...agentEnv(), TMPDIR: kitchenTmp() } : agentEnv() });
+		const child = run(cmd, args as string[], { cwd: s.cwd || undefined, stdio: ["pipe", "ignore", "ignore"], env: KITCHEN_CHAT.test(s.title ?? "") ? { ...kitchenEnv(isShip(s)), TMPDIR: kitchenTmp() } : agentEnv() });
 		child.on("error", reject);
 		child.on("close", () => resolve());
 		child.stdin?.end(text);
@@ -382,8 +385,10 @@ export interface NewSession {
 	id?: string;
 	/** Claude permission mode (kitchen agents: acceptEdits). */
 	mode?: string;
-	/** Tools allowed without asking (kitchen agents: KITCHEN_TOOLS). */
+	/** Tools allowed without asking (kitchen agents: kitchenTools). Kitchen agents also get KITCHEN_DENY. */
 	allow?: string[];
+	/** The Ship agent: it alone gets git push, gh pr create and GH_TOKEN. */
+	ship?: boolean;
 	/** Folders outside cwd the agent may read, like the one its attached files are in (Claude only). */
 	dirs?: string[];
 }
@@ -428,9 +433,9 @@ export function startNewSession(n: NewSession, run = spawn): Promise<void> {
 	const [cmd, args] =
 		n.agent === "codex"
 			? ["codex", ["exec", "--skip-git-repo-check", "--sandbox", "workspace-write"]]
-			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : []), ...(n.allow?.length ? [...kitchenFlags(), "--allowedTools", ...n.allow] : []), ...(n.dirs ?? []).flatMap((d) => ["--add-dir", d])]];
+			: ["claude", ["-p", "--session-id", n.id as string, "--permission-mode", n.mode && MODES.includes(n.mode) ? n.mode : "acceptEdits", ...(n.model ? ["--model", n.model] : []), ...(n.effort ? ["--effort", n.effort] : []), ...(n.allow?.length ? [...kitchenFlags(), "--allowedTools", ...n.allow, "--disallowedTools", ...KITCHEN_DENY] : []), ...(n.dirs ?? []).flatMap((d) => ["--add-dir", d])]];
 	return new Promise((resolveStart, reject) => {
-		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"], env: n.allow?.length ? { ...agentEnv(), TMPDIR: kitchenTmp() } : agentEnv() });
+		const child = run(cmd, args as string[], { cwd: n.cwd, stdio: ["pipe", "ignore", "ignore"], env: n.allow?.length ? { ...kitchenEnv(!!n.ship), TMPDIR: kitchenTmp() } : agentEnv() });
 		child.on("error", reject);
 		child.on("close", () => resolveStart());
 		child.stdin?.end(n.text);
@@ -912,7 +917,7 @@ export function createApp(
 			setRole(n.id, n.role);
 			sending.add(n.id);
 			launched.add(n.id);
-			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode, allow: KITCHEN_TOOLS }, tracked(n.id as string))
+			start({ agent: n.agent, cwd: n.cwd, text: n.text, model: n.model, effort: n.effort, id: n.id, mode: n.mode, allow: kitchenTools(n.ship), ship: n.ship }, tracked(n.id as string))
 				.catch((e) => console.error("container start failed:", e))
 				.finally(() => sending.delete(n.id));
 		},

@@ -26,7 +26,7 @@ export type KitchenCtx = {
 	/** Sends one message to a session; a Response with status >= 400 means it was refused. */
 	send: (s: Session, text: string, body: string) => Response;
 	busy: (s: Session) => boolean;
-	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string; mode?: string }) => void;
+	start: (n: { agent: "claude"; cwd: string; text: string; model?: string; effort?: string; id: string; role: string; mode?: string; ship?: boolean }) => void;
 	tune: (id: string, t: { model?: string; effort?: string; mode?: string }) => void;
 	close: (id: string) => void;
 	/** A Flisk kitchen agent: runs one turn of a session and returns the reply (tests inject one). */
@@ -1595,6 +1595,7 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 				id,
 				role: "Build",
 				mode: KITCHEN_MODE,
+				ship: true,
 				model: "haiku",
 				effort: "low",
 				text: shipText,

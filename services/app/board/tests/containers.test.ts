@@ -1374,12 +1374,89 @@ describe("kitchen permissions", () => {
 		}) as never;
 		await startNewSession({ agent: "claude", cwd: "/repo", text: "x", id: "a", mode: "acceptEdits", allow: KITCHEN_TOOLS }, run);
 		expect(calls[0]).toContain("--allowedTools");
-		expect(calls[0]).toContain("Bash(git:*)");
+		expect(calls[0]).toContain("Bash(git commit:*)");
 		expect(calls[0][calls[0].indexOf("--permission-mode") + 1]).toBe("acceptEdits");
 		await sendToSession({ ...session("k", "Build"), title: "Build · repo 1a2b", tune: { mode: "acceptEdits" } }, "hi", run);
-		expect(calls[1]).toContain("Bash(gh:*)");
+		expect(calls[1]).toContain("Bash(gh pr view:*)");
 		await sendToSession({ ...session("m", "Code"), title: "my own chat" }, "hi", run);
 		expect(calls[2]).not.toContain("--allowedTools");
+	});
+});
+
+describe("kitchen agents hold less than the board does (#407)", () => {
+	const flagList = (args: string[], flag: string) => {
+		const from = args.indexOf(flag) + 1;
+		const out: string[] = [];
+		for (let i = from; i < args.length && !args[i].startsWith("--"); i++) out.push(args[i]);
+		return out;
+	};
+	const capture = () => {
+		const calls: { args: string[]; env: NodeJS.ProcessEnv }[] = [];
+		const run = ((_cmd: string, args: string[], opts: { env: NodeJS.ProcessEnv }) => {
+			calls.push({ args, env: opts.env });
+			return { on: (e: string, f: () => void) => e === "close" && setTimeout(f, 0), stdin: { end() {} } };
+		}) as never;
+		return { calls, run };
+	};
+	it("passes the deny list to Build, and git push and gh pr create only to Ship", async () => {
+		const { startNewSession, sendToSession } = await import("../src/index");
+		const { KITCHEN_DENY, kitchenTools } = await import("../src/kitchen/containers");
+		const { calls, run } = capture();
+		await startNewSession({ agent: "claude", cwd: "/repo", text: "x", id: "b", mode: "acceptEdits", allow: kitchenTools(false) }, run);
+		await startNewSession({ agent: "claude", cwd: "/repo", text: "x", id: "s", mode: "acceptEdits", allow: kitchenTools(true), ship: true }, run);
+		await sendToSession({ ...session("k", "Build"), title: "Build · repo 1a2b", tune: { mode: "acceptEdits" } }, "hi", run);
+		await sendToSession({ ...session("p", "Build"), title: "Ship · #12", tune: { mode: "acceptEdits" } }, "hi", run);
+		const [build, ship, buildResume, shipResume] = calls.map((c) => c.args);
+		for (const a of [build, ship, buildResume, shipResume]) {
+			expect(flagList(a, "--disallowedTools")).toEqual(KITCHEN_DENY);
+			for (const d of ["Bash(gh pr merge:*)", "Bash(gh repo delete:*)", "Bash(gh api -X DELETE:*)", "Bash(git push --force:*)", "Bash(git push -f:*)", "Read(.env*)"]) expect(a).toContain(d);
+		}
+		for (const a of [build, buildResume]) {
+			const allowed = flagList(a, "--allowedTools");
+			expect(allowed.some((t) => /git push|Bash\(git:\*\)|Bash\(gh:\*\)|gh pr create/.test(t))).toBe(false);
+		}
+		for (const a of [ship, shipResume]) {
+			const allowed = flagList(a, "--allowedTools");
+			expect(allowed).toContain("Bash(git:*)");
+			expect(allowed).toContain("Bash(gh:*)");
+		}
+	});
+	it("gives Build an environment without GH_TOKEN or CLOUDFLARE_API_TOKEN, and Ship only GH_TOKEN", async () => {
+		const { kitchenEnv } = await import("../src/kitchen/containers");
+		const { startNewSession, sendToSession } = await import("../src/index");
+		const board = { PATH: "/bin", HOME: "/h", LANG: "C", USER: "u", GH_TOKEN: "g", GITHUB_TOKEN: "g2", CLOUDFLARE_API_TOKEN: "c", AWS_SECRET_ACCESS_KEY: "a", CLAUDECODE: "1", ANTHROPIC_API_KEY: "k" };
+		const build = kitchenEnv(false, board);
+		expect(build).toEqual({ PATH: "/bin", HOME: "/h", LANG: "C", USER: "u", ANTHROPIC_API_KEY: "k" });
+		const ship = kitchenEnv(true, board);
+		expect(ship.GH_TOKEN).toBe("g");
+		expect(ship.CLOUDFLARE_API_TOKEN).toBeUndefined();
+		expect(ship.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+		// What the spawned process really gets, from the board's own environment.
+		const keep = { gh: process.env.GH_TOKEN, cf: process.env.CLOUDFLARE_API_TOKEN };
+		process.env.GH_TOKEN = "board-gh";
+		process.env.CLOUDFLARE_API_TOKEN = "board-cf";
+		try {
+			const { calls, run } = capture();
+			const { kitchenTools } = await import("../src/kitchen/containers");
+			await startNewSession({ agent: "claude", cwd: "/repo", text: "x", id: "b", mode: "acceptEdits", allow: kitchenTools(false) }, run);
+			await sendToSession({ ...session("k", "Build"), title: "Test · repo 1a2b", tune: { mode: "acceptEdits" } }, "hi", run);
+			await sendToSession({ ...session("p", "Build"), title: "Ship · #7", tune: { mode: "acceptEdits" } }, "hi", run);
+			for (const c of calls.slice(0, 2)) {
+				expect(c.env.GH_TOKEN).toBeUndefined();
+				expect(c.env.CLOUDFLARE_API_TOKEN).toBeUndefined();
+			}
+			expect(calls[2].env.GH_TOKEN).toBe("board-gh");
+			expect(calls[2].env.CLOUDFLARE_API_TOKEN).toBeUndefined();
+		} finally {
+			if (keep.gh === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = keep.gh;
+			if (keep.cf === undefined) delete process.env.CLOUDFLARE_API_TOKEN; else process.env.CLOUDFLARE_API_TOKEN = keep.cf;
+		}
+	});
+	it("keeps the repo's own .claude/settings.json deny rules the same as the kitchen's", async () => {
+		const { readFileSync } = await import("node:fs");
+		const { KITCHEN_DENY } = await import("../src/kitchen/containers");
+		const file = JSON.parse(readFileSync(new URL("../../../../.claude/settings.json", import.meta.url), "utf8"));
+		expect(file.permissions.deny).toEqual(KITCHEN_DENY);
 	});
 });
 
