@@ -118,14 +118,26 @@ describe("gatesFor: the local gates table", () => {
 	// levels up: that is what mainRepoRoot(wt) would hand gatesFor in production.
 	const top = join(process.cwd(), "..", "..", "..");
 
-	it("runs board's bun test alone when page.ts did not change", () => {
-		expect(gatesFor(top, ["src/kitchen/routes.ts"])).toEqual([{ dir: join(top, "services/app/board"), cmd: "bun test" }]);
+	it("runs the root check script when the repo has one, and adds nothing else for an ordinary change", () => {
+		expect(gatesFor(top, ["src/kitchen/routes.ts"])).toEqual([{ dir: top, cmd: "bun run check" }]);
 	});
 	it("adds the web demo rebuild when page.ts changed, since the Web check fails without it", () => {
 		expect(gatesFor(top, ["src/page.ts"])).toEqual([
-			{ dir: join(top, "services/app/board"), cmd: "bun test" },
+			{ dir: top, cmd: "bun run check" },
 			{ dir: join(top, "services/app/web"), cmd: "bun run demo" },
 		]);
+	});
+	it("runs bun run check for any repo whose root package.json has a check script", () => {
+		const repo = mkdtempSync(join(tmpdir(), "rma-merge-check-"));
+		writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { check: "tsc && bun test" } }));
+		expect(gatesFor(repo, ["src/a.ts"])).toEqual([{ dir: repo, cmd: "bun run check" }]);
+	});
+	it("ignores a package.json with no check script or one that is not JSON", () => {
+		const repo = mkdtempSync(join(tmpdir(), "rma-merge-nocheck-"));
+		writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "bun test" } }));
+		expect(gatesFor(repo, [])).toEqual([]);
+		writeFileSync(join(repo, "package.json"), "{ not json");
+		expect(gatesFor(repo, [])).toEqual([]);
 	});
 	it("has no gates for a folder with neither a board nor a Makefile scores target", () => {
 		const empty = mkdtempSync(join(tmpdir(), "rma-merge-empty-"));
@@ -320,13 +332,13 @@ describe("the merge setting, next to Autopilot", () => {
 	it("defaults to on", async () => {
 		const { get } = setup();
 		const r = await get("/api/kitchen");
-		expect(r.merge).toBe(true);
+		expect((r as { merge?: boolean }).merge).toBe(true);
 	});
 
 	it("turns off by itself and is read back off", async () => {
 		const { post } = setup();
 		const r = await post("/api/kitchen", { merge: false });
-		expect(r.body.merge).toBe(false);
+		expect((r.body as { merge?: boolean }).merge).toBe(false);
 	});
 
 	it("rejects a non-boolean value", async () => {

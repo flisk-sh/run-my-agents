@@ -56,8 +56,11 @@ When a session ends, its claims are dropped, so a finished session never stops a
 ## Test
 
 ```
-bash test/test.sh
+bun run check
 ```
+
+Runs every layer: web (typecheck, lint, tests), board (typecheck, tests), the kitchen agent (typecheck, tests), the evals grader and the
+hooks suite (`bash test/test.sh`, which needs Node 22). CI and the Kitchen's merge gate run the same command.
 
 ## License
 

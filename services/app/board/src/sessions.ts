@@ -331,7 +331,7 @@ export function parseSession(id: string, lines: string[], updatedAt: number): Se
 			hookCount?: number;
 			hookErrors?: unknown[];
 			hookInfos?: { command?: string }[];
-			message?: { content?: unknown; model?: string; usage?: Record<string, number> };
+			message?: { id?: string; content?: unknown; model?: string; usage?: Record<string, number> };
 		};
 		try {
 			e = JSON.parse(line);

@@ -205,7 +205,7 @@ describe("the WIP limit", () => {
 		for (const bad of [0, 21, 2.5, -1]) {
 			const r = await post("/api/kitchen", { wipLimit: bad });
 			expect(r.status).toBe(400);
-			expect(r.body.error).toBe("Pick a whole WIP limit of 1 to 20.");
+			expect((r.body as { error?: string }).error).toBe("Pick a whole WIP limit of 1 to 20.");
 		}
 		expect((await post("/api/kitchen", { wipLimit: 1 })).status).toBe(200);
 		expect((await post("/api/kitchen", { wipLimit: 20 })).status).toBe(200);

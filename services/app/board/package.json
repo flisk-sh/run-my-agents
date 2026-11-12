@@ -7,13 +7,15 @@
     "dev": "bun run --watch src/index.ts",
     "live": "sh scripts/live.sh",
     "start": "bun run src/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "hono": "^4.0.0",
     "preact": "10.27.2"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2"
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
   }
 }

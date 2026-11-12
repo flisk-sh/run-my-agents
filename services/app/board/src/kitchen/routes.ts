@@ -288,13 +288,25 @@ export function mergeMove(s: PrSnapshot, m: NonNullable<Task["merge"]> = {}, wai
 export const upThread = (t: Thread) => /critical/i.test(t.severity ?? "") || /security|vulnerab|injection|secret|credential/i.test(`${t.severity ?? ""} ${t.body ?? ""}`);
 /** Only our own org's pull requests are ever merged by the board. */
 export const ownOrg = (pr: string) => /github\.com\/flisk-sh\//.test(pr);
+/** Whether the repo's root package.json has a `check` script (the one command for every layer). */
+function hasCheckScript(top: string): boolean {
+	try {
+		const pkg = JSON.parse(readFileSync(`${top}/package.json`, "utf8")) as { scripts?: Record<string, unknown> };
+		return typeof pkg.scripts?.check === "string";
+	} catch {
+		return false;
+	}
+}
 /** The local gates for a repo, in order: the per-repo table the merge step runs before merging. */
 export function gatesFor(top: string, changed: string[]): { dir: string; cmd: string }[] {
+	// A repo that names its own gate in a root `check` script is judged by it, whatever else it holds.
+	const check = hasCheckScript(top) ? [{ dir: top, cmd: "bun run check" }] : [];
 	if (isDir(`${top}/services/app/board`)) {
-		const g = [{ dir: `${top}/services/app/board`, cmd: "bun test" }];
+		const g = check.length ? check : [{ dir: `${top}/services/app/board`, cmd: "bun test" }];
 		if (changed.some((f) => f.endsWith("page.ts"))) g.push({ dir: `${top}/services/app/web`, cmd: "bun run demo" });
 		return g;
 	}
+	if (check.length) return check;
 	if (isFile(`${top}/Makefile`) && /^scores:/m.test(readFileSync(`${top}/Makefile`, "utf8"))) return [{ dir: top, cmd: "make lint" }, { dir: top, cmd: "make scores" }];
 	return [];
 }
@@ -305,7 +317,7 @@ export function gatesFor(top: string, changed: string[]): { dir: string; cmd: st
  * a merge-queue rule. Each lookup is best-effort: one failing does not fail the whole snapshot.
  */
 export function ghWatch(cwd: string, url: string): PrSnapshot {
-	const opts = { encoding: "utf8" as const, stdio: ["ignore", "pipe", "pipe"] as const, timeout: 15_000, ...(cwd && isDir(cwd) ? { cwd } : {}) };
+	const opts = { encoding: "utf8" as const, stdio: ["ignore", "pipe", "pipe"] as ("ignore" | "pipe")[], timeout: 15_000, ...(cwd && isDir(cwd) ? { cwd } : {}) };
 	const m = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(url);
 	const [, owner, repo, num] = m ?? [];
 	const pr = JSON.parse(execFileSync("gh", ["pr", "view", url, "--json", "state,mergeable,statusCheckRollup,baseRefName"], opts)) as {
