@@ -15,6 +15,7 @@ import { GEIST, GEIST_MONO } from "./fonts.generated";
 import { addPending, applyHidden, applyNames, applyRoles, applyTune, dataDir, EFFORTS, forgetSession, MODES, readOrder, ROLES, setHidden, setName, setOrder, setPin, setRole, setTune, TUNE_MODELS } from "./prefs";
 import { findClashes, guessRole, readAllSessions, diffStat, type Session } from "./sessions";
 import { KITCHEN_AGENTS } from "./kitchen/agents";
+import { claimAutopilot } from "./lock";
 import { KITCHEN_CHAT, KITCHEN_DENY, kitchenEnv, kitchenFlags, kitchenTmp, kitchenTools } from "./kitchen/containers";
 import { mountKitchen } from "./kitchen/routes";
 import { skillsFor } from "./kitchen/skills";
@@ -536,6 +537,12 @@ export function createApp(
 	send = sendToSession,
 	deps: { agent?: import("./kitchen/routes").AgentCall; fetch?: typeof fetch; ask?: (q: string, cwd: string, o?: { web?: boolean; skills?: string; system?: string }) => Promise<string>; kitchenEvery?: number; start?: typeof startNewSession; which?: typeof installed; open?: typeof openIn; prs?: typeof ghPrs; grokAuth?: () => boolean; prState?: (cwd: string, url: string) => string; prWatch?: (cwd: string, url: string) => import("./kitchen/routes").PrSnapshot; mergeRun?: (m: import("./kitchen/routes").MergeMove, t: import("./kitchen/pipeline").Task) => string } = {},
 ) {
+	// Only the first board on a data folder runs the autopilot; another one (an agent testing its change with `bun start`
+	// in a worktree) serves the page read-only instead of ticking the same orders a second time (#409).
+	if (deps.kitchenEvery && !claimAutopilot()) {
+		console.warn(`Another board already runs the autopilot on ${dataDir()}: this one starts without it.`);
+		deps = { ...deps, kitchenEvery: 0 };
+	}
 	const grokAuth = deps.grokAuth ?? grokSignedIn;
 	const start = deps.start ?? startNewSession;
 	const which = deps.which ?? installed;
