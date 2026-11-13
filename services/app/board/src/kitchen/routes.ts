@@ -2354,7 +2354,9 @@ export function mountKitchen(app: Hono, k: KitchenCtx) {
 		if (!Number.isInteger(Number(replicas)) || Number(replicas) < 0 || Number(replicas) > 10) return c.json({ error: "A container runs 0 to 10 agents." }, 400);
 		const box = patchContainer(String(id), { replicas: Number(replicas), floor: Math.max(0, Math.min(10, Math.round(Number(replicas)))), floorByHand: true, idleSince: undefined, downReason: "Scaled down" });
 		if (!box) return c.json({ error: "That container is gone." }, 404);
-		void tick();
+		// Reconcile before answering, so the answer already shows the agents fired or started. tick() is async since #398
+		// (it awaits auto() first), so a bare `void tick()` answered with the old pods and raced the test.
+		await tick();
 		return c.json(view(readContainers().find((x) => x.id === box.id) ?? box));
 	});
 	app.post("/api/containers/delete", async (c) => {
