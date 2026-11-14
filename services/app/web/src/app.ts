@@ -115,7 +115,7 @@ export function createApp(options: AppOptions = {}) {
 	app.get("/", (c) => {
 		c.header(
 			"content-security-policy",
-			`default-src 'none'; script-src ${DL_SCRIPT_HASH} https://flisk.si https://flisk.sh; connect-src https://flisk.sh; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
+			`default-src 'none'; script-src ${DL_SCRIPT_HASH} https://flisk.si https://flisk.sh; connect-src https://analytics.flisk.si; style-src 'unsafe-inline'; img-src 'self'; media-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
 		);
 		return c.html(homePage(baseOf(c)));
 	});
@@ -207,7 +207,7 @@ export function createApp(options: AppOptions = {}) {
 	app.get("/play", (c) => {
 		c.header(
 			"content-security-policy",
-			"default-src 'none'; script-src 'unsafe-inline' https://flisk.si https://flisk.sh; connect-src https://flisk.sh; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com",
+			"default-src 'none'; script-src 'unsafe-inline' https://flisk.si https://flisk.sh; connect-src https://analytics.flisk.si; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com",
 		);
 		return c.html(gamePage(baseOf(c)));
 	});

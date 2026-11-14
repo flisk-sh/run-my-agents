@@ -25,7 +25,7 @@ describe("pages", () => {
 			"script-src https://flisk.si https://flisk.sh;",
 		);
 		expect(about.headers.get("content-security-policy")).toContain(
-			"connect-src https://flisk.sh;",
+			"connect-src https://analytics.flisk.si;",
 		);
 	});
 
