@@ -140,5 +140,5 @@ export const gamePage = (base: string) => `<!doctype html>
 <meta name="twitter:player:height" content="480">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Kitchen Rush","description":"A free survivors-like: hold out five minutes against bugs, flaky tests and red CI with up to three agent cooks.","url":"${base}/play","image":"${base}/play/card.png","genre":"Survivors-like","gamePlatform":"Web browser","playMode":"https://schema.org/SinglePlayer","isAccessibleForFree":true}</script>
 <style>html,body{margin:0;height:100%;overflow:hidden;background:#0b0b0f;touch-action:none;user-select:none;-webkit-user-select:none}canvas{display:block}</style>
-<script src="https://flisk.si/assets/bar.js" defer></script>
+<script defer data-domain="run-my-agents.flisk.si" src="https://flisk.sh/a.js"></script><script src="https://flisk.si/assets/bar.js" defer></script>
 </head><body><canvas id="g" aria-label="Kitchen Rush game"></canvas><script>${SCRIPT}</script></body></html>`;
