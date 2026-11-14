@@ -17,12 +17,15 @@ describe("pages", () => {
 		const csp = res.headers.get("content-security-policy") ?? "";
 		expect(csp).toContain("default-src 'none'");
 		expect(csp.match(/script-src ([^;]*)/)?.[1]).toMatch(
-			/^'sha256-[A-Za-z0-9+/=]+' https:\/\/flisk\.si$/,
+			/^'sha256-[A-Za-z0-9+/=]+' https:\/\/flisk\.si https:\/\/flisk\.sh$/,
 		);
 		// every other page keeps the strict default: only the Flisk bar script may run
 		const about = await app.request("/about");
 		expect(about.headers.get("content-security-policy")).toContain(
-			"script-src https://flisk.si;",
+			"script-src https://flisk.si https://flisk.sh;",
+		);
+		expect(about.headers.get("content-security-policy")).toContain(
+			"connect-src https://flisk.sh;",
 		);
 	});
 
@@ -232,7 +235,7 @@ describe("Kitchen Rush game", () => {
 			"script-src 'unsafe-inline'",
 		);
 		expect(res.headers.get("content-security-policy")).toContain(
-			"script-src 'unsafe-inline' https://flisk.si;",
+			"script-src 'unsafe-inline' https://flisk.si https://flisk.sh;",
 		);
 		const html = await res.text();
 		expect(html).toContain(
