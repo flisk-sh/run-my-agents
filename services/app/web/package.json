@@ -16,7 +16,7 @@
     "demo": "bun scripts/demo.ts"
   },
   "dependencies": {
-    "hono": "^4.13.16"
+    "hono": "^4.13.18"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.5",
