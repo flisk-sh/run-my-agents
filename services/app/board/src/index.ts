@@ -612,10 +612,16 @@ export function createApp(
 	});
 	app.get("/health", (c) => c.json({ status: "ok", service: "board" }));
 	app.get("/ready", (c) => c.json({ ready: true }));
-	app.get("/api/sessions", (c) => {
+	app.get("/api/sessions", async (c) => {
 		const sessions = read();
 		const limits = readLimits();
 		const hooked = readHooked();
+		// Compute the diff once per distinct cwd, not once per session (#418).
+		const distinctCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
+		const diffByCwd = new Map<string, { add: number; del: number } | undefined>();
+		await Promise.all(distinctCwds.map(async (cwd) => {
+			diffByCwd.set(cwd, await diffStat(cwd));
+		}));
 		return c.json({
 			sessions: sessions.map(({ file, ...s }) => ({
 				...s,
@@ -626,7 +632,7 @@ export function createApp(
 				prs: mergePrs(s.prs ?? [], cachedPrs(s, prsFor)),
 				links: file ? linkCount(file) : 0,
 				queue: (queues.get(s.id) ?? []).map(({ qid, text }) => ({ qid, text })),
-				diff: s.cwd ? diffStat(s.cwd) : undefined,
+				diff: s.cwd ? diffByCwd.get(s.cwd) : undefined,
 				limited: !!hooked[s.id],
 			})),
 			clashes: findClashes(sessions),

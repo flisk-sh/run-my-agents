@@ -45,7 +45,7 @@ describe("rowResult", () => {
 });
 
 describe("diffStat", () => {
-	it("returns add and del from git diff", () => {
+	it("returns add and del from git diff", async () => {
 		const tmpDir = join(tmpdir(), `test-diff-${Date.now()}`);
 		try {
 			mkdirSync(tmpDir, { recursive: true });
@@ -58,7 +58,7 @@ describe("diffStat", () => {
 			execSync("git commit -m 'initial'", { cwd: tmpDir });
 
 			writeFileSync(join(tmpDir, "file.txt"), "initial\nmore lines\nand more");
-			const stat = diffStat(tmpDir);
+			const stat = await diffStat(tmpDir);
 			expect(stat).toBeTruthy();
 			expect(stat?.add).toBeGreaterThan(0);
 		} finally {
@@ -66,8 +66,8 @@ describe("diffStat", () => {
 		}
 	});
 
-	it("returns undefined on git error", () => {
-		const stat = diffStat("/nonexistent");
+	it("returns undefined on git error", async () => {
+		const stat = await diffStat("/nonexistent");
 		expect(stat).toBeUndefined();
 	});
 });

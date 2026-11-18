@@ -5,7 +5,8 @@
 //   files edited by 2+ sessions in the last 10 min ──► Clash
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { type DesktopMeta, type Pr, readDesktopMeta } from "./desktop";
@@ -289,19 +290,33 @@ export function rowResult(text: string, bad?: boolean): string {
 	return t.slice(0, 80);
 }
 
-export function diffStat(cwd: string): { add: number; del: number } | undefined {
+const execFileAsync = promisify(execFile);
+
+// Short-lived cache so sessions sharing a folder (or repeated polls) do not each spawn git diff (#418).
+const DIFF_CACHE_TTL_MS = 10_000;
+const diffCache = new Map<string, { stat: { add: number; del: number } | undefined; expires: number }>();
+export async function diffStat(cwd: string): Promise<{ add: number; del: number } | undefined> {
+	const now = Date.now();
+	const cached = diffCache.get(cwd);
+	if (cached && cached.expires > now) return cached.stat;
 	try {
 		// A folder that is gone (a deleted order worktree) is not asked of git: stderr went to the board's live log on
-		// every poll, "fatal: cannot change to '…/order-137'" over and over (#141).
-		if (!statSync(cwd).isDirectory()) return undefined;
-		const output = execFileSync("git", ["-C", cwd, "diff", "--numstat", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 5000 });
+		// every poll, "fatal: cannot change to './order-137'" over and over (#141).
+		if (!statSync(cwd).isDirectory()) {
+			diffCache.set(cwd, { stat: undefined, expires: now + DIFF_CACHE_TTL_MS });
+			return undefined;
+		}
+		const { stdout } = await execFileAsync("git", ["-C", cwd, "diff", "--numstat", "HEAD"], { encoding: "utf8", timeout: 5000 });
 		let add = 0, del = 0;
-		for (const line of output.trim().split("\n")) {
+		for (const line of String(stdout).trim().split("\n")) {
 			const m = /^(\d+)\s+(\d+)/.exec(line);
 			if (m) { add += parseInt(m[1], 10); del += parseInt(m[2], 10); }
 		}
-		return { add, del };
+		const stat = { add, del };
+		diffCache.set(cwd, { stat, expires: now + DIFF_CACHE_TTL_MS });
+		return stat;
 	} catch {
+		diffCache.set(cwd, { stat: undefined, expires: now + DIFF_CACHE_TTL_MS });
 		return undefined;
 	}
 }
