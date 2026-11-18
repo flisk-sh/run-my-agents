@@ -757,14 +757,22 @@ const lastSaid = (s: Session | undefined) => {
  */
 const orderSkills = (title: string, _route: string) => matchSkills(title, 3).map((s) => s.name);
 
+/** How long a Flisk kitchen agent turn may take before timing out (defaults to 30 min). */
+export const FLISK_TURN_TIMEOUT_MS = 30 * 60_000;
+
 type Settings = { auto: boolean; idleMinutes: number; agentUrl?: string; wipOn: boolean; wipLimit: number; wipSince?: number; merge?: boolean };
 /** One turn on a Flisk kitchen agent session ("order-26-build"): the agent's reply. */
 export type AgentCall = (session: string, turn: { input: string; cwd?: string; model?: string; effort?: string }) => Promise<string>;
 /** POST /turn on the Flisk kitchen agent at `url` (services/app/kitchen, a local process using your own claude). */
 export const httpAgent =
-	(url: string): AgentCall =>
+	(url: string, timeoutMs = FLISK_TURN_TIMEOUT_MS): AgentCall =>
 	async (session, turn) => {
-		const r = await fetch(`${url.replace(/\/$/, "")}/turn`, { method: "POST", headers: { "content-type": "application/json", "x-session-id": session }, body: JSON.stringify(turn) });
+		const r = await fetch(`${url.replace(/\/$/, "")}/turn`, {
+			method: "POST",
+			headers: { "content-type": "application/json", "x-session-id": session },
+			body: JSON.stringify(turn),
+			signal: AbortSignal.timeout(timeoutMs),
+		});
 		const j = (await r.json().catch(() => ({}))) as { reply?: string; error?: string };
 		if (!r.ok || typeof j.reply !== "string") throw new Error(j.error || `kitchen agent answered ${r.status}`);
 		return j.reply;

@@ -588,6 +588,35 @@ describe("kitchen pipeline bugs", () => {
 		expect(k.tasks()[0].assignee).toBe("flisk:order-1-spec");
 	});
 
+	it("#180: an agent turn that never returns releases the order on timeout", async () => {
+		const { httpAgent } = await import("../src/kitchen/routes");
+		let aborted = false;
+		const server = Bun.serve({
+			port: 0,
+			fetch(req) {
+				return new Promise<Response>((_, reject) => {
+					req.signal.addEventListener("abort", () => {
+						aborted = true;
+						reject(new Error("aborted"));
+					});
+				});
+			},
+		});
+		try {
+			const agent = httpAgent(`http://127.0.0.1:${server.port}`, 50);
+			let failed = false;
+			try {
+				await agent("order-1-build", { input: "build" });
+			} catch {
+				failed = true;
+			}
+			expect(failed).toBe(true);
+			expect(aborted).toBe(true);
+		} finally {
+			server.stop(true);
+		}
+	});
+
 	it("#181: a Flisk test turn with no verdict is asked once to finish, not failed at once", async () => {
 		let tests = 0;
 		const k = kitchen(() => undefined, {
