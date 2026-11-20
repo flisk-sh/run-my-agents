@@ -3,6 +3,7 @@
 set -euo pipefail
 
 node --test "$(dirname "$0")/check.test.mjs"
+node --test "$(dirname "$0")/limits.test.mjs"
 node --test "$(dirname "$0")/mac-startup.test.mjs"
 here=$(cd "$(dirname "$0")/.." && pwd)
 export RUN_MY_AGENTS_DIR=$(mktemp -d)
