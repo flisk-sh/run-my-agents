@@ -21,6 +21,11 @@ describe("markdown", () => {
 		expect(html).toContain("<code>bun test **not bold**</code>");
 	});
 
+	it("keeps shorter fences and backtick-prefixed code inside a four-backtick fence", () => {
+		const source = "````markdown\n```sh\necho sample\n```\n````suffix\n`````  \nAfter the example";
+		expect(md(source)).toBe('<pre><span class="cpb" data-copycode="1">Copy</span><code>```sh\necho sample\n```\n````suffix</code></pre><p>After the example</p>');
+	});
+
 	it("keeps single line breaks and splits paragraphs on blank lines", () => {
 		expect(md("one\ntwo\n\nthree")).toBe("<p>one<br>two</p><p>three</p>");
 	});

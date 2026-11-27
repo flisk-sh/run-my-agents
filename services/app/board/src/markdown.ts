@@ -7,7 +7,6 @@
 export function renderMarkdown(src: string): string {
 	const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 	const BT = String.fromCharCode(96);
-	const FENCE = BT + BT + BT;
 	const NUL = String.fromCharCode(0);
 
 	const inline = (raw: string): string => {
@@ -29,7 +28,7 @@ export function renderMarkdown(src: string): string {
 	const isNumber = (l: string) => /^\s*\d+[.)]\s+/.test(l);
 	const isRow = (l: string) => /^\s*\|.*\|\s*$/.test(l);
 	const isSep = (l: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
-	const isFence = (l: string) => l.trim().startsWith(FENCE);
+	const fence = (l: string) => /^\x60{3,}/.exec(l.trim())?.[0];
 	const isHead = (l: string) => /^#{1,4}\s+\S/.test(l);
 	const isQuote = (l: string) => /^\s*>/.test(l);
 	const startsTable = (k: number) => isRow(lines[k]) && k + 1 < lines.length && isSep(lines[k + 1]);
@@ -39,10 +38,15 @@ export function renderMarkdown(src: string): string {
 	let i = 0;
 	while (i < lines.length) {
 		const line = lines[i];
-		if (isFence(line)) {
+		const openingFence = fence(line);
+		if (openingFence) {
 			const body: string[] = [];
 			i++;
-			while (i < lines.length && !isFence(lines[i])) body.push(lines[i++]);
+			while (i < lines.length) {
+				const trimmed = lines[i].trim();
+				if (trimmed.length >= openingFence.length && /^\x60+$/.test(trimmed)) break;
+				body.push(lines[i++]);
+			}
 			i++;
 			out.push('<pre><span class="cpb" data-copycode="1">Copy</span><code>' + esc(body.join("\n")) + "</code></pre>");
 			continue;
@@ -86,7 +90,7 @@ export function renderMarkdown(src: string): string {
 		while (
 			i < lines.length &&
 			!/^\s*$/.test(lines[i]) &&
-			!isFence(lines[i]) &&
+			!fence(lines[i]) &&
 			!isHead(lines[i]) &&
 			!isBullet(lines[i]) &&
 			!isNumber(lines[i]) &&
