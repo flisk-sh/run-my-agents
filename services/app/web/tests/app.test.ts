@@ -379,6 +379,9 @@ describe("baseline security headers", () => {
 		expect(res.headers.get("content-security-policy")).toContain(
 			"frame-ancestors 'self' https://x.com",
 		);
+		expect(res.headers.get("content-security-policy")).toContain(
+			"https://games.flisk.si",
+		);
 		expect(res.headers.has("x-frame-options")).toBe(false);
 		expect(res.headers.get("strict-transport-security")).toContain("max-age=");
 	});

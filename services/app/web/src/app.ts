@@ -214,7 +214,7 @@ export function createApp(options: AppOptions = {}) {
 	app.get("/play", (c) => {
 		c.header(
 			"content-security-policy",
-			"default-src 'none'; script-src 'unsafe-inline' https://flisk.si https://flisk.sh; connect-src https://analytics.flisk.si https://flisk.si; style-src 'unsafe-inline' https://flisk.si https://fonts.googleapis.com; font-src https://flisk.si https://fonts.gstatic.com; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com",
+			"default-src 'none'; script-src 'unsafe-inline' https://flisk.si https://flisk.sh; connect-src https://analytics.flisk.si https://flisk.si; style-src 'unsafe-inline' https://flisk.si https://fonts.googleapis.com; font-src https://flisk.si https://fonts.gstatic.com; base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com https://games.flisk.si",
 		);
 		return c.html(gamePage(baseOf(c)));
 	});
