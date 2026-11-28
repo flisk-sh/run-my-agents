@@ -4,7 +4,7 @@ import { attachedBlock, isBucket, ownFiles, uploadDir } from "./uploads";
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Pr } from "./desktop";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, type FSWatcher, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { Hono } from "hono";
@@ -612,7 +612,7 @@ export function createApp(
 	});
 	app.get("/health", (c) => c.json({ status: "ok", service: "board" }));
 	app.get("/ready", (c) => c.json({ ready: true }));
-	app.get("/api/sessions", async (c) => {
+	const sessionsPayload = async () => {
 		const sessions = read();
 		const limits = readLimits();
 		const hooked = readHooked();
@@ -622,7 +622,7 @@ export function createApp(
 		await Promise.all(distinctCwds.map(async (cwd) => {
 			diffByCwd.set(cwd, await diffStat(cwd));
 		}));
-		return c.json({
+		return {
 			sessions: sessions.map(({ file, ...s }) => ({
 				...s,
 				face: faceOf(s),
@@ -639,6 +639,82 @@ export function createApp(
 			limits,
 			order: readOrder(),
 			build: BUILD,
+		};
+	};
+	app.get("/api/sessions", async (c) => c.json(await sessionsPayload()));
+	app.get("/api/events", (c) => {
+		const enc = new TextEncoder();
+		let closed = false;
+		let debounce: ReturnType<typeof setTimeout> | undefined;
+		let keepalive: ReturnType<typeof setInterval> | undefined;
+		const watchers: FSWatcher[] = [];
+		const cleanup = () => {
+			if (closed) return;
+			closed = true;
+			if (debounce) clearTimeout(debounce);
+			if (keepalive) clearInterval(keepalive);
+			for (const w of watchers) {
+				try {
+					w.close();
+				} catch {}
+			}
+		};
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				let lastSent = "";
+				const push = async () => {
+					if (closed) return;
+					try {
+						const data = JSON.stringify(await sessionsPayload());
+						if (closed || data === lastSent) return;
+						lastSent = data;
+						controller.enqueue(enc.encode(`data: ${data}\n\n`));
+					} catch {}
+				};
+				const schedule = () => {
+					if (closed) return;
+					if (debounce) clearTimeout(debounce);
+					debounce = setTimeout(push, 150);
+				};
+				const dirs = [
+					join(homedir(), ".claude", "projects"),
+					join(homedir(), ".codex", "sessions"),
+					join(homedir(), ".grok", "sessions"),
+					dataDir(),
+				];
+				for (const dir of dirs) {
+					if (!existsSync(dir)) continue;
+					try {
+						watchers.push(watch(dir, { recursive: true }, schedule));
+					} catch {}
+				}
+				keepalive = setInterval(() => {
+					if (closed) return;
+					try {
+						controller.enqueue(enc.encode(": keepalive\n\n"));
+					} catch {
+						cleanup();
+					}
+				}, 30_000);
+				keepalive.unref?.();
+				c.req.raw.signal?.addEventListener("abort", () => {
+					cleanup();
+					try {
+						controller.close();
+					} catch {}
+				});
+				void push();
+			},
+			cancel() {
+				cleanup();
+			},
+		});
+		return new Response(stream, {
+			headers: {
+				"content-type": "text/event-stream",
+				"cache-control": "no-cache",
+				connection: "keep-alive",
+			},
 		});
 	});
 	// UMUX-Lite: two 1-7 questions about the board, kept on this computer, so changes can be measured.

@@ -726,7 +726,8 @@ function render(){
  pRender(H(Queue,{q:s.queue||[]}),$("queue"));
  first=false;
 }
-async function load(){if(dragId||renaming||(showLimits&&document.activeElement?.id==="lim"))return;try{const r=await fetch("api/sessions");const t=await r.text();if(t===last)return;last=t;const j=JSON.parse(t);if(j.build){if(!BUILD0)BUILD0=j.build;else if(j.build!==BUILD0){location.reload();return}}S=j.sessions;C=j.clashes;L=j.limits;ORDER=j.order||[];if(wantSel&&S.find(x=>x.id===wantSel)){sel=wantSel;first=true;wantSel=""}render()}catch{}}
+function applySessions(t){if(dragId||renaming||(showLimits&&document.activeElement?.id==="lim"))return;if(t===last)return;last=t;const j=JSON.parse(t);if(j.build){if(!BUILD0)BUILD0=j.build;else if(j.build!==BUILD0){location.reload();return}}S=j.sessions;C=j.clashes;L=j.limits;ORDER=j.order||[];if(wantSel&&S.find(x=>x.id===wantSel)){sel=wantSel;first=true;wantSel=""}render()}
+async function load(){if(dragId||renaming||(showLimits&&document.activeElement?.id==="lim"))return;try{const r=await fetch("api/sessions");applySessions(await r.text())}catch{}}
 document.addEventListener("click",e=>{
  const dz=e.target.closest("[data-design]");if(dz){design=dz.dataset.design;try{localStorage.setItem("rma-design",design)}catch{}document.body.classList.toggle("plain",design==="plain");last="";render();return}
  const mp=e.target.closest("[data-mpick]");if(mp){e.stopImmediatePropagation();const s0=S.find(x=>x.id===mp.dataset.mpick);if(!s0)return;if(s0.agent!=="claude"){toast("Model applies to Claude Code agents");return}showModelPick(mp,s0);return}
@@ -1228,6 +1229,10 @@ document.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key==="Ente
 /* In the Mac app, dragging anywhere that is not a control moves the window. */
 document.addEventListener("mousedown",e=>{const h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.drag;if(!h||e.button!==0||e.detail>1)return;
  if(e.target.closest('button,a,input,textarea,select,[data-act],[data-sel],[data-face],[data-msg],[data-opt],[data-mpick],[data-pick],[data-prs],[data-ctext],[data-grp],[draggable="true"],.bub,.cmenu,.dcard,.dz,.prpop,.rich,.swr,.led,.ml,.tl,.cb,.rc,.fc,.sg,.lbtn,.clip,.att,.obtn,.compose,#drop,.dlg'))return;h.postMessage(0)});
-load();setInterval(load,3000);
+let pollT=0;
+function startPoll(){if(!pollT)pollT=setInterval(load,5000)}
+function stopPoll(){if(pollT){clearInterval(pollT);pollT=0}}
+function connectEvents(){if(typeof EventSource==="undefined"){startPoll();return}const es=new EventSource("api/events");es.onopen=stopPoll;es.onmessage=e=>{try{applySessions(e.data)}catch{}};es.onerror=startPoll}
+load();connectEvents();
 ${KITCHEN_JS}
 </script></body></html>`;
