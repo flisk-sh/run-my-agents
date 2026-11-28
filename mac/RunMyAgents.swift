@@ -5,6 +5,7 @@ import WebKit
 let port = 4100
 let boardURL = URL(string: "http://127.0.0.1:\(port)/")!
 let healthURL = URL(string: "http://127.0.0.1:\(port)/health")!
+let sessionsURL = URL(string: "http://127.0.0.1:\(port)/api/sessions")!
 // Where updates come from: the latest GitHub release and its Mac zip (built by .github/workflows/release-mac.yml).
 // The release page, not the API: the API allows 60 calls an hour per address without a login, and that ran out on a
 // network shared with other tools ("API rate limit exceeded"), so Check for Updates said GitHub did not answer.
@@ -43,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       guard let self, self.selfUpdates() else { return }
       // While it runs, download and stage only: restarting would kill the board mid-order. It installs on quit.
       DispatchQueue.global().async { self.checkRelease(manual: false, installNow: false, wait: 60) }
+    }
+    Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+      self?.refreshWaitingBadge()
     }
   }
 
@@ -317,7 +321,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     """
   }
 
-  func loadBoard() { web.load(URLRequest(url: boardURL)) }
+  func loadBoard() {
+    web.load(URLRequest(url: boardURL))
+    refreshWaitingBadge()
+  }
 
   @objc func reload() {
     if web.url?.host == "127.0.0.1" { web.reload() }
@@ -421,6 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
     img.isTemplate = true
     statusItem.button?.image = img
+    statusItem.button?.imagePosition = .imageLeading
     statusItem.button?.toolTip = "Run My Agents"
     let m = NSMenu()
     m.addItem(withTitle: "Open board", action: #selector(showWindow), keyEquivalent: "")
@@ -430,6 +438,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     m.addItem(.separator())
     m.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
     statusItem.menu = m
+  }
+
+  func refreshWaitingBadge() {
+    var req = URLRequest(url: sessionsURL)
+    req.timeoutInterval = 2
+    URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+      var waiting = 0
+      if let data, (resp as? HTTPURLResponse)?.statusCode == 200,
+         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+         let sessions = json["sessions"] as? [[String: Any]] {
+        waiting = sessions.filter { ($0["awaiting"] as? Bool) == true }.count
+      }
+      DispatchQueue.main.async {
+        guard let self, let btn = self.statusItem?.button else { return }
+        self.statusItem.length = waiting > 0 ? NSStatusItem.variableLength : NSStatusItem.squareLength
+        btn.title = waiting > 0 ? " \(waiting)" : ""
+        btn.toolTip = waiting > 0 ? "Run My Agents (\(waiting) waiting)" : "Run My Agents"
+      }
+    }.resume()
   }
 
   @objc func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
