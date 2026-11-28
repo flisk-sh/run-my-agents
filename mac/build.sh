@@ -29,7 +29,7 @@ cp "$out/tmp/icon-1024.png" "$here/icon/icon-1024.png"
 sed "s|__BAKED_BOARD_DIR__|$board|" "$here/RunMyAgents.swift" > "$out/tmp/main.swift"
 if $release; then
   for arch in arm64 x86_64; do
-    swiftc -O -target "$arch-apple-macos13.0" "$out/tmp/main.swift" -o "$out/tmp/RunMyAgents-$arch" -framework AppKit -framework WebKit
+    swiftc -O -target "$arch-apple-macos13.0" "$out/tmp/main.swift" -o "$out/tmp/RunMyAgents-$arch" -framework AppKit -framework ServiceManagement -framework WebKit
   done
   lipo -create "$out/tmp/RunMyAgents-arm64" "$out/tmp/RunMyAgents-x86_64" -output "$app/Contents/MacOS/RunMyAgents"
   # The board as one executable per architecture, joined into a universal binary.

@@ -20,3 +20,9 @@ test("shows the log on the error page", () => {
 	strictEqual(swiftFile.includes("func logTail("), true);
 	strictEqual(swiftFile.includes('tell("Board server not running"'), true);
 });
+
+test("supports launch at login via SMAppService", () => {
+	strictEqual(swiftFile.includes("import ServiceManagement"), true);
+	strictEqual(swiftFile.includes("SMAppService.mainApp"), true);
+	strictEqual(swiftFile.includes("Launch at Login"), true);
+});

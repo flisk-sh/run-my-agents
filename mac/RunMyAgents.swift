@@ -1,5 +1,6 @@
 // Run My Agents: a native macOS window around the local board (http://127.0.0.1:4100/).
 import AppKit
+import ServiceManagement
 import WebKit
 
 let port = 4100
@@ -22,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   var statusItem: NSStatusItem!
   var server: Process?
   var updateItem: NSMenuItem!
+  var loginItems: [NSMenuItem] = []
   /** A downloaded, checked release waiting to replace this app: on quit, or now from the menu. */
   var staged: (app: URL, version: String)?
   var checking = false
@@ -427,12 +429,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     m.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "")
     m.addItem(withTitle: "Restart Board", action: #selector(restartBoard), keyEquivalent: "")
     updateItem = m.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+    let login = m.addItem(withTitle: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+    loginItems.append(login)
+    syncLoginItems()
     m.addItem(.separator())
     m.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
     statusItem.menu = m
   }
 
   @objc func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+
+  func syncLoginItems() {
+    let state: NSControl.StateValue = SMAppService.mainApp.status == .enabled ? .on : .off
+    loginItems.forEach { $0.state = state }
+  }
+
+  @objc func toggleLaunchAtLogin() {
+    let service = SMAppService.mainApp
+    do {
+      if service.status == .enabled {
+        try service.unregister()
+      } else {
+        try service.register()
+      }
+    } catch {
+      tell("Could not update Launch at Login", error.localizedDescription)
+    }
+    syncLoginItems()
+  }
 
   func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows f: Bool) -> Bool {
     if !f { showWindow() }; return true
@@ -444,7 +468,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func sub(_ title: String, _ items: [NSMenuItem]) { let i = NSMenuItem(); let m = NSMenu(title: title); items.forEach(m.addItem); i.submenu = m; main.addItem(i) }
     func it(_ t: String, _ a: Selector?, _ k: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem { let i = NSMenuItem(title: t, action: a, keyEquivalent: k); i.keyEquivalentModifierMask = mods; return i }
     sub("Run My Agents", [it("About Run My Agents", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
-      it("Check for Updates…", #selector(checkForUpdates), ""), .separator(),
+      it("Check for Updates…", #selector(checkForUpdates), ""),
+      { let i = it("Launch at Login", #selector(toggleLaunchAtLogin), ""); loginItems.append(i); return i }(), .separator(),
       it("Hide Run My Agents", #selector(NSApplication.hide(_:)), "h"), .separator(),
       it("Quit Run My Agents", #selector(NSApplication.terminate(_:)), "q")])
     sub("File", [it("Close Window", #selector(NSWindow.performClose(_:)), "w")])
