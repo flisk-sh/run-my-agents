@@ -186,3 +186,25 @@ test("a session's claims go away when it ends", () => {
   const claims = JSON.parse(readFileSync(join(dir, "claims.json"), "utf8")).claims;
   assert.deepEqual(Object.values(claims).map((c) => c.session), ["two"]);
 });
+
+test(".run-my-agents.json configures mode, ignore globs, and ttlMinutes per repo", () => {
+  const { dir, cwd } = setup();
+  const file = join(cwd, "a.ts");
+  writeFileSync(join(cwd, ".run-my-agents.json"), JSON.stringify({ mode: "off" }));
+  runHook(dir, edit("one", file, cwd));
+  assert.equal(runHook(dir, edit("two", file, cwd)), "");
+  assert.equal(existsSync(join(dir, "claims.json")), false);
+
+  writeFileSync(join(cwd, ".run-my-agents.json"), JSON.stringify({ mode: "warn", ignore: ["*.snap"] }));
+  const snap = join(cwd, "a.snap");
+  runHook(dir, edit("one", snap, cwd));
+  assert.equal(runHook(dir, edit("two", snap, cwd)), "");
+
+  writeFileSync(join(cwd, ".run-my-agents.json"), JSON.stringify({ ttlMinutes: 25 }));
+  runHook(dir, edit("one", file, cwd));
+  const output = runHook(dir, edit("two", file, cwd));
+  assert.match(output, /drops in 25 min/);
+
+  // Env vars override .run-my-agents.json
+  assert.equal(runHook(dir, edit("three", file, cwd), { RUN_MY_AGENTS_MODE: "off" }), "");
+});

@@ -17,15 +17,20 @@ const DIR = process.env.RUN_MY_AGENTS_DIR || join(homedir(), ".run-my-agents");
 const FILE = join(DIR, "claims.json");
 
 /** Positive finite minutes, else the documented default of 10 (#3). */
-function ttlMsFromEnv(raw = process.env.RUN_MY_AGENTS_TTL_MINUTES) {
-  const minutes = raw === undefined || raw === "" ? 10 : Number(raw);
+function resolveTtlMs(repoConfig = {}, raw = process.env.RUN_MY_AGENTS_TTL_MINUTES) {
+  const candidate = raw !== undefined && raw !== "" ? raw : repoConfig.ttlMinutes;
+  const minutes = candidate === undefined || candidate === "" ? 10 : Number(candidate);
   if (!Number.isFinite(minutes) || minutes <= 0) return 10 * 60_000;
   return minutes * 60_000;
 }
 
-const TTL_MS = ttlMsFromEnv();
-/** warn (default) or off (#8). */
-const MODE = process.env.RUN_MY_AGENTS_MODE === "off" ? "off" : "warn";
+/** warn (default) or off (#8). Env overrides per-repo config. */
+function resolveMode(repoConfig = {}, raw = process.env.RUN_MY_AGENTS_MODE) {
+  if (raw === "off" || raw === "warn") return raw;
+  if (repoConfig.mode === "off" || repoConfig.mode === "warn") return repoConfig.mode;
+  return "warn";
+}
+
 const DEBUG = process.env.RUN_MY_AGENTS_DEBUG === "1";
 
 /** With RUN_MY_AGENTS_DEBUG=1, every decision and error goes to DIR/debug.log, since the hook never prints errors (#8). */
@@ -52,8 +57,14 @@ function globRe(glob) {
     .replace(/\u0000/g, ".*");
   return new RegExp(`(^|/)${body}$`);
 }
-export function ignored(file, extra = process.env.RUN_MY_AGENTS_IGNORE || "") {
-  const globs = [...DEFAULT_IGNORE, ...extra.split(",").map((g) => g.trim()).filter(Boolean)];
+export function ignored(file, extra = process.env.RUN_MY_AGENTS_IGNORE || "", repoIgnore = []) {
+  const extraList = Array.isArray(extra)
+    ? extra
+    : String(extra).split(",").map((g) => g.trim()).filter(Boolean);
+  const repoList = Array.isArray(repoIgnore)
+    ? repoIgnore.map((g) => String(g).trim()).filter(Boolean)
+    : String(repoIgnore || "").split(",").map((g) => g.trim()).filter(Boolean);
+  const globs = [...DEFAULT_IGNORE, ...repoList, ...extraList];
   return globs.some((g) => (g.includes("/") ? globRe(g).test(file) : globRe(g).test(basename(file))));
 }
 const LOCK = join(DIR, "claims.lock");
@@ -109,6 +120,18 @@ function readJson(path, fallback) {
   }
 }
 
+function loadRepoConfig(startDir) {
+  let dir = resolve(startDir);
+  for (;;) {
+    const candidate = join(dir, ".run-my-agents.json");
+    const parsed = readJson(candidate, null);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    const parent = dirname(dir);
+    if (parent === dir) return {};
+    dir = parent;
+  }
+}
+
 function branchOf(dir) {
   try {
     return execFileSync("git", ["-C", dir, "branch", "--show-current"], {
@@ -144,14 +167,17 @@ function main() {
   const input = readJson(0, {});
   const session = input.session_id;
   if (session && input.hook_event_name === "SessionEnd") return release(session);
-  if (MODE === "off") return debug("off", session);
+  const cwd = input.cwd || process.cwd();
+  const repoConfig = loadRepoConfig(cwd);
+  const mode = resolveMode(repoConfig);
+  if (mode === "off") return debug("off", session);
+  const ttlMs = resolveTtlMs(repoConfig);
   const tool = input.tool_input || {};
   const raw = tool.file_path || tool.notebook_path;
   if (!session || !raw) return;
-  if (ignored(isAbsolute(raw) ? raw : resolve(input.cwd || process.cwd(), raw))) return debug("ignored", raw);
-
-  const cwd = input.cwd || process.cwd();
   const requestedPath = isAbsolute(raw) ? raw : resolve(cwd, raw);
+  if (ignored(requestedPath, process.env.RUN_MY_AGENTS_IGNORE || "", repoConfig.ignore)) return debug("ignored", raw);
+
   const file = canonical(requestedPath);
   const now = Date.now();
 
@@ -161,11 +187,11 @@ function main() {
   const state = readJson(FILE, { claims: {}, warned: {} });
   const claims = {};
   for (const [path, claim] of Object.entries(state.claims || {})) {
-    if (now - claim.at < TTL_MS) claims[path] = claim;
+    if (now - claim.at < ttlMs) claims[path] = claim;
   }
   const warned = {};
   for (const [key, at] of Object.entries(state.warned || {})) {
-    if (now - at < TTL_MS) warned[key] = at;
+    if (now - at < ttlMs) warned[key] = at;
   }
 
   const other = claims[file];
@@ -190,7 +216,7 @@ function main() {
   debug(block ? "warned" : "claimed", session, file, block ? `held by ${other.session}` : "");
   if (!block) return;
   const where = other.branch ? ` on branch ${other.branch}` : "";
-  const drops = Math.max(1, Math.ceil((other.at + TTL_MS - now) / 60_000));
+  const drops = Math.max(1, Math.ceil((other.at + ttlMs - now) / 60_000));
   const reason =
     `Run My Agents: another Claude session (${other.session.slice(0, 8)}${where}, in ${other.cwd}) ` +
     `edited ${basename(requestedPath)} ${again ? "again since you were warned, " : ""}${ago(now - other.at)}. ` +
