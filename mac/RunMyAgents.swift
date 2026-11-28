@@ -1,5 +1,6 @@
 // Run My Agents: a native macOS window around the local board (http://127.0.0.1:4100/).
 import AppKit
+import Carbon
 import WebKit
 
 let port = 4100
@@ -25,10 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   /** A downloaded, checked release waiting to replace this app: on quit, or now from the menu. */
   var staged: (app: URL, version: String)?
   var checking = false
+  var hotKeyRef: EventHotKeyRef?
+  var eventHandlerRef: EventHandlerRef?
 
   func applicationDidFinishLaunching(_ n: Notification) {
     NSApp.appearance = NSAppearance(named: .darkAqua)
-    buildMenu(); buildWindow(); buildStatusItem()
+    buildMenu(); buildWindow(); buildStatusItem(); registerGlobalShortcut()
     web.loadHTMLString(page("Starting board…", ""), baseURL: nil)
     DispatchQueue.global().async {
       // Before the board starts, nothing is cooking yet: the best moment to update.
@@ -325,6 +328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   func applicationWillTerminate(_ n: Notification) {
+    if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
+    if let eventHandlerRef { RemoveEventHandler(eventHandlerRef) }
     if let s = server, s.isRunning { s.terminate(); s.waitUntilExit() }
     // A release downloaded while the app ran goes in now, so the next launch is the new version.
     installStaged(relaunch: false)
@@ -423,7 +428,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     statusItem.button?.image = img
     statusItem.button?.toolTip = "Run My Agents"
     let m = NSMenu()
-    m.addItem(withTitle: "Open board", action: #selector(showWindow), keyEquivalent: "")
+    let openItem = m.addItem(withTitle: "Open board", action: #selector(showWindow), keyEquivalent: "a")
+    openItem.keyEquivalentModifierMask = [.control, .option]
     m.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "")
     m.addItem(withTitle: "Restart Board", action: #selector(restartBoard), keyEquivalent: "")
     updateItem = m.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
@@ -433,6 +439,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   }
 
   @objc func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+
+  func registerGlobalShortcut() {
+    var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+    InstallEventHandler(GetApplicationEventTarget(), { (_, _, userData) -> OSStatus in
+      guard let userData else { return OSStatus(eventNotHandledErr) }
+      let delegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+      DispatchQueue.main.async { delegate.showWindow() }
+      return noErr
+    }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), &eventHandlerRef)
+    let hotKeyID = EventHotKeyID(signature: OSType(0x524D4131), id: 1)
+    RegisterEventHotKey(UInt32(kVK_ANSI_A), UInt32(controlKey | optionKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+  }
 
   func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows f: Bool) -> Bool {
     if !f { showWindow() }; return true
