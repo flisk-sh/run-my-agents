@@ -33,6 +33,8 @@ session B edits again  ──► goes through, B now holds the claim
 
 A `PreToolUse` hook runs before `Edit`, `Write`, `MultiEdit` and `NotebookEdit`. Claims expire after 10 minutes.
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a diagram and details on how the hooks, claims file, board, and Mac app talk.
+
 ## Settings
 
 | Variable | Default | What it does |
