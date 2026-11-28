@@ -186,3 +186,35 @@ test("a session's claims go away when it ends", () => {
   const claims = JSON.parse(readFileSync(join(dir, "claims.json"), "utf8")).claims;
   assert.deepEqual(Object.values(claims).map((c) => c.session), ["two"]);
 });
+
+test("warning includes the other session's latest message from transcript_path", () => {
+  const { dir, cwd } = setup();
+  const file = join(cwd, "api.ts");
+  const transcript = join(cwd, "one.jsonl");
+  writeFileSync(
+    transcript,
+    [
+      JSON.stringify({ type: "user", message: { role: "user", content: "Fix the auth bug" } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Refactoring token refresh\nin api.ts" }] } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Edit", input: {} }] } }),
+    ].join("\n"),
+  );
+
+  runHook(dir, { ...edit("one", file, cwd), transcript_path: transcript });
+  const out = JSON.parse(runHook(dir, edit("two", file, cwd)));
+  const reason = out.hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /Its latest message: "Refactoring token refresh in api\.ts"\./);
+  const claimJson = JSON.parse(reason.split("run-my-agents-claim: ")[1]);
+  assert.equal(claimJson.latestMessage, "Refactoring token refresh in api.ts");
+});
+
+test("missing or unreadable transcript_path does not break the warning", () => {
+  const { dir, cwd } = setup();
+  const file = join(cwd, "api.ts");
+  runHook(dir, { ...edit("one", file, cwd), transcript_path: join(dir, "missing.jsonl") });
+  const out = JSON.parse(runHook(dir, edit("two", file, cwd)));
+  const reason = out.hookSpecificOutput.permissionDecisionReason;
+  assert.doesNotMatch(reason, /Its latest message:/);
+  const claimJson = JSON.parse(reason.split("run-my-agents-claim: ")[1]);
+  assert.equal(claimJson.latestMessage, null);
+});

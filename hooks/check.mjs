@@ -125,6 +125,37 @@ function ago(ms) {
   return min < 1 ? "just now" : `${min} min ago`;
 }
 
+function textFromContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((b) => b && b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join(" ");
+}
+
+export function latestMessage(transcriptPath, maxLen = 200) {
+  if (!transcriptPath) return "";
+  try {
+    const lines = readFileSync(transcriptPath, "utf8").trim().split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i]) continue;
+      let entry;
+      try {
+        entry = JSON.parse(lines[i]);
+      } catch {
+        continue;
+      }
+      const msg = entry?.message ?? entry;
+      if (msg?.role !== "assistant" && msg?.role !== "user") continue;
+      const text = textFromContent(msg.content).replace(/\s+/g, " ").trim();
+      if (!text) continue;
+      return text.length > maxLen ? `${text.slice(0, maxLen - 1)}…` : text;
+    }
+  } catch {}
+  return "";
+}
+
 /** SessionEnd: drop the ended session's claims, so a finished session never warns anyone (#6). */
 function release(session) {
   mkdirSync(DIR, { recursive: true });
@@ -180,7 +211,7 @@ function main() {
     warned[warnKey] = now;
     block = true;
   }
-  if (!block) claims[file] = { session, at: now, cwd, branch: branchOf(cwd) };
+  if (!block) claims[file] = { session, at: now, cwd, branch: branchOf(cwd), ...(input.transcript_path ? { transcript: input.transcript_path } : {}) };
 
   const tmp = `${FILE}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify({ claims, warned }, null, 2));
@@ -191,16 +222,19 @@ function main() {
   if (!block) return;
   const where = other.branch ? ` on branch ${other.branch}` : "";
   const drops = Math.max(1, Math.ceil((other.at + TTL_MS - now) / 60_000));
+  const msg = latestMessage(other.transcript);
+  const msgNote = msg ? `Its latest message: "${msg}". ` : "";
   const reason =
     `Run My Agents: another Claude session (${other.session.slice(0, 8)}${where}, in ${other.cwd}) ` +
     `edited ${basename(requestedPath)} ${again ? "again since you were warned, " : ""}${ago(now - other.at)}. ` +
     `Its claim drops in ${drops} min, or when that session ends. ` +
+    msgNote +
     "This is not a permission problem: it is a warning from the coordination hook, and the edit was not made. " +
     "Your edit could overwrite its work. Read the file again first and redo your edit on top of what is there now, " +
     "or work on a different file. If you are sure, make the edit again and it will go through. " +
     "Say in your reply that this file is shared, so whoever reads it (a person or the kitchen) knows.\n" +
     // The same facts as data, so an agent or the board does not have to parse the sentence above.
-    `run-my-agents-claim: ${JSON.stringify({ type: "claim", file, heldBy: other.session, branch: other.branch || null, cwd: other.cwd, editedMsAgo: now - other.at, dropsInMin: drops, again, retry: "allowed" })}`;
+    `run-my-agents-claim: ${JSON.stringify({ type: "claim", file, heldBy: other.session, branch: other.branch || null, cwd: other.cwd, editedMsAgo: now - other.at, dropsInMin: drops, again, retry: "allowed", latestMessage: msg || null })}`;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
