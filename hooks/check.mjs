@@ -52,9 +52,16 @@ function globRe(glob) {
     .replace(/\u0000/g, ".*");
   return new RegExp(`(^|/)${body}$`);
 }
+function matchesGlobs(file, globs) {
+  return globs.some((g) => (g.includes("/") ? globRe(g).test(file) : globRe(g).test(basename(file))));
+}
 export function ignored(file, extra = process.env.RUN_MY_AGENTS_IGNORE || "") {
   const globs = [...DEFAULT_IGNORE, ...extra.split(",").map((g) => g.trim()).filter(Boolean)];
-  return globs.some((g) => (g.includes("/") ? globRe(g).test(file) : globRe(g).test(basename(file))));
+  return matchesGlobs(file, globs);
+}
+export function locked(file, extra = process.env.RUN_MY_AGENTS_LOCK || "") {
+  const globs = extra.split(",").map((g) => g.trim()).filter(Boolean);
+  return matchesGlobs(file, globs);
 }
 const LOCK = join(DIR, "claims.lock");
 
@@ -169,13 +176,14 @@ function main() {
   }
 
   const other = claims[file];
+  const isLocked = locked(requestedPath);
   const warnKey = other ? `${session}|${file}|${other.session}` : "";
   // A warning covers the other session's edits up to the moment it was given. If that session edits the file again
   // afterwards, this session is warned again (naming it), so it never overwrites newer work without being told.
-  // A retry right after a warning still goes through: the other session has not edited since.
+  // A retry right after a warning still goes through unless the file matches RUN_MY_AGENTS_LOCK (soft lock mode).
   let block = false;
   let again = false;
-  if (other && other.session !== session && !(warned[warnKey] >= other.at)) {
+  if (other && other.session !== session && (isLocked || !(warned[warnKey] >= other.at))) {
     again = Boolean(warned[warnKey]);
     warned[warnKey] = now;
     block = true;
@@ -197,10 +205,12 @@ function main() {
     `Its claim drops in ${drops} min, or when that session ends. ` +
     "This is not a permission problem: it is a warning from the coordination hook, and the edit was not made. " +
     "Your edit could overwrite its work. Read the file again first and redo your edit on top of what is there now, " +
-    "or work on a different file. If you are sure, make the edit again and it will go through. " +
+    (isLocked
+      ? "or work on a different file. This file is in soft lock mode: edits are blocked until that session releases it. "
+      : "or work on a different file. If you are sure, make the edit again and it will go through. ") +
     "Say in your reply that this file is shared, so whoever reads it (a person or the kitchen) knows.\n" +
     // The same facts as data, so an agent or the board does not have to parse the sentence above.
-    `run-my-agents-claim: ${JSON.stringify({ type: "claim", file, heldBy: other.session, branch: other.branch || null, cwd: other.cwd, editedMsAgo: now - other.at, dropsInMin: drops, again, retry: "allowed" })}`;
+    `run-my-agents-claim: ${JSON.stringify({ type: "claim", file, heldBy: other.session, branch: other.branch || null, cwd: other.cwd, editedMsAgo: now - other.at, dropsInMin: drops, again, retry: isLocked ? "blocked" : "allowed" })}`;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {

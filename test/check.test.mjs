@@ -186,3 +186,23 @@ test("a session's claims go away when it ends", () => {
   const claims = JSON.parse(readFileSync(join(dir, "claims.json"), "utf8")).claims;
   assert.deepEqual(Object.values(claims).map((c) => c.session), ["two"]);
 });
+
+test("RUN_MY_AGENTS_LOCK keeps blocking edits until the holding session ends", () => {
+  const { dir, cwd } = setup();
+  const migration = join(cwd, "migrations", "001_init.sql");
+  mkdirSync(join(cwd, "migrations"), { recursive: true });
+  writeFileSync(migration, "");
+  const env = { RUN_MY_AGENTS_LOCK: "migrations/**,*.sql" };
+
+  assert.equal(runHook(dir, edit("one", migration, cwd), env), "");
+  const firstBlock = JSON.parse(runHook(dir, edit("two", migration, cwd), env));
+  assert.equal(firstBlock.hookSpecificOutput.permissionDecision, "deny");
+  assert.match(firstBlock.hookSpecificOutput.permissionDecisionReason, /"retry":"blocked"/);
+
+  const retryBlock = JSON.parse(runHook(dir, edit("two", migration, cwd), env));
+  assert.equal(retryBlock.hookSpecificOutput.permissionDecision, "deny");
+  assert.match(retryBlock.hookSpecificOutput.permissionDecisionReason, /"retry":"blocked"/);
+
+  assert.equal(runHook(dir, { session_id: "one", cwd, hook_event_name: "SessionEnd" }, env), "");
+  assert.equal(runHook(dir, edit("two", migration, cwd), env), "");
+});
